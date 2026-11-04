@@ -12,7 +12,8 @@ Mechanics prototype: visuals are placeholders on purpose.
   Q/E turns it to a new resting angle, which it then holds. A hurt hand holds it up weaker.
   Held anywhere else, and anything that isn't a weapon, it hangs from where you took it.
 - **Space**: swing a held weapon / brace a held shield / use or put on a held item / punch
-  with an empty hand / open a held menu item at home
+  with an empty hand (at most one punch per snare hit in the music: once a bar, every 2 s) /
+  open a held menu item at home
 - **Q / E**: rotate the held item (turn the codex's pages while it's open)
 - **Enter** (at home, holding something): name it
 - **Esc**: pause menu (Resume / Settings / Controls / Restart run / Quit); Controls lists every key
