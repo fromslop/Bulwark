@@ -21,14 +21,19 @@ const STIFFNESS := 280.0
 const DAMPING := 32.0
 const MAX_FORCE := 210000.0
 const ROTATE_SPEED := 5.0
-## A weapon held by its handle stands up in a ready position instead of dangling: a spring
-## turns it until the blade points up from the grip (or to the angle Q/E last left it at).
-## Its strength goes with the grip, so a hurt hand lets the blade sag. Off while it swings.
+## Keep Space held after a swing and a weapon held by its handle comes back up to a ready
+## position: a spring turns it until the blade points up from the grip (or to the angle Q/E
+## last left it at). Its strength goes with the grip, so a hurt hand lets the blade sag. Let
+## go of Space and it dangles freely again, like anything else.
 const READY_STIFFNESS := 60.0  # (per unit of the item's rotational inertia)
 const READY_DAMPING := 13.0
 const READY_MIN_REACH := 8.0  # px from the grip to the weight: closer than this, nothing to stand up
 const DROP_THRESHOLD := 16.0
-const PUNCH_COOLDOWN := Music.BAR  # one punch per snare: the halfstep kit's snare lands once a bar (beat 3), every 2 s
+## Punch along to the snare: it lands every other beat (1 s at 120 BPM), and you can punch on
+## every one. The cooldown is a little shorter than the gap, and a press that comes a touch
+## early is held and lands the moment the fist is ready, so a punch on the beat never gets lost.
+const PUNCH_COOLDOWN := Music.BAR / 2.0 - 0.15
+const PUNCH_BUFFER := 0.2  # how early a press can come and still land
 const MAX_RING_SLOTS := 5  # one per finger
 const GRAB_REACH := 18.0  # a near miss still grabs: thin blades and hafts are hard to hit exactly
 const PX := 3.0  # the hand is drawn in chunky 3px pixels: it is the health readout, so it is big
@@ -36,6 +41,7 @@ const PX := 3.0  # the hand is drawn in chunky 3px pixels: it is the health read
 var held: Item = null
 var grab_local := Vector2.ZERO
 var ready_tilt := 0.0  # the held weapon's ready angle off straight up (Q/E set it)
+var at_ready := false  # Space pressed to swing and still held: the weapon comes back up to ready
 var injury := 0.0
 var base_max_hp := 100.0  # from upgrades
 var hoard_hp := 0.0       # from the Weapon Rack: what's in the pile
@@ -53,6 +59,7 @@ var ring_slots := 2
 var upgrades := {}  # upgrade id -> how many times bought
 var punch_time := 0.0
 var punch_cooldown := 0.0
+var _punch_queued := 0.0  # a press that came just before the fist was ready: lands when it is
 var hazard_time := 0.0
 var dead := false
 var momentum_time := 0.0  # Ring of Momentum: a primed big hit after a good block
@@ -151,6 +158,9 @@ func _unhandled_input(e: InputEvent) -> void:
 		var k := e as InputEventKey
 		if k.pressed and not k.echo and k.keycode == KEY_SPACE:
 			_activate()
+			at_ready = grip_kind() == "weapon"
+		elif not k.pressed and k.keycode == KEY_SPACE:
+			at_ready = false  # let go: it dangles again
 		elif k.pressed and not k.echo and k.keycode >= KEY_1 and k.keycode <= KEY_5:
 			_use_ring(k.keycode - KEY_1)
 
@@ -216,6 +226,7 @@ func grab(it: Item, p: Vector2) -> void:
 		c = it.nearest_cell(p)  # a near miss: take hold of the closest bit
 	grab_local = it.cell_pos(c) if it.cells.has(c) else it.to_local(p)
 	ready_tilt = 0.0
+	at_ready = false
 	it.held = true
 
 
@@ -282,7 +293,13 @@ func grip_kind() -> String:
 
 func _activate() -> void:
 	if held == null:
+		var over := item_under(position)
+		if over and over.def.kind == "menu":
+			activated.emit(over)  # a collection at home: Space opens it, no need to pick it up
+			return
 		if punch_cooldown > 0.0:
+			if punch_cooldown <= PUNCH_BUFFER:
+				_punch_queued = punch_cooldown + 0.05
 			return
 		punch_cooldown = PUNCH_COOLDOWN
 		punch_time = 0.15
@@ -349,6 +366,12 @@ func _process(delta: float) -> void:
 		position = target()
 	punch_time = maxf(0.0, punch_time - delta)
 	punch_cooldown = maxf(0.0, punch_cooldown - delta)
+	if _punch_queued > 0.0:
+		_punch_queued -= delta
+		if punch_cooldown <= 0.0:
+			_punch_queued = 0.0
+			if held == null:
+				_activate()
 	for i in ring_cds.size():
 		ring_cds[i] = maxf(0.0, ring_cds[i] - delta)
 	hazard_time = maxf(0.0, hazard_time - delta)
@@ -425,7 +448,7 @@ func _physics_process(delta: float) -> void:
 		var off := ready_offset()
 		if is_finite(off):
 			ready_tilt += off  # turned by hand: that's the new ready angle
-	elif held.swing_time <= 0.0:
+	elif held.swing_time <= 0.0 and at_ready:
 		_hold_ready()
 
 

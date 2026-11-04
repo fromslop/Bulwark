@@ -7,12 +7,15 @@ gear into those regions to block, and swing weapons at specific body parts.
 Mechanics prototype: visuals are placeholders on purpose.
 
 ## Controls
-- **LMB**: grab and drag (heavy things sag; a hurt hand grips weaker). A weapon taken by
-  its handle stands up in a **ready position**, blade up from the grip, instead of dangling;
-  Q/E turns it to a new resting angle, which it then holds. A hurt hand holds it up weaker.
-  Held anywhere else, and anything that isn't a weapon, it hangs from where you took it.
+- **LMB**: grab and drag (heavy things sag; a hurt hand grips weaker). Things dangle from
+  where you took them. **Keep Space held after a swing** and a weapon held by its handle
+  comes back up to a **ready position**, blade up from the grip (Q/E turns it to a new
+  resting angle, which it then holds; a hurt hand holds it up weaker). Let go of Space and
+  it dangles again.
 - **Space**: swing a held weapon / brace a held shield / use or put on a held item / punch
-  with an empty hand (at most one punch per snare hit in the music: once a bar, every 2 s) /
+  with an empty hand (you can punch on every snare hit in the music, every other beat: the
+  cooldown is 0.85 s against the snare's 1 s, and a press up to 0.2 s early is held and lands
+  as soon as the fist is ready) /
   open a held menu item at home
 - **Q / E**: rotate the held item (turn the codex's pages while it's open)
 - **Enter** (at home, holding something): name it
@@ -132,17 +135,23 @@ rack (four pegs, left), two shelves (six spots, right), and a gong by the door. 
 weapon near a peg and it hangs itself there; anything goes on a shelf. Whatever is in the
 room is remembered between sessions, where it sits, how worn it is, and what you named it.
 
-Along the top beam hang the **collections**, one object each; hold one and press Space to
-open the index at its page (Q / E still turn pages), and its inspect card counts how many
-you've found:
+Along the top beam hang the **collections**, one object each. Point at one with an empty
+hand (a little plate names it) and press **Space** to open it, no need to take it down (or
+hold it and press Space). Each is its own book (`scripts/codex.gd`), made for what it holds,
+with a list on the left page and a picture window on the right showing whatever you click,
+live. Click to pick, mouse wheel or the arrow keys to move, Q / E or the book spines along the
+top for another book, Space, Esc or right-click to close. Its inspect card counts how many
+you've found; the spines do too.
 
-| Object | Collection |
+| Object | What's in it, and how it's laid out |
 |---|---|
-| Armoury Ledger | every piece of gear |
-| Rune Tablet | every modifier (rare ones in gold) |
-| Bestiary | everything you've fought |
-| Wall Map | every place you've been |
-| Secret Journal | the secret places (a riddle until found, the plain chain after), the smaller secrets, and the element reactions you've set off |
+| Armoury Ledger | Every piece of gear, rings and hand upgrades too: a ruled ledger with bookmarks for each kind (weapons, shields, utility, kits and potions, crates and junk, rings, hand) over a scrolling grid. Found pieces are drawn, the rest are dark silhouettes. The facing page shows the real item, live (its modifiers moving), in each metal it comes in (click one), with bars for damage, swing speed, recovery, how well it blocks and how tough it is, its price, and what it does. |
+| Rune Tablet | Every modifier and every element reaction, on a slate with two faces (tabs at the top turn it over). **Runes:** every modifier, the five elemental ones first (superheated fire, frosty frost, electrified storm, corrosive rot, poisoned venom), then common, then rare in gold; the facing side shows the rune on a real piece of gear, moving the way it does in a fight, with what it does, its price and what it never comes with, and for an elemental rune its four reactions (click one). **The element circle:** the five elemental runes round a pentagon with a groove between every pair, one per reaction, lit in both colours once you've set it off (faint and dashed till then), and every reaction named on a chip below. A reaction's page shows the two runes side by side, live, what it does, how to set it off (the mark, then the strike) and where each element comes from. |
+| Bestiary | Every foe, by where you meet it: the way down stage by stage, further in, the bosses, the guardians of secret places, the vault. The facing page has a live portrait in the kind of place you meet it, bars for health, armour, speed, strength and poise, its bounty, and **every attack**: a little map of where it lands on the screen, its damage and wind-up, whether it cleaves or aims at your hand. Click one (the first plays on its own) and the window, which is the fight's own camera at the screen's shape, plays it over and over as it would come at you: the real telegraph filling over its real wind-up, its lane arrows (how many is on each row), a wind-up bar under the window, then the swing and the lanes flashing. |
+| Wall Map | The way down drawn as a map: home, stages 1-2, 3-4, the deep, the vault off a dashed road, the secret places in the corners (a question mark until found). Click a place for a window onto it, what's there to use (the props, from `Props.LAYOUT`) and who you meet there. |
+
+`tests/codex_shots.gd` (windowed) opens each book (both faces of the tablet) with nearly
+everything found and saves `shots/codex_*.png`.
 
 Also in the room (`scripts/props.gd`, the "Homestead" props): the **Hand Mirror** (Space:
 try another gauntlet); a **Training Dummy** (swing at it: it shows what that hit would do,
@@ -267,6 +276,35 @@ piece it came from:
 - **Torn apart**: a part knocked off mostly whole (70%+) falls away as itself again.
 - Coins, potions, rings and menu items don't take glue; frozen things (shop stock) don't
   either. Pixie Dust can't shrink a fused thing.
+
+## How modifiers look
+Every modifier shows on the thing that has it, small enough not to clutter the pile
+(`Item.MOD_LOOKS` for the ones that had nothing else; the older ones draw their own):
+
+| Look | Modifiers |
+|---|---|
+| edges washed in a colour | tempered (quench blue), Merciless (dark red) |
+| an inner outline | Kindred (in its own metal's colour), Riposte Guard (pale blue) |
+| stripes | Baton (red) |
+| a crosshair at its point | Headhunter |
+| a heartbeat along the edges | Avenging (gold), Blood Price (dark red) |
+| a slow glow | Rested (blue) |
+| specks rising | soothing (pale green), Sanguine (red), Kindling (embers), Stormcaller (grey cloud) |
+| drops falling | Reckless (chips), Bloodthirsty (blood) |
+| a wisp circling it | Wisp Cannon |
+| a crackle at its point | Lightning Rod |
+| a sheen running across | Pristine (white), Javelin (pale gold) |
+| stars twinkling | Lone Blade (white), Rally (gold) |
+| sparks at the edges | Desperate (red), Guardbreaker (orange) |
+| an edge cycling through colours | Mimic |
+| a halo above it | Hallowed |
+
+Already shown their own way: heavy (dark edge), weightless (shimmer, floats), reinforced
+(amber resin), bouncy (pink edge), spiked (spikes), electrified (crackle), superheated (red
+hot), frosty (frost), sticky (the glue patch), poisoned (green top edge), oiled (dark),
+magnetic (a red pulse), corrosive (bubbles), volatile (a pulsing rune), regenerating (green
+sparkles), small / large / huge (size). `tests/mod_looks_shot.gd` (windowed) lays one dagger
+per modifier out in a grid, named, in `shots/mod_looks.png`.
 
 ## Rare modifiers
 Rolled separately from the rest, on weapons and shields (about 1 in 20 early, more on

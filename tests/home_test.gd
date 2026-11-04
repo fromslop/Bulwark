@@ -74,6 +74,25 @@ func _test_home_opens() -> void:
 	_check(entries.size() > 40, "the gear page should list the gear (%d)" % entries.size())
 	main.codex.toggle()
 	_check(not main.codex.is_open(), "the codex should close again")
+	# Space with an empty hand over a collection opens its own book
+	var map: Item = _find("wall_map")
+	main.hand.release()
+	main.hand.position = map.global_position
+	main.hand.pinned = map.global_position
+	main.hand.punch_cooldown = 0.0
+	main.hand._activate()
+	_check(main.codex.is_open() and main.codex.tab == 3, "Space on the wall map, hand empty, should open the map")
+	_check(main.hand.punch_cooldown == 0.0, "opening a book shouldn't throw a punch")
+	for t in main.codex.TABS.size():
+		main.codex.open_tab(t)
+		main.codex._sync_preview()
+		_check(main.codex.listed().size() > 0, "every book should list something (%s)" % main.codex.TABS[t])
+	main.codex.shelf = "ring"
+	main.codex.open_tab(0)
+	_check(main.codex.listed().all(func(e: Array) -> bool: return e[4] == "ring"), "the Rings bookmark should show only rings")
+	main.codex.shelf = "all"
+	main.codex.toggle()
+	main.hand.pinned = Vector2.INF
 
 
 func _test_racks_and_names() -> void:

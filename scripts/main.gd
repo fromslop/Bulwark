@@ -114,7 +114,7 @@ const DOOR := {"pos": Vector2(1190, 120), "radius": 40.0}  # after a boss: go ho
 const WATER_Y := 625.0  # Cistern: the floodwater's surface
 const HEARTH := Rect2(220, 80, 450, 240)  # Forge: hold metal here to heat it
 # Home: the gong hangs by the door, weapons go on the rack, everything else on the shelves
-const HOME_COLLECTIONS := [["codex", "leather"], ["rune_tablet", "stone"], ["bestiary", "bone"], ["wall_map", "cloth"], ["journal", "leather"]]
+const HOME_COLLECTIONS := [["codex", "leather"], ["rune_tablet", "stone"], ["bestiary", "bone"], ["wall_map", "cloth"]]
 const HOME_GONG := {"pos": Vector2(1215, 260), "radius": 42.0}
 const RACK_SLOTS := [Vector2(70, 150), Vector2(160, 150), Vector2(250, 150), Vector2(340, 150)]
 const SHELF_SLOTS := [Vector2(995, 150), Vector2(1070, 150), Vector2(1145, 150), Vector2(860, MANTEL_Y - 28.0), Vector2(945, MANTEL_Y - 28.0), Vector2(1030, MANTEL_Y - 28.0)]

@@ -70,6 +70,43 @@ var swing_hit := false
 var cooldown := 0.0  # seconds until this weapon can swing again
 var _ready_flash := 0.0
 var _animated := false  # has a modifier with a moving look
+var _mod_looks: Array = []  # this item's modifiers that have a look in MOD_LOOKS
+var _tip := Vector2i.ZERO  # the cell farthest from the grip (or the middle): a blade's point
+## A small look for each modifier that has nothing else to show it: [motif, colour]. Static
+## motifs draw with the item (tint: its edges washed in a colour; stripes; inset: an inner
+## outline; crosshair: a mark at its point); the rest move, on the effects layer (pulse: a
+## heartbeat along the edges; breathe: a slow glow; mote: specks rising; drip: drops falling;
+## orbit: a wisp circling it; spark: a crackle at its point; sweep: a sheen running across;
+## glint: stars twinkling; flicker: sparks at the edges; shift: an edge cycling through
+## colours; halo: a ring above it).
+const MOD_LOOKS := {
+	"tempered": ["tint", Color(0.4, 0.5, 0.95)],  # the blue of quenched steel
+	"soothing": ["mote", Color(0.75, 1.0, 0.85)],
+	"wispfire": ["orbit", Color(0.6, 0.9, 1.0)],
+	"headhunter": ["crosshair", Color(0.95, 0.15, 0.1)],
+	"desperate": ["flicker", Color(0.8, 0.1, 0.15)],
+	"lone": ["glint", Color(1.0, 1.0, 1.0)],
+	"pristine": ["sweep", Color(1.0, 1.0, 1.0)],
+	"guardbreaker": ["flicker", Color(1.0, 0.6, 0.2)],
+	"merciless": ["tint", Color(0.5, 0.0, 0.08)],
+	"avenging": ["pulse", Color(1.0, 0.8, 0.35)],
+	"stormcaller": ["mote", Color(0.55, 0.62, 0.8)],  # little storm clouds
+	"rested": ["breathe", Color(0.5, 0.6, 1.0)],
+	"baton": ["stripes", Color(0.95, 0.3, 0.3)],
+	"javelin": ["sweep", Color(1.0, 0.95, 0.6)],
+	"mimic": ["shift", Color(1.0, 1.0, 1.0)],
+	"lightning_rod": ["spark", Color(0.7, 0.9, 1.0)],
+	"kindred": ["inset", Color(1.0, 1.0, 1.0)],  # (in its own metal's colour)
+	"reckless": ["drip", Color(1.0, 0.55, 0.2)],  # chips coming off it
+	"sanguine": ["mote", Color(0.85, 0.1, 0.15)],
+	"bloodprice": ["pulse", Color(0.6, 0.0, 0.06)],
+	"bloodthirsty": ["drip", Color(0.7, 0.0, 0.08)],
+	"kindling": ["mote", Color(1.0, 0.55, 0.15)],  # embers
+	"counter": ["inset", Color(0.8, 0.9, 1.0)],
+	"hallowed": ["halo", Color(1.0, 0.95, 0.7)],
+	"rally": ["glint", Color(1.0, 0.8, 0.3)],
+}
+const STATIC_LOOKS := ["tint", "stripes", "inset", "crosshair"]
 var age := 0.0
 var base_angular_damp := 0.8
 var base_gravity := 1.0
@@ -203,6 +240,7 @@ func _init_from(d: Dictionary, cs: Dictionary, org: Vector2) -> void:
 	for m in d.modifiers:
 		if m in ["sticky", "corrosive", "regenerating", "magnetic", "volatile"]:
 			_animated = true
+	_refresh_mod_looks()
 	if d.kind == "debris":
 		add_to_group("debris")
 	max_total = 0.0
@@ -474,6 +512,14 @@ func has_mod(m: String) -> bool:
 	return def.modifiers.has(m)
 
 
+func _refresh_mod_looks() -> void:
+	_mod_looks = def.modifiers.filter(func(m: String) -> bool: return MOD_LOOKS.has(m))
+	for m in _mod_looks:
+		if not MOD_LOOKS[m][0] in STATIC_LOOKS:
+			_animated = true
+	queue_redraw()
+
+
 ## Give this item (and only this item, not pieces sharing its def) a new modifier.
 func add_mod(m: String) -> void:
 	if has_mod(m):
@@ -482,6 +528,7 @@ func add_mod(m: String) -> void:
 	def.modifiers.append(m)
 	if m in ["sticky", "corrosive", "regenerating", "magnetic", "volatile"]:
 		_animated = true
+	_refresh_mod_looks()
 	if m == "electrified":
 		charge = 1.0
 	elif m == "superheated":
@@ -1574,6 +1621,20 @@ func _recompute_mass() -> void:
 		var mat: String = cells[c].mat
 		if mat in ["copper", "iron", "steel", "gold", "gem"]:
 			_shiny.append(c)
+	# the point: the cell farthest from the grip (or from the middle, if it has none)
+	var from := center_of_mass
+	var grips := cells.keys().filter(func(c: Vector2i) -> bool: return cells[c].get("handle", false))
+	if not grips.is_empty():
+		from = Vector2.ZERO
+		for g in grips:
+			from += cell_pos(g)
+		from /= grips.size()
+	var far := -1.0
+	for c in cells:
+		var dd := cell_pos(c).distance_squared_to(from)
+		if dd > far:
+			far = dd
+			_tip = c
 
 
 func _draw() -> void:
@@ -1656,6 +1717,14 @@ func _draw() -> void:
 					var side := Vector2(-out.y, out.x) * 2.0
 					var b := cell_pos(c) + out * CELL * 0.5
 					draw_colored_polygon(PackedVector2Array([b - side, b + side, b + out * 5.0]), Color(0.7, 0.7, 0.72))
+		if not _mod_looks.is_empty() and not cell.get("handle", false):
+			_draw_static_looks(c, r, edge, m)
+	if _mod_looks.has("headhunter") and cells.has(_tip):
+		var tp := cell_pos(_tip)
+		var hc: Color = MOD_LOOKS.headhunter[1]
+		draw_arc(tp, 3.5, 0.0, TAU, 12, hc, 1.0)
+		draw_line(tp + Vector2(-5, 0), tp + Vector2(5, 0), hc, 1.0)
+		draw_line(tp + Vector2(0, -5), tp + Vector2(0, 5), hc, 1.0)
 	if look == "Outlined Sprite":
 		# one dark outline around the whole silhouette, with a light bevel on top-left edges
 		for c in cells:
@@ -1678,6 +1747,24 @@ func _draw() -> void:
 		var cc := center_of_mass
 		draw_line(cc + Vector2(-4, -4), cc + Vector2(4, 4), Color(0.6, 0.1, 0.05), 2.0)
 		draw_line(cc + Vector2(-4, 4), cc + Vector2(4, -4), Color(0.6, 0.1, 0.05), 2.0)
+
+
+## The still part of a modifier's look, on one cell (see MOD_LOOKS).
+func _draw_static_looks(c: Vector2i, r: Rect2, edge: bool, m: Dictionary) -> void:
+	for mod in _mod_looks:
+		var look: Array = MOD_LOOKS[mod]
+		var col: Color = look[1]
+		match look[0]:
+			"tint":
+				if edge:
+					draw_rect(r, Color(col, 0.4))
+			"stripes":
+				if (c.x + c.y) % 4 == 0:
+					draw_rect(r, Color(col, 0.45))
+			"inset":
+				if edge:
+					var ic: Color = (m.color as Color).lightened(0.5) if mod == "kindred" else col
+					draw_rect(r.grow(-1.5), Color(ic, 0.7), false, 1.0)
 
 
 ## Material Texture: each material gets its own surface pattern so you can tell them
@@ -1806,6 +1893,8 @@ func _draw_fx(cv: CanvasItem) -> void:
 		var cc := center_of_mass
 		cv.draw_line(cc + Vector2(-4, -4), cc + Vector2(4, 4), Color(1, 0.2, 0.1, a), 2.0)
 		cv.draw_line(cc + Vector2(-4, 4), cc + Vector2(4, -4), Color(1, 0.2, 0.1, a), 2.0)
+	if not _mod_looks.is_empty():
+		_draw_mod_looks(cv, t, half)
 	if Looks.pick("items") == "Material Texture":
 		for c in _shiny:
 			if not cells.has(c):
@@ -1819,6 +1908,88 @@ func _draw_fx(cv: CanvasItem) -> void:
 				var band := fmod(g.x + g.y + global_rotation * 200.0, 90.0)
 				if band < 10.0:
 					cv.draw_rect(Rect2(cell_pos(c) - half, Vector2(CELL, CELL)), Color(1, 1, 1, 0.35 * (1.0 - absf(band - 5.0) / 5.0)))
+
+
+## The moving part of each modifier's look (see MOD_LOOKS), on the effects layer. Motes rise
+## and drops fall the way the world's up and down are, however the thing is turned.
+func _draw_mod_looks(cv: CanvasItem, t: float, half: Vector2) -> void:
+	var up := Vector2.UP.rotated(-global_rotation)
+	var across := Vector2(-up.y, up.x)
+	for k in _mod_looks.size():
+		var look: Array = MOD_LOOKS[_mod_looks[k]]
+		var col: Color = look[1]
+		var seed := k * 0.29
+		match look[0]:
+			"pulse":  # a heartbeat: two quick throbs along the edges, then rest
+				var beat := fmod(t * 1.1 + seed, 1.0)
+				var a := maxf(0.0, 1.0 - beat * 6.0) + 0.6 * maxf(0.0, 1.0 - absf(beat - 0.25) * 7.0)
+				if a > 0.02:
+					for e in _edges:
+						cv.draw_rect(Rect2(cell_pos(e[0]) - half, Vector2(CELL, CELL)), Color(col, 0.4 * a))
+			"breathe":
+				var a := 0.1 + 0.1 * sin(t * 1.3 + seed * 10.0)
+				for e in _edges:
+					cv.draw_rect(Rect2(cell_pos(e[0]) - half, Vector2(CELL, CELL)), Color(col, a))
+			"mote":
+				for c in _bubbles:
+					var h: int = absi((c.x * 73856093) ^ (c.y * 19349663))
+					var rise := fmod(t * 0.45 + h * 0.37 + seed, 1.0)
+					var p := cell_pos(c) + up * rise * 16.0 + across * sin(t * 2.0 + h) * 2.0
+					cv.draw_circle(p, 1.5 * (1.0 - rise) + 0.3, Color(col, 0.8 * (1.0 - rise)))
+			"drip":
+				for c in _drips:
+					var h: int = absi((c.x * 73856093) ^ (c.y * 19349663))
+					var fall := fmod(t * 0.6 + h * 0.21 + seed, 1.0)
+					cv.draw_rect(Rect2(cell_pos(c) - up * (CELL * 0.5 + fall * 10.0) - Vector2(1, 1), Vector2(2, 2)), Color(col, 0.85 * (1.0 - fall)))
+			"orbit":
+				var r := origin.length() * 0.55 + 6.0
+				for i in 3:
+					var ang := t * 2.5 + seed * 7.0 - i * 0.3
+					cv.draw_circle(center_of_mass + Vector2(cos(ang), sin(ang)) * r, 2.4 - i * 0.7, Color(col, 0.9 - i * 0.3))
+			"spark":
+				if fmod(t * 1.7 + seed, 1.0) < 0.3 and cells.has(_tip):
+					var tp := cell_pos(_tip)
+					for i in 3:
+						var b := tp + Vector2(randf_range(-7, 7), randf_range(-7, 7))
+						cv.draw_line(tp, b, Color(col, 0.9), 1.0)
+			"sweep":  # a sheen running across it now and then
+				var sw := fmod(t * 0.5 + seed, 2.0)
+				if sw < 1.2:
+					var span := maxf(1.0, 2.0 * (origin.x + origin.y))
+					for c in cells:
+						var v := cell_pos(c) + origin
+						if absf((v.x + v.y) / span - (sw - 0.1)) < 0.06:
+							cv.draw_rect(Rect2(cell_pos(c) - half, Vector2(CELL, CELL)), Color(col, 0.45))
+			"glint":
+				for c in _sparkles:
+					var h: int = absi((c.x * 73856093) ^ (c.y * 19349663))
+					var ph := fmod(t * 0.8 + h * 0.37 + seed, 2.5)
+					if ph < 0.3:
+						var sz := sin(ph / 0.3 * PI) * 3.5
+						var p := cell_pos(c)
+						cv.draw_line(p - Vector2(sz, 0), p + Vector2(sz, 0), col, 1.0)
+						cv.draw_line(p - Vector2(0, sz), p + Vector2(0, sz), col, 1.0)
+			"flicker":
+				if not _edges.is_empty():
+					for i in 2:
+						if randf() < 0.35:
+							var e: Array = _edges[randi() % _edges.size()]
+							cv.draw_rect(Rect2(cell_pos(e[0]) + Vector2(e[1]) * 3.5 - Vector2(1, 1), Vector2(2, 2)), Color(col, 0.9))
+			"shift":  # an edge running through every colour: it could be anything
+				for i in _edges.size():
+					var e: Array = _edges[i]
+					var d: Vector2i = e[1]
+					var p := cell_pos(e[0])
+					var o := Vector2(d) * CELL * 0.5
+					var tt := Vector2(-d.y, d.x) * CELL * 0.5
+					cv.draw_line(p + o - tt, p + o + tt, Color.from_hsv(fmod(t * 0.2 + i * 0.015, 1.0), 0.6, 1.0, 0.6), 1.0)
+			"halo":
+				var top := center_of_mass + up * (origin.length() * 0.6 + 8.0)
+				var pts := PackedVector2Array()
+				for i in 17:
+					var a := TAU * i / 16.0
+					pts.append(top + across * cos(a) * 9.0 + up * sin(a) * 3.0)
+				cv.draw_polyline(pts, Color(col, 0.55 + 0.2 * sin(t * 2.0)), 1.5)
 
 
 ## The effects layer: a child canvas that draws the item's moving effects on top of it.

@@ -51,54 +51,52 @@ func _ready() -> void:
 	z_index = 5
 
 
+## What each setting has, and where: [kind, screen spot, reach, chance it's there]. The
+## Wall Map in the codex reads this too, to say what's in each place.
+const LAYOUT := {
+	"Dungeon Cell": [["torch", Vector2(210, 165), 30.0, 1.0], ["brick", Vector2(1040, 130), 18.0, 0.6]],
+	"Corridor": [["torch", Vector2(1070, 160), 30.0, 1.0], ["chandelier", Vector2(640, 48), 26.0, 1.0], ["brick", Vector2(250, 300), 18.0, 0.6]],
+	"Cistern": [["rust_grate", Vector2(1060, 160), 30.0, 1.0]],
+	"Catacombs": [["fungus", Vector2(980, 290), 32.0, 1.0]],
+	"Crypt Chapel": [["chandelier", Vector2(640, 48), 26.0, 1.0], ["altar", Vector2(210, 300), 34.0, 1.0]],
+	"Forge": [["quench", Vector2(190, 250), 34.0, 1.0]],
+	"Ossuary": [["fungus", Vector2(950, 300), 32.0, 1.0], ["brick", Vector2(330, 120), 18.0, 0.5]],
+	"Star Chamber": [["storm_glass", Vector2(240, 160), 30.0, 1.0]],
+	"Hidden Vault": [["chandelier", Vector2(640, 48), 26.0, 1.0]],
+	"Homestead": [["dummy", Vector2(420, 470), 80.0, 1.0],  # stands on the floor
+		["trophies", Vector2(790, 200), 34.0, 1.0],  # on the wall between the beam and the mantel
+		["cat", Vector2(300, 408), 26.0, 1.0],  # on the window sill
+		["placard", Vector2(790, 266), 30.0, 1.0],  # under the trophy board: which build this is
+		["hearth", Vector2(1060, 640), 95.0, 1.0]],  # the fireplace: melts junk down
+	"Gilded Gullet": [["chandelier", Vector2(640, 48), 26.0, 1.0]],
+	"Giant's Table": [["torch", Vector2(1080, 140), 30.0, 1.0]],  # the giant candle's drip
+	"Clockwork Orrery": [["storm_glass", Vector2(240, 160), 30.0, 1.0]],
+	"Ink Margin": [["fungus", Vector2(960, 290), 32.0, 1.0]],
+}
+
+
+## The kinds of thing a setting can have (secrets that aren't always there left out).
+static func layout(setting: String) -> Array:
+	var out: Array = []
+	for p in LAYOUT.get(setting, []):
+		if float(p[3]) >= 1.0 and not out.has(p[0]):
+			out.append(p[0])
+	if setting == "Star Chamber":
+		out.append("star")
+	return out
+
+
 ## The props for a setting. Clears whatever was there.
 func setup(setting: String, rng_seed: int) -> void:
 	_free3d()
 	props.clear()
 	_star = {}
 	_rng.seed = rng_seed
-	match setting:
-		"Dungeon Cell":
-			_add("torch", Vector2(210, 165), 30.0)
-			if _rng.randf() < 0.6:
-				_add("brick", Vector2(1040, 130), 18.0)
-		"Corridor":
-			_add("torch", Vector2(1070, 160), 30.0)
-			_add("chandelier", Vector2(640, 48), 26.0)
-			if _rng.randf() < 0.6:
-				_add("brick", Vector2(250, 300), 18.0)
-		"Cistern":
-			_add("rust_grate", Vector2(1060, 160), 30.0)
-		"Catacombs":
-			_add("fungus", Vector2(980, 290), 32.0)
-		"Crypt Chapel":
-			_add("chandelier", Vector2(640, 48), 26.0)
-			_add("altar", Vector2(210, 300), 34.0)
-		"Forge":
-			_add("quench", Vector2(190, 250), 34.0)
-		"Ossuary":
-			_add("fungus", Vector2(950, 300), 32.0)
-			if _rng.randf() < 0.5:
-				_add("brick", Vector2(330, 120), 18.0)
-		"Star Chamber":
-			_add("storm_glass", Vector2(240, 160), 30.0)
-			_star_timer = _rng.randf_range(6.0, 12.0)
-		"Hidden Vault":
-			_add("chandelier", Vector2(640, 48), 26.0)
-		"Homestead":
-			_add("dummy", Vector2(420, 470), 80.0)  # stands on the floor
-			_add("trophies", Vector2(790, 200), 34.0)  # on the wall between the beam and the mantel
-			_add("cat", Vector2(300, 408), 26.0)  # on the window sill
-			_add("placard", Vector2(790, 266), 30.0)  # under the trophy board: which build this is
-			_add("hearth", Vector2(1060, 640), 95.0)  # the fireplace: melts junk down
-		"Gilded Gullet":
-			_add("chandelier", Vector2(640, 48), 26.0)
-		"Giant's Table":
-			_add("torch", Vector2(1080, 140), 30.0)  # the giant candle's drip
-		"Clockwork Orrery":
-			_add("storm_glass", Vector2(240, 160), 30.0)
-		"Ink Margin":
-			_add("fungus", Vector2(960, 290), 32.0)
+	for p in LAYOUT.get(setting, []):
+		if float(p[3]) >= 1.0 or _rng.randf() < float(p[3]):
+			_add(p[0], p[1], p[2])
+	if setting == "Star Chamber":
+		_star_timer = _rng.randf_range(6.0, 12.0)
 	queue_redraw()
 
 

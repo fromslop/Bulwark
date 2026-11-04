@@ -344,7 +344,10 @@ func _test_cooldowns() -> void:
 	main.hand._activate()
 	var cd: float = main.hand.punch_cooldown
 	_check(cd > 0.5, "punching should start a cooldown")
-	_check(is_equal_approx(main.hand.PUNCH_COOLDOWN, Music.BAR), "you should punch at most once per snare (once a bar)")
+	_check(main.hand.PUNCH_COOLDOWN < Music.BAR / 2.0, "you should be able to punch on every snare (every other beat)")
+	main.hand.punch_cooldown = 0.1
+	main.hand._activate()  # a touch early: held, and lands as soon as the fist is ready
+	_check(main.hand._punch_queued > 0.0, "a punch pressed just before the cooldown ends should be held, not lost")
 
 
 ## A single wooden round shield held in the real high-slash band should stop most of it

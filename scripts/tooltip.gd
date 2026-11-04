@@ -664,7 +664,7 @@ class Card:
 				if d.get("menu", "") == "codex" and game and game.get("codex") != null:
 					var pr: Array = game.codex.progress(int(d.get("tab", 0)))
 					return "open it (%d of %d found)" % [pr[0], pr[1]]
-				return "open the index" if d.get("menu", "") == "codex" else "try another gauntlet"
+				return "open it" if d.get("menu", "") == "codex" else "try another gauntlet"
 			"consumable":
 				if d.has("heal"):
 					return "bind your hand"
