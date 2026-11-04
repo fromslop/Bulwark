@@ -6,7 +6,7 @@ var main: Node
 
 
 func _initialize() -> void:
-	SaveData.PATH = "user://bulwark_test_save.txt"
+	SaveData.PATH = "user://hoardsman_test_save.txt"
 	main = load("res://scenes/main.tscn").instantiate()
 	root.add_child(main)
 	_run.call_deferred()

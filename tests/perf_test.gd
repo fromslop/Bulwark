@@ -14,7 +14,7 @@ var _last := 0
 
 
 func _initialize() -> void:
-	SaveData.PATH = "user://bulwark_test_save.txt"  # never the player's real home
+	SaveData.PATH = "user://hoardsman_test_save.txt"  # never the player's real home
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)  # measure real cost, not the refresh wait
 	main = load("res://scenes/main.tscn").instantiate()
 	root.add_child(main)

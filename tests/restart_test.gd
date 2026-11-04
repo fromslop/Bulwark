@@ -7,7 +7,7 @@ var step := 0
 
 
 func _initialize() -> void:
-	SaveData.PATH = "user://bulwark_test_save.txt"  # never the player's real home
+	SaveData.PATH = "user://hoardsman_test_save.txt"  # never the player's real home
 	var main: Node = load("res://scenes/main.tscn").instantiate()
 	root.add_child(main)
 	current_scene = main  # so reload_current_scene works like the R key

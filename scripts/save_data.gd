@@ -3,7 +3,21 @@ extends RefCounted
 ## What survives between runs: the gear kept at home (and where it hangs), everything the
 ## codex has seen, and how deep a run has ever gone. One text file in user://.
 
-static var PATH := "user://bulwark_save.txt"  # tests point this elsewhere
+static var PATH := "user://hoardsman_save.txt"  # tests point this elsewhere
+const OLD_NAME := "Bulwark"  # what the game was called: its save and settings lived under that
+
+
+## The game was called Bulwark, and its save and settings lived in a folder by that name.
+## The first time it starts as Hoardsman they're brought across (copied: the old ones stay).
+static func carry_over() -> void:
+	var here := OS.get_user_data_dir()
+	var old := here.get_base_dir().path_join(OLD_NAME)
+	for pair in [["bulwark_save.txt", "hoardsman_save.txt"], ["settings.cfg", "settings.cfg"], ["looks.cfg", "looks.cfg"], ["style.cfg", "style.cfg"]]:
+		var src: String = old.path_join(pair[0])
+		var dst: String = here.path_join(pair[1])
+		if FileAccess.file_exists(src) and not FileAccess.file_exists(dst):
+			DirAccess.make_dir_recursive_absolute(here)
+			DirAccess.copy_absolute(src, dst)
 
 var home: Array = []  # packed items: see pack()
 var found := {"items": [], "modifiers": [], "foes": [], "places": [], "reactions": [], "secrets": []}

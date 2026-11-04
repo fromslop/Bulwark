@@ -1,6 +1,6 @@
 class_name Main
 extends Node
-## Bulwark mechanics prototype.
+## Hoardsman mechanics prototype.
 ## A 3D enemy stands in front of the camera; a 2D physics play field sits on top of it.
 ## Enemy attacks cover screen zones, and whatever items sit in a zone when it lands
 ## soak the hit cell by cell. Fast-moving items parry. Weapons hit specific body parts.
@@ -194,6 +194,7 @@ var _last_blocked := 0.0  # Ring of Echoes: how hard the last blow you blocked w
 func _ready() -> void:
 	rng.randomize()
 	add_to_group("game")
+	SaveData.carry_over()  # (from when the game was Bulwark)
 	Settings.apply()
 	add_child(Sfx.new())
 	add_child(Music.new())

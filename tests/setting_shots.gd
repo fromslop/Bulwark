@@ -6,7 +6,7 @@ var f := 0
 var i := 0
 var names: Array = Backdrop.SETTINGS + ["Ossuary", "Star Chamber", "Hidden Vault"]
 func _initialize() -> void:
-	SaveData.PATH = "user://bulwark_test_save.txt"  # never the player's real home
+	SaveData.PATH = "user://hoardsman_test_save.txt"  # never the player's real home
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://shots"))
 	main = load("res://scenes/main.tscn").instantiate()
 	root.add_child(main)

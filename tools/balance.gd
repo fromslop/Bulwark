@@ -25,7 +25,7 @@ var hybrid := false
 
 
 func _initialize() -> void:
-	SaveData.PATH = "user://bulwark_balance_save.txt"
+	SaveData.PATH = "user://hoardsman_balance_save.txt"
 	var args := OS.get_cmdline_user_args()
 	prestige = int(args[0]) if not args.is_empty() else 0
 	hybrid = args.size() > 1 and args[1] == "hybrid"

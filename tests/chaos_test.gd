@@ -12,7 +12,7 @@ var booms_at_20s := 0
 
 
 func _initialize() -> void:
-	SaveData.PATH = "user://bulwark_test_save.txt"  # never the player's real home
+	SaveData.PATH = "user://hoardsman_test_save.txt"  # never the player's real home
 	main = load("res://scenes/main.tscn").instantiate()
 	root.add_child(main)
 	main.call_deferred("_start_run")  # the game starts at home (after _ready); the tests want a fight

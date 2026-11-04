@@ -38,7 +38,7 @@ var real_max_hp := 0.0
 
 
 func _initialize() -> void:
-	SaveData.PATH = "user://bulwark_test_save.txt"  # never the player's real home
+	SaveData.PATH = "user://hoardsman_test_save.txt"  # never the player's real home
 	main = load("res://scenes/main.tscn").instantiate()
 	root.add_child(main)
 	main.save = SaveData.new()

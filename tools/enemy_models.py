@@ -1,4 +1,4 @@
-"""Bulwark enemy models: one low-poly glTF per character, built in Blender from code.
+"""Hoardsman enemy models: one low-poly glTF per character, built in Blender from code.
 
 Run from the project folder:
     blender --background --python tools/enemy_models.py            (all twelve)

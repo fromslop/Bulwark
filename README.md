@@ -1,4 +1,4 @@
-# Bulwark (working title)
+# Hoardsman
 
 A visually-3D, functionally-2D medieval roguelike. A waist-up enemy (head + two hands,
 recorded with HeadnHands) attacks regions of the screen; you drag physical pixel-art
@@ -161,7 +161,7 @@ deaths, foes felled, bosses, best hit); **the cat** asleep on the window sill (r
 empty hand on it; punch it and it jumps); and the **hearth**, which melts junk down (leave
 scraps, pauldrons, skulls or rocks in the fire: every 10 scrap value melted, saved across
 sessions, pops out a **Coin Purse** to take on a run; Alt over the hearth shows the tally).
-A small wooden **placard** under the Trophy Board reads BULWARK and the build's version
+A small wooden **placard** under the Trophy Board reads HOARDSMAN and the build's version
 (`application/config/version` in `project.godot`: bump it for each build you hand out).
 Outside it's
 night: crickets, and the hearth crackling. **Punch the gong** to start a run. If you're
@@ -818,10 +818,10 @@ a reworked core); the first only by decision.
 
 Player builds: `python tools/build.py [linux] [windows]` (both by default) makes one file per
 platform in `build/`, ready to hand to a playtester:
-- **Windows** (`Bulwark-v<version>-windows.zip`): `Bulwark/Bulwark.exe` (pack embedded, no
+- **Windows** (`Hoardsman-v<version>-windows.zip`): `Hoardsman/Hoardsman.exe` (pack embedded, no
   console window) and a plain-English `How to play.txt` (unzip, double-click, what to do
   about the SmartScreen warning, the basic controls). Nothing to install.
-- **Linux** (Hunter's platform; `Bulwark-v<version>-linux-x86_64.tar.gz`): the executable
+- **Linux** (Hunter's platform; `Hoardsman-v<version>-linux-x86_64.tar.gz`): the executable
   (mode 755) and a run README.
 
 Both are release exports, so the developer keys (F1, F4, F5-F9) are off in them.
@@ -855,4 +855,4 @@ material lasts, block shocks, rare-modifier odds and the Wisp Cannon's output.
 `tests/lanes_shot.gd` (windowed) saves the lane arrows to `shots/lanes_*.png`.
 The enemy test also checks that every character loads its modelled body, wears two
 pauldrons on the torso, and loses them (and keeps the wounds across an F8 rebuild).
-The tests write their save to `user://bulwark_test_save.txt`, never the real one.
+The tests write their save to `user://hoardsman_test_save.txt`, never the real one.

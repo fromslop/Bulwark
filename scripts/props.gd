@@ -35,7 +35,7 @@ const INFO := {
 	"cat": ["The Cat", "Asleep on the sill. Rest your empty hand on it a while."],
 	"hearth": ["Hearth", ""],  # filled in from the save: see describe()
 	"gong": ["Gong", "Strike it to go on. Look closely at its face first."],
-	"placard": ["Bulwark", ""],  # the build's version: see describe()
+	"placard": ["Hoardsman", ""],  # the build's version: see describe()
 	"ink_blot": ["Ink Blot", "The reactions left a stain on the air. It looks thin enough to punch through."],
 }
 
@@ -120,7 +120,7 @@ func describe(key: String) -> Array:
 		return ["Hearth", "Throw junk in the fire (scraps, pauldrons, skulls, rocks) and it melts down. Melt enough and a Coin Purse pops out to take on a run.\nMelted so far: %d of %d" %
 			[floori(float(game.save.stats.get("smelt", 0.0))), int(game.SMELT_PURSE)]]
 	if kind == "placard":
-		return ["Bulwark", "Build %s" % version()]
+		return ["Hoardsman", "Build %s" % version()]
 	if kind == "trophies" and game:
 		var st: Dictionary = game.save.stats
 		return ["Trophy Board", "Runs %d   ·   Deaths %d   ·   Foes felled %d   ·   Bosses %d\nDeepest run: prestige %d   ·   Best hit: %d" %
@@ -575,12 +575,12 @@ func _build3d(pr: Dictionary) -> void:
 				for i in mini(int(game.save.stats.bosses), 6):
 					_piece(root, _ball3(4.5, k, 6), Vector3(-28 + i * 11, 14, 8), Color(0.9, 0.88, 0.8), k)
 		"placard":
-			_piece(root, _box3(120, 64, 6, k), Vector3.ZERO, wood, k)
-			_piece(root, _box3(112, 56, 2, k), Vector3(0, 0, 3.5), wood.lightened(0.12), k)
+			_piece(root, _box3(152, 64, 6, k), Vector3.ZERO, wood, k)
+			_piece(root, _box3(144, 56, 2, k), Vector3(0, 0, 3.5), wood.lightened(0.12), k)
 			for sx in [-1, 1]:
-				_piece(root, _cyl3(2, 2, 3, k, 6), Vector3(sx * 52, -25, 5), iron, k, 0.0, Vector3(PI / 2, 0, 0))
+				_piece(root, _cyl3(2, 2, 3, k, 6), Vector3(sx * 68, -25, 5), iron, k, 0.0, Vector3(PI / 2, 0, 0))
 			var ink := Color(0.16, 0.1, 0.05)
-			_letters(root, "BULWARK", 18, Vector3(0, -11, 5), ink, k)
+			_letters(root, "HOARDSMAN", 18, Vector3(0, -11, 5), ink, k)
 			_letters(root, version(), 18, Vector3(0, 13, 5), ink, k)
 		"cat":
 			var fur := Color(0.2, 0.2, 0.22)

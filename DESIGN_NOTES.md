@@ -1,4 +1,4 @@
-# Bulwark: state of the project and where to take it
+# Hoardsman: state of the project and where to take it
 
 Written after the November 2026 pass (shop rework, hoard utilities, modifier fixes, the
 enemy roster, the gauntlet, home/prestige/codex, duos, potions). An outside read of the

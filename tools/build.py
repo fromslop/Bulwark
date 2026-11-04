@@ -1,12 +1,12 @@
-"""Build Bulwark for handing out: export it with Godot and pack it for players.
+"""Build Hoardsman for handing out: export it with Godot and pack it for players.
 
     python tools/build.py [linux] [windows] [--godot PATH] [--skip-export]
 
 With no platform named, builds both. Each is a single file in build/, ready to send:
 
-- linux:   build/Bulwark-v<version>-linux-x86_64.tar.gz  (Bulwark/Bulwark.x86_64, mode 755,
+- linux:   build/Hoardsman-v<version>-linux-x86_64.tar.gz  (Hoardsman/Hoardsman.x86_64, mode 755,
            and a README)
-- windows: build/Bulwark-v<version>-windows.zip  (Bulwark/Bulwark.exe and "How to play.txt":
+- windows: build/Hoardsman-v<version>-windows.zip  (Hoardsman/Hoardsman.exe and "How to play.txt":
            unzip, double-click; no Godot, no console window, nothing else to install)
 
 Both are release exports (the "Linux" and "Windows Desktop" presets, pack embedded), so the
@@ -30,25 +30,25 @@ import zipfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_GODOT = os.path.expanduser(r"~\Desktop\Godot_v4.7.2-stable_win64_console.exe")
 
-LINUX_TXT = """Bulwark {version} (Linux x86_64)
+LINUX_TXT = """Hoardsman {version} (Linux x86_64)
 
 Run it:
-    ./Bulwark.x86_64
+    ./Hoardsman.x86_64
 
 If it won't start, make sure it's executable:
-    chmod +x Bulwark.x86_64
+    chmod +x Hoardsman.x86_64
 
 Needs a GPU with Vulkan (or it falls back to OpenGL with --rendering-driver opengl3).
-Saves go to ~/.local/share/godot/app_userdata/Bulwark/
+Saves go to ~/.local/share/godot/app_userdata/Hoardsman/
 The version is on the wooden placard in the home, under the trophy board.
 """
 
-WINDOWS_TXT = """Bulwark {version}
+WINDOWS_TXT = """Hoardsman {version}
 
 HOW TO START
   1. Unzip this first: right-click the zip and choose "Extract All...", then "Extract".
      (Running it from inside the zip won't work properly.)
-  2. Open the Bulwark folder and double-click Bulwark.exe.
+  2. Open the Hoardsman folder and double-click Hoardsman.exe.
 
   If Windows shows "Windows protected your PC": that's because the game is new and
   unsigned, not because anything is wrong. Click "More info", then "Run anyway".
@@ -66,13 +66,13 @@ HOW TO PLAY
   Drag your gear into the glowing area where the enemy is about to strike to block it.
   Swing your weapon at the enemy to hit it. Punch the gong to start a run.
 
-Your progress saves on its own (in %APPDATA%\\Godot\\app_userdata\\Bulwark).
+Your progress saves on its own (in %APPDATA%\\Godot\\app_userdata\\Hoardsman).
 The version is on the wooden placard in the home, under the trophy board.
 """
 
 PLATFORMS = {
-    "linux": {"preset": "Linux", "binary": os.path.join("build", "linux", "Bulwark.x86_64"), "magic": b"\x7fELF"},
-    "windows": {"preset": "Windows Desktop", "binary": os.path.join("build", "windows", "Bulwark.exe"), "magic": b"MZ"},
+    "linux": {"preset": "Linux", "binary": os.path.join("build", "linux", "Hoardsman.x86_64"), "magic": b"\x7fELF"},
+    "windows": {"preset": "Windows Desktop", "binary": os.path.join("build", "windows", "Hoardsman.exe"), "magic": b"MZ"},
 }
 
 
@@ -103,16 +103,16 @@ def export(godot: str, plat: str) -> str:
 
 def pack_linux(ver: str) -> str:
     binary = os.path.join(ROOT, PLATFORMS["linux"]["binary"])
-    out = os.path.join(ROOT, "build", "Bulwark-%s-linux-x86_64.tar.gz" % ver)
+    out = os.path.join(ROOT, "build", "Hoardsman-%s-linux-x86_64.tar.gz" % ver)
     with tarfile.open(out, "w:gz") as tar:
-        info = tar.gettarinfo(binary, "Bulwark/Bulwark.x86_64")
+        info = tar.gettarinfo(binary, "Hoardsman/Hoardsman.x86_64")
         info.mode = 0o755
         info.uid = info.gid = 0
         info.uname = info.gname = ""
         with open(binary, "rb") as f:
             tar.addfile(info, f)
         txt = LINUX_TXT.format(version=ver).encode()
-        info = tarfile.TarInfo("Bulwark/README.txt")
+        info = tarfile.TarInfo("Hoardsman/README.txt")
         info.size = len(txt)
         info.mode = 0o644
         info.mtime = int(time.time())
@@ -122,10 +122,10 @@ def pack_linux(ver: str) -> str:
 
 def pack_windows(ver: str) -> str:
     binary = os.path.join(ROOT, PLATFORMS["windows"]["binary"])
-    out = os.path.join(ROOT, "build", "Bulwark-%s-windows.zip" % ver)
+    out = os.path.join(ROOT, "build", "Hoardsman-%s-windows.zip" % ver)
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
-        z.write(binary, "Bulwark/Bulwark.exe")
-        z.writestr("Bulwark/How to play.txt", WINDOWS_TXT.format(version=ver).replace("\n", "\r\n"))
+        z.write(binary, "Hoardsman/Hoardsman.exe")
+        z.writestr("Hoardsman/How to play.txt", WINDOWS_TXT.format(version=ver).replace("\n", "\r\n"))
     return out
 
 
@@ -146,7 +146,7 @@ def main() -> None:
             export(args.godot, plat)
         out = pack_linux(ver) if plat == "linux" else pack_windows(ver)
         outs.append(os.path.relpath(out, ROOT).replace("\\", "/"))
-        print("Bulwark %s %s: %s (%.1f MB)" % (ver, plat, outs[-1], os.path.getsize(out) / 1e6))
+        print("Hoardsman %s %s: %s (%.1f MB)" % (ver, plat, outs[-1], os.path.getsize(out) / 1e6))
     gh_out = os.environ.get("GITHUB_OUTPUT")
     if gh_out:
         with open(gh_out, "a") as f:

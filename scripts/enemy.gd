@@ -246,7 +246,7 @@ static func _parse_model(path: String) -> Node:
 	var state := GLTFState.new()
 	var err := doc.append_from_file(path, state)
 	if err != OK:
-		push_warning("Bulwark: couldn't read enemy model %s (%s)" % [path, error_string(err)])
+		push_warning("Hoardsman: couldn't read enemy model %s (%s)" % [path, error_string(err)])
 		return null
 	return doc.generate_scene(state)
 
@@ -278,7 +278,7 @@ func _load_model() -> bool:
 		found[mname] = mi
 	root.free()
 	if not (found.has("PauldronL") and found.has("PauldronR") and found.has("Torso") and found.has("Head")):
-		push_warning("Bulwark: enemy model %s is missing rig parts (%s)" % [path, found.keys()])
+		push_warning("Hoardsman: enemy model %s is missing rig parts (%s)" % [path, found.keys()])
 		for mi in found.values():
 			mi.free()
 		_mats.clear()

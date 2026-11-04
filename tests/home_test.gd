@@ -13,7 +13,7 @@ var carried: Item
 
 
 func _initialize() -> void:
-	SaveData.PATH = "user://bulwark_test_save.txt"
+	SaveData.PATH = "user://hoardsman_test_save.txt"
 	if FileAccess.file_exists(SaveData.PATH):
 		DirAccess.remove_absolute(SaveData.PATH)
 	main = load("res://scenes/main.tscn").instantiate()

@@ -10,7 +10,7 @@ var fails := PackedStringArray()
 
 
 func _initialize() -> void:
-	SaveData.PATH = "user://bulwark_test_save.txt"
+	SaveData.PATH = "user://hoardsman_test_save.txt"
 	main = load("res://scenes/main.tscn").instantiate()
 	root.add_child(main)
 	main.call_deferred("_start_run")
