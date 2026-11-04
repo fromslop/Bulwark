@@ -583,7 +583,11 @@ edge; every boss it helps kill adds four gold runes down the blade. From the thi
 runes glow, and from the fifth the edge is gilded. The inspect card counts both.
 
 ## Sound
-`scripts/sfx.gd` synthesises bare-bones effects at startup. Home is a night in: the hearth
+`scripts/sfx.gd` synthesises bare-bones effects at startup. Two **damage stings** tell you how
+big a blow was without looking: a dissonant, driven *pain* sting when something gets through
+to your hand (louder and a touch lower the harder the hit, full at 30), and a punchy, bright,
+consonant *reward* sting when your weapon lands (louder the harder the hit, full at 60;
+`Main.DAMAGE_SOUND_*`). Home is a night in: the hearth
 crackling and crickets outside the window, a seamless loop synthesised by
 `tools/make_night.py` into `assets/music/amb_night.ogg` (the old cinder and tunnel
 recordings play over a death). Each stem plays on its own player, all started together;

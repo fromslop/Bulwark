@@ -65,6 +65,8 @@ const STORM_DAMAGE := 4.0  # per tick
 # different element landing on a marked foe sets the pair off (once every REACT_COOLDOWN).
 const MARK_TIME := 5.0
 const CHANDELIER_DAMAGE := 35.0
+const DAMAGE_SOUND_TAKEN := 30.0  # a hit to the hand this big gets the pain sting at full volume
+const DAMAGE_SOUND_DEALT := 60.0  # and a hit on a foe this big, the reward sting
 const REACT_COOLDOWN := 1.5
 const VULNERABLE := 1.5  # weapon hits on a foe left vulnerable by a reaction
 const REACTIONS := {
@@ -250,7 +252,9 @@ func _build_2d() -> void:
 	hand.on_hurt = _hand_hurt
 	popups = Popups.new()
 	add_child(popups)
-	hand.hurt_taken.connect(func(a: float) -> void: popups.number(hand.position + Vector2(0, -34), a, Color(1.0, 0.25, 0.2), true))
+	hand.hurt_taken.connect(func(a: float) -> void:
+		popups.number(hand.position + Vector2(0, -34), a, Color(1.0, 0.25, 0.2), true)
+		_damage_sound(a, true))
 	hand.ring_used.connect(_on_ring_used)
 	hand.released.connect(_on_released)
 	ui = CanvasLayer.new()
@@ -1410,8 +1414,7 @@ func _grade_block(atk: Dictionary, poly: PackedVector2Array, touched: Dictionary
 	if taken >= 2.5:
 		# the part that got through, flying to the hand: as thick as the damage
 		overlay.streak(impact if not touched.is_empty() else centre, hand.position, 2.0 + taken * 0.6, Color(1.0, 0.15, 0.1), 0.35)
-		overlay.pulse(taken / 20.0)
-		Sfx.play("hurt", lerpf(-12.0, 0.0, clampf(taken / 20.0, 0.0, 1.0)))
+		overlay.pulse(taken / 20.0)  # (its sound is the pain sting, from the hand's hurt)
 		_shake += taken * 0.3
 
 
@@ -1593,7 +1596,8 @@ func _check_weapon_hit(it: Item, regs: Array) -> bool:
 			enemy.corrode(0.12)
 		if it.has_mod("poisoned"):
 			enemy.poison(4.0)
-		Sfx.play("hit", 0.0, 1.3 if r.id == "weak" else 1.0)
+		Sfx.play("hit", -4.0, 1.3 if r.id == "weak" else 1.0)
+		_damage_sound(dmg, false)
 		if it.charge > 0.5 and enemy.state == "windup":
 			enemy.stagger()  # a solid shock locks up the swing
 		# armour bites back: soft metals bend, wood cracks
@@ -2261,6 +2265,19 @@ func on_still_star(at: Vector2) -> void:
 func on_ink_blot(at: Vector2) -> void:
 	overlay.sparks(at, 20000.0, Color(0.05, 0.05, 0.08))
 	_unlock_secret("Ink Margin")
+
+
+## Audio for how much a blow did. Taken: a dissonant, driven sting (louder and a touch lower
+## the harder you were hit). Dealt: a punchy, bright, consonant one (louder the harder you
+## hit). A scratch is barely there; a big hit is unmistakable.
+func _damage_sound(amount: float, taken: bool) -> void:
+	if amount < 1.0:
+		return
+	var k := clampf(amount / (DAMAGE_SOUND_TAKEN if taken else DAMAGE_SOUND_DEALT), 0.0, 1.0)
+	if taken:
+		Sfx.play("pain", lerpf(-22.0, 3.0, k), lerpf(1.08, 0.82, k))
+	else:
+		Sfx.play("reward", lerpf(-22.0, 2.0, k), lerpf(1.0, 1.12, k))
 
 
 ## Glue joined two things into one (item.gd fuse()).

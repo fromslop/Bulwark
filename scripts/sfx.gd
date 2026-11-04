@@ -92,6 +92,8 @@ func _build() -> void:
 	_streams.zap = _buzz(0.2)
 	_streams.buy = _mix([_tone([2400.0, 3600.0], [1.0, 0.4], 0.3, 10.0), _delay(_tone([3200.0, 4800.0], [1.0, 0.4], 0.3, 10.0), 0.08)], [0.6, 0.6])
 	_streams.deny = _tone([160.0, 170.0], [1.0, 1.0], 0.2, 12.0)
+	_streams.pain = _peak(_pain(0.7), 0.9)
+	_streams.reward = _peak(_reward(0.45), 0.9)
 	for k in _streams.keys():
 		if _streams[k] is PackedFloat32Array:
 			_streams[k] = _wav(_streams[k])
@@ -155,6 +157,71 @@ func _buzz(dur: float) -> PackedFloat32Array:
 		var sq := 1.0 if fmod(t * 120.0, 1.0) < 0.5 else -1.0
 		out[i] = (sq * 0.4 + randf_range(-0.3, 0.3)) * exp(-t * 10.0)
 	return out
+
+
+## The sting of a blow that got through: a low, clashing cluster (a minor second and a
+## tritone, slightly detuned so it beats), driven into distortion, over a heavy thump.
+## Played louder (and a touch lower) the harder the hit.
+func _pain(dur: float) -> PackedFloat32Array:
+	var n := int(dur * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var freqs := [98.0, 104.0, 139.0, 146.5]
+	var y := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		var v := 0.0
+		for f in freqs:
+			# a sawtooth-ish tone: a few harmonics, falling off
+			for h in [1, 2, 3, 4]:
+				v += sin(TAU * f * h * t + h) / (h * 1.4)
+		v /= freqs.size()
+		var env := minf(1.0, t * 120.0) * exp(-t * 4.0)
+		var drive := tanh(v * 3.5) * env * 0.55
+		var thump := sin(TAU * (60.0 - 25.0 * minf(1.0, t * 8.0)) * t) * exp(-t * 14.0) * 0.8
+		y += (randf_range(-1.0, 1.0) - y) * 0.25
+		var grit := y * exp(-t * 25.0) * 0.5
+		out[i] = drive + thump + grit
+	return out
+
+
+## The sting of a hit that lands: a punchy thump that drops in pitch, a short bright crack,
+## and over it a clean, consonant ring (root, fifth, octave, a major third up) that decays
+## fast. Still an impact, but one that sounds good. Played louder the harder the hit.
+func _reward(dur: float) -> PackedFloat32Array:
+	var n := int(dur * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var ring := [880.0, 1320.0, 1760.0, 2217.0]
+	var ring_amp := [1.0, 0.7, 0.5, 0.35]
+	var y := 0.0
+	var phase := 0.0
+	for i in n:
+		var t := float(i) / RATE
+		var f := 55.0 + 95.0 * exp(-t * 30.0)  # 150 Hz falling to 55: the punch
+		phase += TAU * f / RATE
+		var thump := sin(phase) * exp(-t * 16.0) * 0.9
+		y += (randf_range(-1.0, 1.0) - y) * 0.6
+		var crack := y * exp(-t * 60.0) * 0.6
+		var v := 0.0
+		for k in ring.size():
+			v += sin(TAU * ring[k] * t) * ring_amp[k]
+		var shine := v / ring.size() * minf(1.0, t * 300.0) * exp(-t * 9.0) * 0.55
+		out[i] = thump + crack + shine
+	return out
+
+
+## Scale a sound so its loudest sample sits at `level` (no clipping on the attack).
+func _peak(a: PackedFloat32Array, level: float) -> PackedFloat32Array:
+	var top := 0.0
+	for v in a:
+		top = maxf(top, absf(v))
+	if top <= 0.0:
+		return a
+	var k := level / top
+	for i in a.size():
+		a[i] *= k
+	return a
 
 
 func _delay(a: PackedFloat32Array, secs: float) -> PackedFloat32Array:
