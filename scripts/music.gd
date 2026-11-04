@@ -35,11 +35,11 @@ const CLAPS_AFTER := 4
 ## A boss: bars of full drums before the first melody.
 const LEAD_AFTER := 4
 
-## How long each lead sounds, in bars: the next one waits until it's done. The clips in Live
-## are shorter (2, 2, 2, 1, 2, 4) but the guitar's delay repeats each phrase at nearly full
-## level, so starting the next one at the clip's own length laid two phrases over each other.
-## Measured from the files (where the sound ends; it stops on a bar line).
-const LEADS := {"forge": 4, "battle": 4, "minstrel": 4, "bridge": 3, "arp_a": 4, "arp_b": 6}
+## How long each lead is, in bars: the clip's own length in Live. The files run on past it
+## (the guitar's delay repeats the phrase at nearly full level, the last note ringing on), so
+## each phrase is damped right at its clip's end (CUT_FADE) and the next comes in on time.
+const LEADS := {"forge": 2, "battle": 2, "minstrel": 2, "bridge": 1, "arp_a": 2, "arp_b": 4}
+const CUT_FADE := 0.12  # the damp at a phrase's end: quick, but not a click
 const MELODIES := ["forge", "battle", "minstrel"]
 const ARPS := ["arp_a", "arp_b"]
 ## The boss cycle: [kind, bars it fills]. Each step plays its phrase at least once, and
@@ -55,6 +55,16 @@ const HOME_AMBIENCE := "amb_night"
 const DEATH_AMBIENCE := ["amb_cinder", "amb_tunnel"]  # the old recordings: for a death
 
 static var _inst: Music
+## The hand at death's door: the whole score (and ambience) narrows to a band, lows and highs
+## cut away, like hearing it through the ringing in your ears. The game sets this every frame
+## (main: a fight, and the hand below a quarter); it eases in and out.
+static var critical := false
+const CRIT_LOW_PASS := 1400.0  # the highs gone above this (Hz), at full effect
+const CRIT_HIGH_PASS := 380.0  # the lows gone below this
+const CRIT_IN := 1.6  # per second: closes in over a moment...
+const CRIT_OUT := 0.8  # ...and opens back up slower, as you come round
+var _crit := 0.0
+var _crit_fx: Array = []  # [low pass, high pass] on the Music bus
 
 var mode := Mode.AMBIENT
 var _mode_set := false  # has anyone asked for a mode yet
@@ -67,6 +77,7 @@ var _target := {}  # layer -> linear gain it's heading for
 var _rate := {}  # layer -> gain per second
 var _events: Array = []  # [time, layer, gain, fade]; fire at `time`
 var _lead_players: Array[AudioStreamPlayer] = []
+var _lead_cut: Array[float] = []  # per lead player: clock time its phrase ends (-1: none)
 var _lead_streams := {}
 var _lead_turn := 0
 
@@ -119,8 +130,37 @@ func _ready() -> void:
 		p.volume_db = LEVEL.lead
 		add_child(p)
 		_lead_players.append(p)
+		_lead_cut.append(-1.0)
 	for k in LEADS:
 		_lead_streams[k] = _load("lead_" + k, false)
+
+
+func _tick_critical(delta: float) -> void:
+	var want := 1.0 if critical else 0.0
+	if _crit == want and (_crit_fx.is_empty() or want == 0.0):
+		return
+	_crit = move_toward(_crit, want, delta * (CRIT_IN if critical else CRIT_OUT))
+	var bus := AudioServer.get_bus_index("Music")
+	if bus < 0:
+		return
+	if _crit_fx.is_empty():
+		var lp := AudioEffectLowPassFilter.new()
+		var hp := AudioEffectHighPassFilter.new()
+		AudioServer.add_bus_effect(bus, lp)
+		AudioServer.add_bus_effect(bus, hp)
+		_crit_fx = [lp, hp]
+	var on := _crit > 0.0
+	for i in AudioServer.get_bus_effect_count(bus):
+		if AudioServer.get_bus_effect(bus, i) in _crit_fx:
+			AudioServer.set_bus_effect_enabled(bus, i, on)
+	var t := _crit * _crit * (3.0 - 2.0 * _crit)  # smoothstep
+	(_crit_fx[0] as AudioEffectLowPassFilter).cutoff_hz = exp(lerpf(log(20000.0), log(CRIT_LOW_PASS), t))
+	(_crit_fx[1] as AudioEffectHighPassFilter).cutoff_hz = exp(lerpf(log(20.0), log(CRIT_HIGH_PASS), t))
+
+
+## How far the critical filter has closed in (0 open, 1 full), for the tests.
+static func critical_amount() -> float:
+	return _inst._crit if _inst else 0.0
 
 
 func _exit_tree() -> void:
@@ -238,6 +278,7 @@ func _apply(layer: String) -> void:
 
 func _process(delta: float) -> void:
 	_tick_clock(delta)
+	_tick_critical(delta)
 	var now := _clock + LOOKAHEAD
 	while not _events.is_empty():
 		_events.sort_custom(func(a, b): return a[0] < b[0])
@@ -248,6 +289,7 @@ func _process(delta: float) -> void:
 		trace.append([_clock, "%s -> %.0f" % [e[1], e[2]]])
 	if _lead_at >= 0.0 and now + PRE_ROLL >= _lead_at:
 		_play_lead()
+	_damp_leads()
 	for layer in _gain:
 		if _gain[layer] != _target[layer]:
 			_gain[layer] = move_toward(_gain[layer], _target[layer], _rate[layer] * delta)
@@ -377,14 +419,32 @@ func _play_lead() -> void:
 		_step_lead = _pick(step[0])
 	var bars: int = LEADS[_step_lead]
 	var p := _lead_players[_lead_turn]
+	_lead_cut[_lead_turn] = _lead_at + bars * BAR
 	_lead_turn = (_lead_turn + 1) % _lead_players.size()
 	var s: AudioStream = _lead_streams[_step_lead]
 	if s:
 		p.stream = s
+		p.volume_db = LEVEL.lead
 		p.play(maxf(_clock - (_lead_at - PRE_ROLL), 0.0))
 	trace.append([_lead_at, "lead " + _step_lead])
 	_lead_at += bars * BAR
 	_step_left -= bars
+
+
+## A phrase past its clip's end is damped: no delay repeats, no last note ringing on.
+func _damp_leads() -> void:
+	for i in _lead_players.size():
+		var cut := _lead_cut[i]
+		var p := _lead_players[i]
+		if cut < 0.0 or not p.playing or _clock < cut:
+			continue
+		var k := (_clock - cut) / CUT_FADE
+		if k >= 1.0:
+			p.stop()
+			p.volume_db = LEVEL.lead
+			_lead_cut[i] = -1.0
+		else:
+			p.volume_db = LEVEL.lead + linear_to_db(maxf(1.0 - k, 0.001))
 
 
 func _pick(kind: String) -> String:

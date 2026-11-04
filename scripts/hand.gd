@@ -55,6 +55,9 @@ var wrath_time := 0.0  # Ring of Wrath: every hit hits much harder while this ru
 var frenzy := 0  # Ring of Frenzy: hits in the current streak
 var frenzy_time := 0.0  # how long the streak has to land its next hit
 var gamble_mult := 1.0  # Gambler's Ring: what the next hit is multiplied by
+var blood_mult := 1.0  # Ring of Bloodletting: the next hit, paid for in blood
+var pain := 0.0  # everything the hand has taken this fight: blows, burns, its own blood (Ring of Scars)
+var self_harm := false  # true while a wound() is going through: a price paid on purpose
 var well_time := 0.0  # Ring of the Well: the pile is dragged to the hand while this runs
 var on_hurt: Callable  # set by the game: rings that change a blow to the hand (amount -> amount)
 var knock: Callable  # set by the game: Space while holding something; returns true if it went through the door
@@ -93,6 +96,8 @@ func reset_run() -> void:
 	wrath_time = 0.0
 	frenzy = 0
 	gamble_mult = 1.0
+	blood_mult = 1.0
+	pain = 0.0
 	well_time = 0.0
 	dead = false
 	release()
@@ -226,12 +231,28 @@ func hurt(amount: float) -> void:
 		amount = on_hurt.call(amount)
 		if amount <= 0.0:
 			return
+	if self_harm:
+		amount = minf(amount, max_hp - injury - 1.0)  # a price can take you to the brink, not over it
+		if amount <= 0.0:
+			return
 	injury = minf(max_hp, injury + amount)
+	pain += amount
 	hurt_taken.emit(amount)
 	_flinch = clampf(amount / 25.0, 0.1, 0.5)
 	_recoil = Vector2(randf_range(-1.0, 1.0), 1.0).normalized() * clampf(amount * 1.2, 4.0, 30.0)
-	if amount > DROP_THRESHOLD * strength:
+	if amount > DROP_THRESHOLD * strength and not self_harm:
 		release()
+
+
+## Self-inflicted: a price paid on purpose (Blood Price, Bloodletting, the Hair Shirt). It goes
+## through hurt() like any blow, so the rings that answer pain answer it (Thorns, the Martyr,
+## Scars, Desperation...), but it never takes the last point of the hand. What it cost.
+func wound(amount: float) -> float:
+	var before := injury
+	self_harm = true
+	hurt(amount)
+	self_harm = false
+	return injury - before
 
 
 func heal(amount: float) -> void:
@@ -409,7 +430,9 @@ func _touch_hazards(delta: float) -> void:
 	if shock < 0.05 and burn < 0.2 and frost < 0.3:
 		return
 	hazard_time = 0.2
-	injury = minf(max_hp, injury + (shock * 10.0 + burn * 7.0 + frost * 4.0) * delta)
+	var burnt := (shock * 10.0 + burn * 7.0 + frost * 4.0) * delta
+	injury = minf(max_hp, injury + burnt)
+	pain += burnt  # (grabbing a red-hot blade on purpose feeds the Ring of Scars)
 	if shock > 0.5 and held and randf() < delta * 1.5:
 		release()
 

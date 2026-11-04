@@ -77,6 +77,9 @@ func _process(_d: float) -> bool:
 				var both := [Music.MELODIES.has(order[i - 1]), Music.MELODIES.has(order[i])]
 				_check(both != [true, true], "two melodies shouldn't play back to back (%s)" % [order])
 			print("boss phrases: ", order)
+			for i in music._lead_players.size():
+				var lp: AudioStreamPlayer = music._lead_players[i]
+				_check(not lp.playing or music._clock <= music._lead_cut[i] + Music.CUT_FADE + 0.05, "a guitar phrase shouldn't ring on past its clip")
 			music.set_mode(Music.Mode.AMBIENT)
 		85 * 60:
 			_check(_when("stopped", 79.0) >= 0.0, "home should fade the score out and stop it")

@@ -56,6 +56,16 @@ const REST_PER_SEC := 0.5
 const REST_MAX := 4.0
 const LIGHTNING_ROD_BOLT := 10.0
 const RECKLESS_WEAR := 3.0
+const CRITICAL_HURT := 0.75  # the hand below a quarter: the music closes in
+const BLOOD_PRICE := 4.0  # Blood Price: what each hit cuts from your own hand
+const BLOODLET := 10.0  # Ring of Bloodletting: the cut
+const SOOTHE := 2.0  # soothing: healing a second, held in a fight
+const SECOND_WIND := 35.0
+const SHIRT_EVERY := 2.0  # Hair Shirt: a point of chafing this often
+const SHIRT_BONUS := 1.4
+var _second_wind_used := false
+var _shirt_t := 0.0
+var hoard_shirt := false  # a Hair Shirt in the pile
 const COUNTER_CAP := 80.0
 const RALLY_TIME := 3.0
 const STORM_TIME := 3.0  # how long a Stormcaller's elemental storm rages on a foe
@@ -696,6 +706,8 @@ func _start_fight() -> void:
 	_stars_caught = 0
 	_fight_start = clock
 	_fight_taken = 0.0
+	hand.pain = 0.0
+	_second_wind_used = false
 	_fight_reactions.clear()
 	_quake = 5.0
 	_rain = 3.0
@@ -883,6 +895,10 @@ func _pay_utilities() -> void:
 				if tithe > 0:
 					_spawn_coins(tithe, it.global_position + Vector2(0, -20), 80.0)
 					overlay.ring(it.global_position, 40.0, Color(1, 0.85, 0.3))
+			"mortar":
+				hand.heal(15.0)
+				overlay.ring(it.global_position, 40.0, Color(0.5, 1.0, 0.6))
+				overlay.streak(it.global_position, hand.position, 2.0, Color(0.5, 1.0, 0.6), 0.3)
 			"crucible":
 				# metal scrap resting on it melts down: a coin for every three cells
 				var melted := 0
@@ -920,6 +936,7 @@ func _refresh_hoard() -> void:
 	hoard_wear = 1.0 - 0.08 * mini(5, pauldrons) if _has_utility("pegs") else 1.0
 	hoard_stagger = 1.0 + 0.15 * mini(3, shields) if _has_utility("banner") else 1.0
 	hoard_damage = 1.0 + 0.02 * mini(10, gear) if _has_utility("idol") else 1.0
+	hoard_shirt = _has_utility("hairshirt")
 	var stones := _owned_count(func(it: Item) -> bool: return it.def.get("utility", "") == "sentinel" and it.health_ratio() >= 0.3)
 	hoard_ward = 1.0 - pow(1.0 - WARD_PER, mini(WARD_MAX, stones))
 
@@ -1452,6 +1469,8 @@ func _grade_block(atk: Dictionary, poly: PackedVector2Array, touched: Dictionary
 	if (parried or leak < CLEAN_BLOCK) and hand.has_ring("ring_grudge"):
 		hand.grudges = mini(5, hand.grudges + (2 if parried else 1))
 	_block_rings(atk, parried, leak < CLEAN_BLOCK, prevented, impact, enemy)
+	if main_blocker and _has(main_blocker, "hallowed") and (parried or leak < CLEAN_BLOCK):
+		_heal_hand(8.0 if parried else 3.0, impact)
 	enemy.on_blocked(parried or leak < CLEAN_BLOCK)
 	if parried:
 		if leak < CLEAN_BLOCK:
@@ -1634,7 +1653,7 @@ func _check_weapon_hit(it: Item, regs: Array) -> bool:
 			dmg += _counter_bank  # Riposte Guard: everything the shield took, back at them
 			overlay.ring(r.center, 70.0, Color(0.8, 0.9, 1.0), 0.4)
 			_counter_bank = 0.0
-		dmg *= _ring_damage_mult() * hoard_damage * enemy.weapon_mult(it)
+		dmg *= _ring_damage_mult() * hoard_damage * enemy.weapon_mult(it) * (SHIRT_BONUS if hoard_shirt else 1.0)
 		if float(enemy.get_meta("vulnerable_until", 0.0)) > clock:
 			dmg *= VULNERABLE
 
@@ -1656,6 +1675,9 @@ func _check_weapon_hit(it: Item, regs: Array) -> bool:
 			_apply_element(enemy, el, r.center)
 		if hand.has_ring("ring_vampire"):
 			hand.heal(dmg * 0.1)
+		if _has(it, "sanguine"):
+			hand.heal(dmg * 0.15)
+			overlay.streak(r.center, hand.position, 1.5, Color(0.8, 0.1, 0.2), 0.25)
 		if it.heat > 0.3:
 			enemy.heat_up(it.heat * 0.34)  # about three red-hot hits sets it alight
 		if it.cold > 0.3 and enemy.data.get("cold_stagger", false):
@@ -1719,6 +1741,12 @@ func _rare_mult(it: Item, enemy: Enemy, r: Dictionary) -> float:
 		m *= minf(3.0, 1.0 + 0.2 * kin)
 	if _has(it, "reckless"):
 		m *= 2.5
+	if _has(it, "bloodprice"):
+		m *= 2.5
+		if hand.wound(BLOOD_PRICE) > 0.0:
+			overlay.ring(hand.position, 34.0, Color(0.7, 0.0, 0.05), 0.25)
+	if _has(it, "bloodthirsty"):
+		m *= 1.0 + 2.0 * hand.hurt_fraction()
 	if enemy.has_meta("baton_by") and float(enemy.get_meta("baton_until", 0.0)) > clock:
 		if enemy.get_meta("baton_by") != it:
 			m *= 2.5  # a hand-off: another weapon marked it
@@ -2094,6 +2122,15 @@ func _hand_hurt(amount: float) -> float:
 	var foe: Enemy = living()[0] if state == State.COMBAT and not living().is_empty() else null
 	if hand.has_ring("ring_glass"):
 		amount *= 2.0
+	if hand.self_harm:
+		# a price paid on purpose: the pain-answering rings still answer it (Thorns, the Martyr),
+		# but no coins are spent on it and it can't burn the Phoenix (it never kills)
+		if foe and hand.has_ring("ring_thorns"):
+			foe.take_hit(amount * 2.0, "torso", false)
+			overlay.ring(hand.position, 40.0, Color(0.35, 0.6, 0.2), 0.3)
+		if foe and hand.has_ring("ring_martyr"):
+			foe.add_stagger(amount * 3.0)
+		return amount
 	if hand.has_ring("ring_midas") and state != State.HOME:
 		var spend := mini(coin_total(), ceili(amount / 3.0))
 		if spend > 0 and _pay(spend, hand.position + Vector2(0, -30)):
@@ -2118,6 +2155,44 @@ func _hand_hurt(amount: float) -> float:
 	return amount
 
 
+## Healing that comes from somewhere: a green ring where it came from, a streak to the hand.
+func _heal_hand(amount: float, from: Vector2) -> void:
+	if hand.injury <= 0.0:
+		return
+	hand.heal(amount)
+	overlay.streak(from, hand.position, 1.5, Color(0.5, 1.0, 0.6), 0.25)
+	overlay.ring(hand.position, 30.0, Color(0.5, 1.0, 0.6), 0.25)
+
+
+## In a fight, every frame: what heals the hand on its own, and what bleeds it.
+func _tick_blood(delta: float) -> void:
+	if hand.held and hand.held.has_mod("soothing"):
+		hand.heal(SOOTHE * delta)
+	if hoard_shirt:
+		_shirt_t += delta
+		if _shirt_t >= SHIRT_EVERY:
+			_shirt_t = 0.0
+			hand.wound(1.0)
+	var low := hand.hurt_fraction()
+	if hand.has_ring("ring_second_wind") and not _second_wind_used and low > 0.75:
+		_second_wind_used = true
+		_heal_hand(SECOND_WIND, hand.position + Vector2(0, -40))
+		overlay.starburst(hand.position, 120.0, Color(0.5, 1.0, 0.6))
+		Sfx.play("ting", 0.0, 0.8)
+	if low > 0.7:
+		# a Field Dressing binds itself, from wherever it lies in the pile
+		for n in get_tree().get_nodes_in_group("items"):
+			var it := n as Item
+			if it and it.owned and not it.is_queued_for_deletion() and low > 1.0 - float(it.def.get("auto_heal", 0.0)):
+				_heal_hand(float(it.def.heal), it.global_position)
+				overlay.starburst(it.global_position, 80.0, Color(0.95, 0.95, 0.85))
+				Sfx.play("ting", -4.0, 1.2)
+				if it == hand.held:
+					hand.release()
+				it.queue_free()
+				break
+
+
 ## Rings that answer a good block.
 func _block_rings(atk: Dictionary, parried: bool, clean: bool, prevented: float, impact: Vector2, enemy: Enemy) -> void:
 	if parried or clean:
@@ -2128,6 +2203,8 @@ func _block_rings(atk: Dictionary, parried: bool, clean: bool, prevented: float,
 	if (parried or clean) and hand.has_ring("ring_winter"):
 		enemy.slow_time = maxf(enemy.slow_time, 2.0)
 		overlay.sparks(impact, 8000.0, Color(0.65, 0.95, 1.0))
+	if hand.has_ring("ring_resolve") and (parried or clean):
+		_heal_hand(6.0 if parried else 2.0, impact)
 	if parried and hand.has_ring("ring_inferno"):
 		enemy.heat_up(1.0)
 	if parried and hand.has_ring("ring_static"):
@@ -2175,6 +2252,11 @@ func _ring_damage_mult() -> float:
 	if hand.gamble_mult > 1.0:
 		m *= hand.gamble_mult
 		hand.gamble_mult = 1.0
+	if hand.blood_mult > 1.0:
+		m *= hand.blood_mult
+		hand.blood_mult = 1.0
+	if hand.has_ring("ring_scars"):
+		m *= 1.0 + minf(1.5, hand.pain * 0.015)
 	if hand.has_ring("ring_frenzy"):
 		m *= 1.0 + 0.25 * mini(hand.frenzy, 8)
 		hand.frenzy += 1
@@ -2871,6 +2953,14 @@ func _on_ring_used(ring: String, at: Vector2, finger: int) -> void:
 				hand.hurt(12.0)
 				overlay.ring(at, 60.0, Color(1.0, 0.2, 0.2), 0.3)
 				Sfx.play("crack", -2.0, 0.8)
+		"ring_bloodletting":
+			if hand.wound(BLOODLET) > 0.0:
+				hand.blood_mult = 3.0
+				overlay.ring(at, 60.0, Color(0.7, 0.0, 0.05), 0.3)
+				overlay.sparks(at, 6000.0, Color(0.7, 0.0, 0.05))
+				Sfx.play("crack", -4.0, 0.7)
+			else:
+				hand.ring_cds[finger] = 0.0  # nothing left to bleed: no charge spent
 		"ring_wrath":
 			hand.wrath_time = 4.0
 			overlay.ring(at, 80.0, Color(1.0, 0.2, 0.1), 0.4)
@@ -2952,6 +3042,9 @@ func _process(delta: float) -> void:
 		_merge_coins()
 		_cap_debris()
 		_refresh_hoard()
+	if state == State.COMBAT:
+		_tick_blood(delta)
+	Music.critical = state == State.COMBAT and hand.hurt_fraction() > CRITICAL_HURT
 	if state != State.DEFEAT and state != State.HOME and hand.injury >= hand.max_hp:
 		_defeat()  # in a fight, in the shop or in between: a ruined hand ends the run
 	if debug_label.visible:

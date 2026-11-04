@@ -78,6 +78,26 @@ enemy with an infused blade, is where the absurd numbers live.
 | Alchemist (RMB) | the item under your hand goes up a metal (wood, bone, stone, leather -> copper -> iron -> steel -> gold) |
 | Gambler (RMB) | coin flip: your next hit x6, or your hand takes 12 |
 
+**Blood: healing, and pain that pays.** Getting low is a resource. The rings that answer
+pain (Desperation, Thorns, the Martyr, Scars) answer it whether it came from the enemy, a
+red-hot blade grabbed by the steel on purpose, or your own blood. **Self-inflicted damage
+never takes the last point of the hand** (`Hand.wound()`): it can bring you to the brink,
+not over it, and it can't burn a Phoenix Ring. It doesn't drop what you're holding, and the
+Midas Ring won't spend coins on it.
+
+| Ring | What it does |
+|---|---|
+| Second Wind | once a fight, when the hand drops below a quarter, it heals 35 |
+| Resolve | every parry heals 6, every clean block 2 |
+| Scars | +1.5% weapon damage per point the hand has lost this fight, to anything (up to +150%) |
+| Bloodletting (RMB) | cut your own hand for 10; your next hit does x3 |
+
+Gear: the **Field Dressing** (a better bandage: the moment the hand drops below 30% in a
+fight it flies to it from anywhere in the pile and heals 45; Space binds it sooner), the
+**Apothecary's Mortar** (utility: heals the hand 15 after each fight), and the **Hair Shirt**
+(utility: in a fight it chafes a point every 2 s, and weapon hits do +40%). The plain
+modifier **soothing** heals the hand 2 a second while it's held in a fight.
+
 ## Inspecting
 Hold **Alt** and the game **freezes**; the hand becomes a magnifying glass. Point it at:
 - **An item** for its card.
@@ -274,6 +294,9 @@ big when its condition is met, and many change with what else is going on.
 | Kindred | +20% per other piece you own of its metal (up to x3) |
 | Reckless | x2.5, but every hit chews its own edge |
 | Kindling | a hit while it's hot sets every other weapon you own red-hot |
+| Sanguine | its hits heal your hand 15% of the damage |
+| Blood Price | every hit cuts your own hand for 4, and does x2.5 |
+| Bloodthirsty | x(1 + 2 x how hurt the hand is): x2 at half health, up to x3 at death's door |
 
 **Shields:**
 
@@ -281,6 +304,7 @@ big when its condition is met, and many change with what else is going on.
 |---|---|
 | Riposte Guard | what it stops is banked (up to 80): your next weapon hit adds it all |
 | Rally | a parry with it (a braced block) readies every weapon you own, and the next hit within 3 s is x1.5 |
+| Hallowed | a parry with it heals your hand 8; a clean block, 3 |
 
 **Elements ride the rare effects.** A piece's element is whatever it carries right now:
 hot (superheated, burning or forge-hot) is fire; frosty or cold is frost; poisoned is
@@ -617,6 +641,12 @@ recordings play over a death). Each stem plays on its own player, all started to
 every 2 s `Music._keep_in_step()` puts any stem that has drifted more than 40 ms from the
 bass (or stopped) back in step, and the music clock follows the audio only once it has kept
 real time for a second. The shop's calm mode holds the drums at zero.
+**At death's door** (a fight, and the hand below a quarter) the whole score narrows to a band:
+a low-pass and a high-pass on the Music bus close in over half a second (highs gone above
+1.4 kHz, lows below 380 Hz) and open back up when you heal or the fight ends
+(`Music.critical`). The boss's guitar phrases are each damped (0.12 s) right at the end of
+their clip in Live (2, 2, 2, 1, 2 and 4 bars): the files run on with the guitar's delay
+repeating the last notes, which rang on into the next phrase.
 
 ## Layout
 - `scripts/main.gd`: game flow (home, run, shop, prestige), attack resolution, weapon hits, hoard effects
@@ -723,8 +753,9 @@ low) and the death (`Enemy._die`, the whole body pitches forward).
 
 ## Builds and versions
 The version lives in `project.godot` (`application/config/version`) and is shown on the
-placard at home. It goes up with the game: the middle number for new features, the last for
-fixes; the first only by decision.
+placard at home. It goes up with the game: the last number for an ordinary batch of
+changes (new items, tweaks, fixes), the middle one only for a big milestone (a new system,
+a reworked core); the first only by decision.
 
 Linux (Hunter's platform) is built alongside: `python tools/build_linux.py` exports the
 "Linux" preset and packs `build/Bulwark-v<version>-linux-x86_64.tar.gz` (executable bit

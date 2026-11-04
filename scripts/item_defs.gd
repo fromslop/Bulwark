@@ -56,6 +56,10 @@ const DEFS := {
 		"materials": ["stone"], "fixed_mods": ["magnetic"], "effect": "Draws your coins, scraps and pauldrons into a pile around it, out of the way."},
 	"sentinel_stone": {"title": "Sentinel Stone", "kind": "utility", "utility": "sentinel", "shape": "sentinel", "price": 4,
 		"materials": ["stone"], "effect": "Everything you aren't holding blocks better. Stacks: each stone closes 12% more of what gets past (up to 6)."},
+	"mortar": {"title": "Apothecary's Mortar", "kind": "utility", "utility": "mortar", "shape": "mortar", "price": 7,
+		"materials": ["stone"], "effect": "After each fight: heals your hand 15. Keep it in one piece."},
+	"hair_shirt": {"title": "Hair Shirt", "kind": "utility", "utility": "hairshirt", "shape": "shirt", "price": 6,
+		"materials": ["cloth"], "effect": "In a fight it chafes: your hand takes 1 every 2s (never the last point). Weapon hits do +40%."},
 	# Kits: dab a modifier onto a piece of gear (like the Glue Pot)
 	"resin": {"title": "Resin Block", "kind": "consumable", "shape": "resin", "price": 4, "materials": ["wood"],
 		"applies": "reinforced", "uses": 1},
@@ -150,6 +154,9 @@ const DEFS := {
 		"materials": ["copper", "iron", "steel"], "swing_damage": 18.0, "swing_speed": 10.0, "cooldown": 1.2, "guard": 0.88},
 	"bandage": {"title": "Bandage", "kind": "consumable", "shape": "bandage", "price": 4,
 		"materials": ["cloth"], "heal": 30.0},
+	"field_dressing": {"title": "Field Dressing", "kind": "consumable", "shape": "dressing", "price": 7,
+		"materials": ["cloth"], "heal": 45.0, "auto_heal": 0.3,
+		"effect": "Binds itself: the moment your hand drops below 30% in a fight, it flies to it and heals 45 (from anywhere in your pile). Space binds it sooner."},
 	# Prestige legendaries: only turn up once the run has been pushed past its first boss.
 	"mirror_shield": {"title": "Mirror Shield", "kind": "shield", "shape": "kite", "price": 11, "materials": ["steel"],
 		"fixed_mods": ["reinforced", "regenerating", "magnetic"],
@@ -231,6 +238,7 @@ const MODIFIERS := {
 	"corrosive": {"desc": "rusts any metal it touches (rust it gives stays put: it doesn't spread on). On a weapon it eats a foe's armour: about three hits rust a pauldron off, exposing the flesh under it (x1.6) long before force would", "price": 1.2},
 	"volatile": {"desc": "explodes when heated, shocked or struck hard", "price": 0.8},
 	"regenerating": {"desc": "slowly heals itself", "price": 1.7},
+	"soothing": {"desc": "held in a fight, it slowly heals your hand (2 a second)", "price": 1.6},
 	"small": {"desc": "two-thirds size", "price": 0.8, "size": 0.65, "group": "size"},
 	"large": {"desc": "half again as big", "price": 1.4, "size": 1.5, "group": "size"},
 	"huge": {"desc": "twice the size", "price": 1.9, "size": 2.0, "group": "size"},
@@ -253,9 +261,14 @@ const MODIFIERS := {
 	"lightning_rod": {"name": "Lightning Rod", "desc": "its hit draws the charge out of every charged piece you own: +10 each, through armour", "price": 2.0, "rare": true},
 	"kindred": {"name": "Kindred", "desc": "+20% for every other piece you own of its metal (up to x3)", "price": 1.9, "rare": true},
 	"reckless": {"name": "Reckless", "desc": "hits do x2.5, but each one chews its own edge", "price": 1.7, "rare": true},
+	# blood: heal from the fight, or pay into it
+	"sanguine": {"name": "Sanguine", "desc": "its hits heal your hand by 15% of the damage they do", "price": 2.0, "rare": true},
+	"bloodprice": {"name": "Blood Price", "desc": "every hit cuts your own hand for 4 (never the last point), and does x2.5", "price": 1.8, "rare": true},
+	"bloodthirsty": {"name": "Bloodthirsty", "desc": "the more your hand is hurt, the harder it hits: up to x3 at death's door", "price": 1.9, "rare": true},
 	"kindling": {"name": "Kindling", "desc": "a hit while it's hot sets every other weapon you own red-hot too", "price": 1.8, "rare": true},
 	# shields
 	"counter": {"name": "Riposte Guard", "desc": "what it stops is banked (up to 80): your next weapon hit adds it all", "price": 2.0, "rare": true, "kinds": ["shield"]},
+	"hallowed": {"name": "Hallowed", "desc": "a parry with it heals your hand 8; a clean block, 3", "price": 1.9, "rare": true, "kinds": ["shield"]},
 	"rally": {"name": "Rally", "desc": "a parry with it readies every weapon you own and makes the next hit within 3s x1.5", "price": 1.9, "rare": true, "kinds": ["shield"]},
 }
 
@@ -333,6 +346,15 @@ const UPGRADES := {
 		"ring": true, "cooldown": 30.0, "shape": "ring", "material": "gold", "gem": Color(0.9, 0.7, 0.2)},
 	"ring_gambler": {"title": "Gambler's Ring", "desc": "RMB: a coin flip. Heads, your next hit does x6. Tails, your hand takes 12", "cost": 9,
 		"ring": true, "cooldown": 8.0, "shape": "ring", "material": "gold", "gem": Color(0.2, 0.8, 0.3)},
+	# --- blood: healing, and pain that pays ----------------------------------------------
+	"ring_second_wind": {"title": "Ring of Second Wind", "desc": "once a fight, when your hand drops below a quarter, it heals 35", "cost": 10,
+		"ring": true, "cooldown": 0.0, "shape": "ring", "material": "gold", "gem": Color(0.5, 1.0, 0.6)},
+	"ring_resolve": {"title": "Ring of Resolve", "desc": "every parry heals your hand 6; every clean block, 2", "cost": 10,
+		"ring": true, "cooldown": 0.0, "shape": "ring", "material": "gold", "gem": Color(1.0, 0.9, 0.6)},
+	"ring_scars": {"title": "Ring of Scars", "desc": "+1.5% weapon damage for every point your hand has lost this fight, to blows, burns or your own blood (up to +150%)", "cost": 11,
+		"ring": true, "cooldown": 0.0, "shape": "ring", "material": "gold", "gem": Color(0.6, 0.25, 0.25)},
+	"ring_bloodletting": {"title": "Ring of Bloodletting", "desc": "RMB: cut your own hand for 10 (never the last point); your next hit does x3", "cost": 9,
+		"ring": true, "cooldown": 6.0, "shape": "ring", "material": "gold", "gem": Color(0.7, 0.0, 0.05)},
 	"ring_grounding": {"title": "Ring of Grounding", "desc": "shocks can't hurt you", "cost": 9, "ring": true, "shape": "ring", "material": "gold", "gem": Color(0.9, 0.8, 0.3), "cooldown": 0.0},
 	"ring_fireward": {"title": "Ring of Fireward", "desc": "heat, fire and frost can't hurt you", "cost": 9, "ring": true, "shape": "ring", "material": "gold", "gem": Color(1.0, 0.3, 0.2), "cooldown": 0.0},
 }
@@ -712,6 +734,12 @@ static func shape_mask(shape: String) -> PackedStringArray:
 			return PackedStringArray(["MMMMMMM", ".MMMMM.", ".MMMMM.", "..MMM..", ".MMMMM."])
 		"lodestone":
 			return PackedStringArray([".MMM.", "MMMMM", "MMMMM", "MMMMM", ".MMM."])
+		"dressing":
+			return PackedStringArray([".cccc.", "cccccc", "llllll", "cccccc", ".cccc."])
+		"mortar":
+			return PackedStringArray(["....w", "M..wM", "MMMMM", ".MMM.", ".MMM."])
+		"shirt":
+			return PackedStringArray(["MM.MM", "MMMMM", ".MMM.", ".MMM.", ".MMM."])
 		"sentinel":
 			return PackedStringArray(["..M..", ".MMM.", ".MgM.", ".MMM.", "MMMMM", "MMMMM"])
 		"wisp":
