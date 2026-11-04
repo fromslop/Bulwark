@@ -19,12 +19,22 @@ const SOUND_MIN_DV := 220.0  # gentler knocks than this are silent
 const SHIELD_WEIGHT := 0.6  # shields are built to be carried: lighter than the same metal as a lump
 const UNGLUABLE := ["coin", "menu", "upgrade", "potion"]
 const FUSE_CAP := 900  # cells: past this a glued lump is too big to be one thing
+const FUSE_SLIDE := 6  # cells: how far a glued-on piece may slide to sit clear of the other
 const PART_WHOLE := 0.7  # a part torn off with this much of itself left falls away as itself
 const WEAR_RING := 0.45  # share of a blow's wear on the cells round where it struck
 const WEAPON_GUARD := 0.75  # a blade is a poor wall: weapons block this much as well as their material
 const BRACE_TIME := 0.45  # Space with a shield: braced this long, every block a parry
 const CRATE_OPEN_AT := 0.7  # a crate bursts once it's lost this much of its condition
 const LOCK_RUST := 0.05  # per rust tick (4 a second) at full rust: a corroding crate's lock goes in ~5 s
+## Smashing your own crate open with a swing (see smash()): a swing lands its swing damage
+## times SMASH, times how much harder the weapon is than the crate (hp ratio less a half, up
+## to x3; prestigium counts triple, uncapped). A steel warhammer bursts a wooden crate in about three
+## swings, an iron shortsword in six or so, a club barely; a strongbox wants steel and
+## patience; a steel reliquary all but ignores anything short of prestigium, rust or a blast.
+const SMASH := 1.2
+const SMASH_REACH := 2.5  # cells: how wide a smash spreads round where it lands
+const SMASH_RUST := 0.35  # a corrosive weapon's hit on a metal crate eats this much of its lock
+const BLAST_LOCK := 1.5  # an explosion right next to a crate blows its lock (any metal) this far
 const WHETSTONE_WEAR := 0.1  # of the condition a whetstone puts back, what it loses itself
 const ANVIL_WEAR := 0.05
 const WEIGHTLESS_DENSITY := 0.04  # what's left of an item's weight when it goes weightless
@@ -90,8 +100,12 @@ var _impacts: Array = []  # [global point, closing speed, other] gathered in _in
 var _fuse := -1.0  # volatile: counting down to an explosion
 var _frozen_friction := false
 var _vel_now := Vector2.ZERO  # velocity at the last two physics steps (for impacts)
+var _spin_now := 0.0  # and spin, so a swung blade's head counts at its own speed
+var _spin_prev := 0.0
 var _vel_prev := Vector2.ZERO
 var _contact_ids := {}
+var _smashes: Array = []  # [global point, crate] this swing struck (handled outside physics)
+var _smashed := {}  # instance id -> true: crates this swing has already struck
 var _last_good := Transform2D.IDENTITY
 var _density_mult := 1.0
 var _pending_debris: Array = []
@@ -331,29 +345,47 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 		if _contact_ids.has(id):
 			continue  # already touching: resting, not a new knock
 		var other := state.get_contact_collider_object(i)
+		if swing_time > 0.0 and other is Item and other.def.has("loot") and other.owned and not _smashed.has(id):
+			_smashed[id] = true
+			_smashes.append([state.get_contact_local_position(i), other])
 		var n := state.get_contact_local_normal(i)
+		var at := state.get_contact_local_position(i)  # (global)
+		# the speed of the bits that met, not just of the bodies' centres: a swung hammer's
+		# head moves far faster than its middle
+		var mine := _point_vel(_vel_now, _spin_now, at - state.transform * center_of_mass)
 		var ov := Vector2.ZERO
 		var om := INF
 		if other is Item:
 			om = other.mass
 			# depending on step order the other body's pre-hit velocity is in one of these
-			var a: Vector2 = other._vel_now
-			var b: Vector2 = other._vel_prev
-			ov = a if absf((_vel_now - a).dot(n)) > absf((_vel_now - b).dot(n)) else b
+			var r: Vector2 = at - other.global_transform * other.center_of_mass
+			var a := _point_vel(other._vel_now, other._spin_now, r)
+			var b := _point_vel(other._vel_prev, other._spin_prev, r)
+			ov = a if absf((mine - a).dot(n)) > absf((mine - b).dot(n)) else b
 		elif other is RigidBody2D:
 			om = other.mass
 			ov = other.linear_velocity
 		var share := 1.0 if om == INF else 2.0 * om / (mass + om)
-		var dv := absf((_vel_now - ov).dot(n)) * share
+		var dv := absf((mine - ov).dot(n)) * share
 		if dv > SOUND_MIN_DV:
 			_impacts.append([state.get_contact_local_position(i), dv, other])
 	_contact_ids = seen
 	_vel_prev = _vel_now
 	_vel_now = state.linear_velocity
+	_spin_prev = _spin_now
+	_spin_now = state.angular_velocity
+
+
+static func _point_vel(v: Vector2, spin: float, r: Vector2) -> Vector2:
+	return v + Vector2(-spin * r.y, spin * r.x)
 
 
 ## Hard knocks hurt: the cell at the contact takes damage, more if the other thing is harder.
 func _process_impacts() -> void:
+	for sm in _smashes:
+		if is_instance_valid(sm[1]) and not sm[1].is_queued_for_deletion():
+			sm[1].smash(sm[0], self)
+	_smashes.clear()
 	if _impacts.is_empty():
 		return
 	var list := _impacts
@@ -372,6 +404,9 @@ func _process_impacts() -> void:
 			Sfx.play(Sfx.impact_for(cells[cell].mat), lerpf(-22.0, -2.0, loud), clampf(2.0 / sqrt(maxf(mass, 1.0) / 10.0), 0.6, 1.8))
 		if dv <= IMPACT_MIN_DV:
 			continue
+		var o_item: Item = other if other is Item and is_instance_valid(other) else null
+		if o_item and ((_glue > 0 and _glue_touches(o_item)) or (o_item._glue > 0 and o_item._glue_touches(self))):
+			continue  # pressed together on wet glue: that's a join, not a knock
 		damage_cell(cell, (dv - IMPACT_MIN_DV) / IMPACT_DV_PER_DAMAGE * hardness, true)
 		if has_mod("volatile") and dv > IMPACT_MIN_DV * 2.0:
 			light_fuse(0.05)
@@ -868,26 +903,26 @@ func fuse(o: Item) -> bool:
 	var theirs: Array = o.def.parts if o.def.has("parts") else [_part_summary(o.def, o._density_mult, o.cells.size())]
 	for pd in theirs:
 		def.parts.append((pd as Dictionary).duplicate(true))
-	var placed := 0
+	# the other thing comes across whole: its grid turned to the nearest quarter turn and moved
+	# as one block, so its shape, every pixel and its condition arrive exactly as they were
+	# (copied pixel by pixel at a slant, pixels rounded onto each other and were lost or
+	# pushed aside: glue warped and chipped both pieces). Overlapping, the block slides to the
+	# nearest spot where it doesn't; the glue seam then bridges any gap.
+	var quarter := posmod(roundi((o.global_rotation - global_rotation) / (PI / 2.0)), 4)
+	var anchor: Vector2i = o.nearest_cell(o.to_global(o.center_of_mass))
+	var lp := to_local(o.to_global(o.cell_pos(anchor)))
+	var base := Vector2i(floori((lp.x + origin.x) / CELL), floori((lp.y + origin.y) / CELL))
+	var spots := {}
 	for c in o.cells:
-		var lp := to_local(o.to_global(o.cell_pos(c)))
-		var idx := Vector2i(roundi((lp.x + origin.x) / CELL - 0.5), roundi((lp.y + origin.y) / CELL - 0.5))
-		var spot := idx
-		if cells.has(spot):
-			spot = Vector2i(9999, 9999)
-			for d in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN, Vector2i(1, 1), Vector2i(-1, 1), Vector2i(1, -1), Vector2i(-1, -1)]:
-				if not cells.has(idx + d):
-					spot = idx + d
-					break
-			if spot.x == 9999:
-				continue  # lost in the overlap
+		spots[c] = base + _quarter_turn(c - anchor, quarter)
+	var shift := _free_shift(spots.values())
+	if shift.x == 9999:
+		return false  # nowhere near to put it
+	for c in o.cells:
 		var cell: Dictionary = (o.cells[c] as Dictionary).duplicate()
 		cell.part = offset + int(cell.get("part", 0))
 		cell.erase("handle")  # only the main piece's grip is a grip
-		cells[spot] = cell
-		placed += 1
-	if placed == 0:
-		return false
+		cells[spots[c] + shift] = cell
 	_bridge(offset)
 	var title := str(o.def.get("title", o.def.get("name", "thing")))
 	def.name = "%s + %s" % [str(def.get("name", def.get("title", ""))), title]
@@ -916,6 +951,37 @@ func fuse(o: Item) -> bool:
 	Sfx.play("soft", -2.0, 0.7)
 	get_tree().call_group("game", "on_fused", self)
 	return true
+
+
+## A cell offset turned by `q` quarter turns (clockwise on screen, as rotation goes).
+static func _quarter_turn(v: Vector2i, q: int) -> Vector2i:
+	match q:
+		1:
+			return Vector2i(-v.y, v.x)
+		2:
+			return Vector2i(-v.x, -v.y)
+		3:
+			return Vector2i(v.y, -v.x)
+	return v
+
+
+## The smallest move (in cells) that puts every one of `spots` on an empty cell, or
+## (9999, 9999) if there isn't one close by.
+func _free_shift(spots: Array) -> Vector2i:
+	var moves: Array[Vector2i] = []
+	for dy in range(-FUSE_SLIDE, FUSE_SLIDE + 1):
+		for dx in range(-FUSE_SLIDE, FUSE_SLIDE + 1):
+			moves.append(Vector2i(dx, dy))
+	moves.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return a.length_squared() < b.length_squared())
+	for d in moves:
+		var clear := true
+		for sp in spots:
+			if cells.has(sp + d):
+				clear = false
+				break
+		if clear:
+			return d
+	return Vector2i(9999, 9999)
 
 
 ## Glued pieces that only touch at a corner, or not quite at all, are joined by a seam of
@@ -1279,6 +1345,7 @@ func start_swing(dir: float, power: float, haste: float = 1.0, part: Dictionary 
 	queue_redraw()  # drained of colour while it recovers
 	swing_time = 0.35
 	swing_hit = false
+	_smashed.clear()
 	angular_velocity = dir * float(swing_part.get("swing_speed", def.get("swing_speed", 10.0))) * power / maxf(1.0, sqrt(swing_mass / 15.0))
 	return true
 
@@ -1344,6 +1411,42 @@ func _rebuild() -> void:
 	_recompute_mass()
 	queue_redraw()
 	_check_crate()
+
+
+## Struck by a swing of your own (a hammer brought down on your crate): it lands like a weapon
+## hit, cut down by how much harder this is than the weapon, spread round where it lands.
+## A corrosive weapon eats a metal crate's lock as well.
+func smash(at: Vector2, by: Item) -> void:
+	var c := nearest_cell(at)
+	if not cells.has(c) or def.get("opened", false):
+		return
+	var wd: Dictionary = by.swing_part if not by.swing_part.is_empty() else by.def
+	var wmat: String = wd.get("material", by.def.material)
+	var ratio: float = Materials.get_mat(wmat).hp / Materials.get_mat(cells[c].mat).hp
+	var bite := clampf(ratio - 0.5, 0.0, 3.0)
+	if wmat == "prestigium":
+		bite = ratio * 3.0 - 0.5  # the keenest there is: no cap, and a reliquary gives way
+	var amount := float(wd.get("swing_damage", 4.0)) * SMASH * bite * by.heft()
+	var weights := {}
+	var total := 0.0
+	for o in cells:
+		var d := Vector2(o - c).length()
+		if d <= SMASH_REACH:
+			weights[o] = 1.0 - d / (SMASH_REACH + 1.0)
+			total += weights[o]
+	for o in weights:
+		damage_cell(o, amount * weights[o] / total, false)
+	if by.has_mod("corrosive") and conductive:
+		_lock_rust += SMASH_RUST
+	Sfx.play("crack", -4.0, 0.8)
+	_check_crate()
+
+
+## Caught in a blast: a crate's lock is blown open the closer it was (any metal).
+func blast_lock(amount: float) -> void:
+	if def.has("loot"):
+		_lock_rust += amount
+		_check_crate()
 
 
 ## A crate spills its loot once it's taken enough of a beating, or once rust has eaten its

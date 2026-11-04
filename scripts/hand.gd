@@ -21,6 +21,12 @@ const STIFFNESS := 280.0
 const DAMPING := 32.0
 const MAX_FORCE := 210000.0
 const ROTATE_SPEED := 5.0
+## A weapon held by its handle stands up in a ready position instead of dangling: a spring
+## turns it until the blade points up from the grip (or to the angle Q/E last left it at).
+## Its strength goes with the grip, so a hurt hand lets the blade sag. Off while it swings.
+const READY_STIFFNESS := 60.0  # (per unit of the item's rotational inertia)
+const READY_DAMPING := 13.0
+const READY_MIN_REACH := 8.0  # px from the grip to the weight: closer than this, nothing to stand up
 const DROP_THRESHOLD := 16.0
 const PUNCH_COOLDOWN := 1.0
 const MAX_RING_SLOTS := 5  # one per finger
@@ -29,6 +35,7 @@ const PX := 3.0  # the hand is drawn in chunky 3px pixels: it is the health read
 
 var held: Item = null
 var grab_local := Vector2.ZERO
+var ready_tilt := 0.0  # the held weapon's ready angle off straight up (Q/E set it)
 var injury := 0.0
 var base_max_hp := 100.0  # from upgrades
 var hoard_hp := 0.0       # from the Weapon Rack: what's in the pile
@@ -208,6 +215,7 @@ func grab(it: Item, p: Vector2) -> void:
 	if not it.cells.has(c):
 		c = it.nearest_cell(p)  # a near miss: take hold of the closest bit
 	grab_local = it.cell_pos(c) if it.cells.has(c) else it.to_local(p)
+	ready_tilt = 0.0
 	it.held = true
 
 
@@ -414,6 +422,33 @@ func _physics_process(delta: float) -> void:
 	var spin := float(Input.is_key_pressed(KEY_E)) - float(Input.is_key_pressed(KEY_Q))
 	if spin != 0.0 and held.swing_time <= 0.0:
 		held.angular_velocity = move_toward(held.angular_velocity, spin * ROTATE_SPEED * grip(), 30.0 * delta)
+		var off := ready_offset()
+		if is_finite(off):
+			ready_tilt += off  # turned by hand: that's the new ready angle
+	elif held.swing_time <= 0.0:
+		_hold_ready()
+
+
+## How far the held weapon is turned from its ready angle (radians, + clockwise), or NAN if it
+## isn't a weapon held by the handle.
+func ready_offset() -> float:
+	if held == null or grip_kind() != "weapon" or not held.is_handle_at_local(grab_local):
+		return NAN
+	var reach := held.to_global(held.center_of_mass) - held.to_global(grab_local)
+	if reach.length() < READY_MIN_REACH:
+		return NAN
+	return wrapf(reach.angle() - (-PI / 2.0 + ready_tilt), -PI, PI)
+
+
+func _hold_ready() -> void:
+	var off := ready_offset()
+	if not is_finite(off):
+		return
+	var state := PhysicsServer2D.body_get_direct_state(held.get_rid())
+	if state == null or state.inverse_inertia <= 0.0:
+		return
+	var k := READY_STIFFNESS * clampf(grip(), 0.3, 1.5)
+	held.apply_torque(-(k * off + READY_DAMPING * held.angular_velocity) / state.inverse_inertia)
 
 
 ## Holding something charged, hot or frozen hurts, unless a ring protects it or you've got

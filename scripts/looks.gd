@@ -56,7 +56,7 @@ func set_choice(part: String, i: int, announce: bool = true) -> void:
 
 func _unhandled_input(e: InputEvent) -> void:
 	var k := e as InputEventKey
-	if k == null or not k.pressed or k.echo or not KEYS.has(k.keycode):
+	if k == null or not k.pressed or k.echo or not KEYS.has(k.keycode) or not OS.is_debug_build():  # (off in a release build)
 		return
 	var part: String = KEYS[k.keycode]
 	set_choice(part, choice[part] + (-1 if k.shift_pressed else 1))

@@ -7,7 +7,10 @@ gear into those regions to block, and swing weapons at specific body parts.
 Mechanics prototype: visuals are placeholders on purpose.
 
 ## Controls
-- **LMB**: grab and drag (heavy things sag; a hurt hand grips weaker)
+- **LMB**: grab and drag (heavy things sag; a hurt hand grips weaker). A weapon taken by
+  its handle stands up in a **ready position**, blade up from the grip, instead of dangling;
+  Q/E turns it to a new resting angle, which it then holds. A hurt hand holds it up weaker.
+  Held anywhere else, and anything that isn't a weapon, it hangs from where you took it.
 - **Space**: swing a held weapon / brace a held shield / use or put on a held item / punch
   with an empty hand / open a held menu item at home
 - **Q / E**: rotate the held item (turn the codex's pages while it's open)
@@ -25,6 +28,7 @@ Mechanics prototype: visuals are placeholders on purpose.
   card). Nothing shows otherwise.
 - **RMB**: fire every ready ring. **1-5**: fire one finger's ring. Two ring slots to start;
   Ring Fittings add more, up to five (one per finger).
+- **Developer keys** (only in the editor and debug builds; off in the builds players get):
 - **F1**: developer readout (hidden by default; players never need it)
 - **F4**: preview the "dark" stage modifier (only a pool of light around your hand)
 - **F9**: cycle the setting
@@ -236,8 +240,11 @@ hand), each drop of Pitch glues the pixel it lands on, and a *sticky* item from 
 one small patch on an edge. Only the glued pixels grab: press the patch against something,
 one of the two in your hand, and they **fuse**. The patch is used up.
 
-Fused things are **one item** (`Item.fuse` in `item.gd`): the other piece's pixels join the
-held one's grid where they lie, bridged by a seam of **glue** cells (amber; tough, and if
+Fused things are **one item** (`Item.fuse` in `item.gd`): the other piece comes across
+**whole**, turned to the nearest quarter turn and moved as one block onto the held one's grid
+where it lies (sliding a few pixels clear if they overlap), so neither piece loses a pixel,
+warps or wears: gluing costs nothing but the glue, and pressing two things together on wet
+glue isn't a knock. They're bridged by a seam of **glue** cells (amber; tough, and if
 it's chewed through the parts come apart). One body, so nothing jitters at a joint, and
 blocking, breakage and the save all treat it like any other piece. Each pixel remembers the
 piece it came from:
@@ -418,10 +425,23 @@ Stormcallers to fire at once; a Lightning Rod in an electrified pile cashes in e
   (weightless).
 - **The shop is a sandbox.** Stock is real physics items with live modifiers, so the
   shelf interacts with your gear before you buy anything. Lean into this.
-- **Crates hold loot.** Knock about a third off one and it bursts open. Metal crates have
-  another way in: **rust** eats their lock. Set something corrosive against a strongbox or
-  reliquary (or let the Rusted's blade find it) and it springs open in about six seconds.
-  Crates on a shop shelf stay shut until they're bought.
+- **Crates hold loot.** Knock about a third off one and it bursts open. The ways in:
+  - **Smash it** (`Item.smash`): a swing that strikes one of your crates lands like a weapon
+    hit, its swing damage cut down by how much harder the crate is than the weapon. A steel
+    warhammer or an iron mace bursts a wooden crate in about three swings, a shortsword or
+    greatsword in about five, a wooden club barely dents one. A strongbox wants steel and
+    a lot of swings, and a steel reliquary all but ignores anything short of **prestigium**
+    (which cuts uncapped: a few swings). Only crates take this: swinging through your pile
+    in a fight doesn't chip the rest of your gear.
+  - **Rust** eats a metal crate's lock: set something corrosive against a strongbox or
+    reliquary (or let the Rusted's blade find it) and it springs open in about six seconds,
+    and a **corrosive weapon** eats a third of the lock with every hit (three swings).
+  - **Blow it up:** a blast right beside any crate, steel included, blows its lock
+    (`Item.BLAST_LOCK`); at the edge of the blast it only shakes it.
+
+  Crates on a shop shelf stay shut until they're bought. Knocks between your things are
+  judged by how fast the bits that met were moving, spin included, so a swung blade's head
+  hits at its own speed.
 - **Hazards only hurt what you hold.** Hovering or inspecting is always safe, and so is
   holding a weapon by its wrapped handle.
 - **Scraps have somewhere to go.** The shop has a **scrap chute** (top centre): drop or
@@ -530,7 +550,7 @@ sources**: hold a piece in one and it takes on the element, the way into reactio
 |---|---|
 | Dungeon Cell | wall torch (fire); *loose brick* (secret, 60%) |
 | Corridor | wall torch (fire); chandelier; *loose brick* (secret) |
-| Cistern | frozen drain (frost); rust grate (rot: careful, it then rusts your other metal) |
+| Cistern | rust grate (rot: careful, it then rusts your other metal) |
 | Catacombs | fungus bloom (venom) |
 | Crypt Chapel | chandelier; blood altar |
 | Forge | quench barrel (frost; dunk red-hot metal for *tempered*) |
@@ -757,11 +777,18 @@ placard at home. It goes up with the game: the last number for an ordinary batch
 changes (new items, tweaks, fixes), the middle one only for a big milestone (a new system,
 a reworked core); the first only by decision.
 
-Linux (Hunter's platform) is built alongside: `python tools/build_linux.py` exports the
-"Linux" preset and packs `build/Bulwark-v<version>-linux-x86_64.tar.gz` (executable bit
-set, a run README inside). `.github/workflows/linux.yml` runs the same script on GitHub:
-every push to main builds it as a run artifact, and pushing a tag `v<version>` (it must match
-`project.godot`) publishes it on the repo's Releases page.
+Player builds: `python tools/build.py [linux] [windows]` (both by default) makes one file per
+platform in `build/`, ready to hand to a playtester:
+- **Windows** (`Bulwark-v<version>-windows.zip`): `Bulwark/Bulwark.exe` (pack embedded, no
+  console window) and a plain-English `How to play.txt` (unzip, double-click, what to do
+  about the SmartScreen warning, the basic controls). Nothing to install.
+- **Linux** (Hunter's platform; `Bulwark-v<version>-linux-x86_64.tar.gz`): the executable
+  (mode 755) and a run README.
+
+Both are release exports, so the developer keys (F1, F4, F5-F9) are off in them.
+`.github/workflows/build.yml` runs the same script on GitHub: every push to main builds both
+as run artifacts, and pushing a tag `v<version>` (it must match `project.godot`) publishes them
+on the repo's Releases page. A local build needs Godot's export templates for the platform.
 
 ## Tests
 All headless, from the project folder:
@@ -774,6 +801,8 @@ Godot_v4.7.2-stable_win64_console.exe --headless --fixed-fps 60 --path . -s res:
 Godot_v4.7.2-stable_win64_console.exe --headless --path . -s res://tests/rarity_test.gd
 Godot_v4.7.2-stable_win64_console.exe --headless --fixed-fps 60 --path . -s res://tests/ring_test.gd
 Godot_v4.7.2-stable_win64_console.exe --headless --fixed-fps 60 --path . -s res://tests/block_test.gd
+Godot_v4.7.2-stable_win64_console.exe --headless --fixed-fps 60 --path . -s res://tests/ready_test.gd
+Godot_v4.7.2-stable_win64_console.exe --headless --fixed-fps 60 --path . -s res://tests/smash_test.gd
 Godot_v4.7.2-stable_win64_console.exe --headless --fixed-fps 60 --path . -s res://tools/balance.gd -- 0
 ```
 The block test also covers reactions, props, every secret place's chain and guardian,

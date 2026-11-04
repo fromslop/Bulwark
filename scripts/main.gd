@@ -1232,11 +1232,11 @@ func _unhandled_input(e: InputEvent) -> void:
 	var k := e as InputEventKey
 	if k == null or not k.pressed or k.echo:
 		return
-	if k.keycode == KEY_F1:
+	if k.keycode == KEY_F1 and OS.is_debug_build():  # (developer keys: off in a release build)
 		debug_label.visible = not debug_label.visible
 	elif k.keycode == KEY_ENTER and state == State.HOME and hand.held and hand.held.def.kind != "menu":
 		codex.rename(hand.held)
-	elif k.keycode == KEY_F9 and backdrop:
+	elif k.keycode == KEY_F9 and backdrop and OS.is_debug_build():
 		var i := Backdrop.SETTINGS.find(backdrop.setting)
 		_set_backdrop(Backdrop.SETTINGS[(i + 1) % Backdrop.SETTINGS.size()])
 
@@ -2678,6 +2678,7 @@ func on_explosion(at: Vector2, radius: float, power: float, source: Item) -> voi
 		var f := clampf(1.0 - d / radius, 0.2, 1.0)
 		it.apply_central_impulse((it.global_position - at).normalized() * it.mass * 700.0 * f * power)
 		it.heat = maxf(it.heat, 0.8 * f)
+		it.blast_lock(Item.BLAST_LOCK * f * power)  # a crate's lock blows open, steel or not
 		for c in it.cells.keys():
 			var cd := it.to_global(it.cell_pos(c)).distance_to(at)
 			if cd < radius:

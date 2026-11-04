@@ -1,8 +1,8 @@
-# The Linux build, kept alongside the Windows one. Every push to main builds it (the
-# archive is attached to the run as an artifact); pushing a tag v<version> also publishes
-# it as a GitHub release, downloadable from the repo's Releases page.
-# Same packaging as a local build: python tools/build_linux.py
-name: Linux build
+# The player builds: Linux (Hunter's platform) and Windows, from the same script as a local
+# build (python tools/build.py). Every push to main builds both (attached to the run as
+# artifacts); pushing a tag v<version> also publishes them as a GitHub release, downloadable
+# from the repo's Releases page.
+name: Builds
 
 on:
   push:
@@ -17,7 +17,7 @@ env:
   GODOT_VERSION: 4.7.2
 
 jobs:
-  linux:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,7 +45,7 @@ jobs:
 
       - name: Build
         id: build
-        run: python3 tools/build_linux.py --godot ~/godot/godot
+        run: python3 tools/build.py linux windows --godot ~/godot/godot
 
       - name: Version matches the tag
         if: startsWith(github.ref, 'refs/tags/')
@@ -57,13 +57,19 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Bulwark-${{ steps.build.outputs.version }}-linux-x86_64
-          path: ${{ steps.build.outputs.archive }}
+          path: build/Bulwark-*-linux-x86_64.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Bulwark-${{ steps.build.outputs.version }}-windows
+          path: build/Bulwark-*-windows.zip
 
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" "${{ steps.build.outputs.archive }}" \
+          gh release create "${GITHUB_REF_NAME}" build/Bulwark-*-linux-x86_64.tar.gz build/Bulwark-*-windows.zip \
             --title "Bulwark ${GITHUB_REF_NAME}" \
-            --notes "Linux x86_64: download the .tar.gz, extract it, run ./Bulwark/Bulwark.x86_64 (needs Vulkan, or add --rendering-driver opengl3)."
+            --notes "Windows: download the .zip, right-click > Extract All, open the Bulwark folder and double-click Bulwark.exe (if Windows warns, More info > Run anyway).
+          Linux x86_64: download the .tar.gz, extract it, run ./Bulwark/Bulwark.x86_64 (needs Vulkan, or add --rendering-driver opengl3)."

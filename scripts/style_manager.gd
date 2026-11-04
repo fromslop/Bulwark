@@ -87,7 +87,7 @@ func set_dark(on: bool) -> void:
 
 func _unhandled_input(e: InputEvent) -> void:
 	var k := e as InputEventKey
-	if k and k.pressed and not k.echo and k.keycode == KEY_F4:
+	if k and k.pressed and not k.echo and k.keycode == KEY_F4 and OS.is_debug_build():  # (off in a release build)
 		set_dark(not dark)
 
 

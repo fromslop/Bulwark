@@ -68,7 +68,6 @@ func setup(setting: String, rng_seed: int) -> void:
 			if _rng.randf() < 0.6:
 				_add("brick", Vector2(250, 300), 18.0)
 		"Cistern":
-			_add("frost_drain", Vector2(230, 150), 32.0)
 			_add("rust_grate", Vector2(1060, 160), 30.0)
 		"Catacombs":
 			_add("fungus", Vector2(980, 290), 32.0)

@@ -481,10 +481,22 @@ func _fusion() -> void:
 	var sword_cells: int = sword.cells.size()
 	var buckler_cells: int = buckler.cells.size()
 	var buckler_at: Vector2 = buckler.to_global(buckler.center_of_mass)
+	var hp_before := 0.0
+	for it in [sword, buckler]:
+		for c in it.cells:
+			hp_before += float(it.cells[c].hp)
+	buckler.rotation = 0.6  # met at a slant: it used to warp and lose pixels
 	_check(sword.fuse(buckler), "a sword and a buckler should fuse")
 	await physics_frame
 	_check(not is_instance_valid(buckler) or buckler.is_queued_for_deletion(), "the buckler should be taken in")
-	_check(sword.cells.size() >= sword_cells + buckler_cells * 0.5, "the fused thing should have both sets of cells, less what overlapped (%d of %d + %d)" % [sword.cells.size(), sword_cells, buckler_cells])
+	var kept := 0
+	var hp_after := 0.0
+	for c in sword.cells:
+		if sword.cells[c].mat != "glue":
+			kept += 1
+			hp_after += float(sword.cells[c].hp)
+	_check(kept == sword_cells + buckler_cells, "gluing shouldn't lose a single pixel of either piece (%d of %d + %d)" % [kept, sword_cells, buckler_cells])
+	_check(is_equal_approx(hp_after, hp_before), "gluing shouldn't wear either piece (%.1f -> %.1f hp)" % [hp_before, hp_after])
 	_check(sword.def.kind == "weapon" and sword.has_part("shield"), "a sword with a buckler is still a weapon, with a shield on it")
 	var on_buckler := 0.0
 	for c in sword.cells:
