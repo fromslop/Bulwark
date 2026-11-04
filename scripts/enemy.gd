@@ -1,0 +1,1230 @@
+class_name Enemy
+extends Node3D
+## Placeholder enemy shaped like a HeadnHands rig: a Head and two floating hands
+## (LeftHand, RightHand) are the performers; the waist-up torso just follows the head.
+## Attacks are procedural hand poses for now. Recorded act_ clips replace them later,
+## driving the same three nodes.
+
+signal strike(attack: Dictionary)
+signal died
+signal armor_fell(screen_pos: Vector2)  # a pauldron broke off; it drops into the play field
+signal broke  # the stagger meter filled
+signal ignited  # superheated hits set it alight
+
+const REST_R := [Vector3(0.3, 1.2, 0.25), Vector3(0.2, 0, -0.2)]
+const REST_L := [Vector3(-0.3, 1.2, 0.25), Vector3(0.2, 0, 0.3)]
+# each pose: right hand [position, rotation] at wind-up and at the hit; "l" = left hand joins (two-handed)
+const POSES := {
+	"high_right": {"wind": [Vector3(0.55, 1.85, 0.05), Vector3(0, 0, -0.6)], "hit": [Vector3(-0.45, 1.6, 0.45), Vector3(0, 0, 1.4)]},
+	"high_left": {"wind": [Vector3(-0.5, 1.85, 0.05), Vector3(0, 0, 0.6)], "hit": [Vector3(0.5, 1.6, 0.45), Vector3(0, 0, -1.4)]},
+	"low": {"wind": [Vector3(0.55, 1.1, 0.0), Vector3(0, 0, -1.6)], "hit": [Vector3(-0.45, 1.05, 0.45), Vector3(0, 0, 1.6)]},
+	"overhead_l": {"wind": [Vector3(-0.2, 2.0, -0.1), Vector3(-0.5, 0, 0)], "hit": [Vector3(-0.25, 1.15, 0.5), Vector3(2.0, 0, 0)], "l": true},
+	"overhead_r": {"wind": [Vector3(0.25, 2.0, -0.1), Vector3(-0.5, 0, 0)], "hit": [Vector3(0.25, 1.15, 0.5), Vector3(2.0, 0, 0)], "l": true},
+	"thrust": {"wind": [Vector3(0.3, 1.4, -0.15), Vector3(1.57, 0, 0)], "hit": [Vector3(0.0, 1.45, 0.75), Vector3(1.57, 0, 0)]},
+	"sweep": {"wind": [Vector3(0.6, 1.6, -0.1), Vector3(0, 0, -1.2)], "hit": [Vector3(-0.6, 1.3, 0.5), Vector3(0, 0, 1.8)], "l": true},
+	"slam": {"wind": [Vector3(0.0, 2.05, -0.1), Vector3(-0.3, 0, 0)], "hit": [Vector3(0.0, 1.0, 0.5), Vector3(2.3, 0, 0)], "l": true},
+	# the fencer's lunge: blade drawn back level, then the whole arm shoots forward
+	"lunge": {"wind": [Vector3(0.55, 1.4, -0.3), Vector3(1.57, 0, 0)], "hit": [Vector3(-0.1, 1.42, 0.85), Vector3(1.57, 0, 0)]},
+	"low_left": {"wind": [Vector3(-0.55, 1.05, 0.0), Vector3(0, 0, 1.6)], "hit": [Vector3(0.45, 1.0, 0.45), Vector3(0, 0, -1.6)]},
+	# the head rears back, then jerks forward: the spit comes from the mouth, the hands stay low
+	"spit": {"wind": [Vector3(0.35, 1.0, 0.1), Vector3(0.3, 0, -0.3)], "hit": [Vector3(0.35, 1.0, 0.1), Vector3(0.3, 0, -0.3)], "head": true},
+	# both hands open, reaching out of the screen towards the player's hand
+	"grasp": {"wind": [Vector3(0.45, 1.5, -0.2), Vector3(1.2, 0, -0.5)], "hit": [Vector3(0.25, 1.45, 0.9), Vector3(1.57, 0, 0)], "l": true, "mirror": true},
+	# the shield arm swings across and shoves
+	"bash": {"wind": [Vector3(0.3, 1.3, 0.2), Vector3(0, 0, -0.6)], "hit": [Vector3(-0.4, 1.35, 0.8), Vector3(0, 0, 0.9)], "shield": true},
+}
+# hit locations: damage multiplier, how armored it is (wear on your weapon), local radius in metres
+const REGIONS := {
+	"weak": {"mult": 3.0, "armor": 0.0, "radius": 0.09},
+	"exposed": {"mult": 1.6, "armor": 0.2, "radius": 0.11},
+	"head": {"mult": 1.3, "armor": 0.6, "radius": 0.19},
+	"right_hand": {"mult": 0.8, "armor": 0.5, "radius": 0.12},
+	"left_hand": {"mult": 0.8, "armor": 0.5, "radius": 0.12},
+	"torso": {"mult": 1.0, "armor": 1.0, "radius": 0.3},
+}
+
+var data: Dictionary
+var hp := 100.0
+var max_hp := 100.0
+var speed := 1.0
+var state := "idle"  # idle, windup, recover, stagger, dead
+var active := true
+var current: Dictionary = {}
+var progress := 0.0
+var slow_time := 0.0
+var look_target := Vector2(0.5, 0.5)  # normalized screen point the head watches
+var camera: Camera3D
+var body: Node3D
+var torso: Node3D
+var head: Node3D
+var left_hand: Node3D
+var right_hand: Node3D
+var weak_spot: MeshInstance3D
+var off_balance := 0.0  # after a clean block: hits do more for a moment
+var _exposed: Array[MeshInstance3D] = []  # raw patches where armour was stripped
+# Stagger: fills from damage the player prevents (parries count double) and deals. It isn't
+# shown as a number: the enemy wobbles more as it fills. Full = broken: it slumps, the weak
+# spot opens and hits do double damage for a few seconds.
+var stagger_meter := 0.0
+var broken_time := 0.0
+var _since_stagger := 0.0
+const BROKEN_TIME := 2.5
+# Superheated weapons build heat on the enemy (it glows); full heat sets it on fire.
+const BURN_TIME := 5.0
+const BURN_DPS := 4.0
+var heat := 0.0
+var burning_time := 0.0
+var _burn_tick := 0.0
+# Corrosive weapons eat armour: corrosion strips pauldrons on its own scale (CORRODE_BREAKS).
+var corrosion := 0.0
+const ARMOR_BREAKS := [0.6, 0.9]  # HP lost at which a pauldron is beaten off
+const CORRODE_BREAKS := [0.25, 0.5]  # corrosion at which one rusts through
+# Poisoned weapons: damage over time, refreshed by each poisoned hit.
+const POISON_DPS := 2.5
+var poison_time := 0.0
+var _poison_tick := 0.0
+const STAGGER_DECAY := 4.0  # per second, once the pressure lets up for a moment
+var rng := RandomNumberGenerator.new()
+var _timer := 1.5
+var _windup_total := 1.0
+var _last_attack := ""
+var _tween: Tween
+var _mats: Array[StandardMaterial3D] = []
+var _base_colors: Array[Color] = []
+var _pauldrons: Array[MeshInstance3D] = []
+var _strings: Array[MeshInstance3D] = []  # Marionette design
+var _flash := 0.0
+# Character: what it does next besides picking at random. A queued attack is a follow-up
+# (a combo's second half, a riposte after you block clean) that goes before anything else.
+var _queued := ""
+var _queued_windup := -1.0
+var clean_blocks := 0  # in a row: the Castellan loses patience with a tidy defence
+var shield_arm: Node3D  # the Castellan's off-hand shield, when it carries one
+var gummed := 0.0  # a sticky block gums the blade: the next wind-up is slower
+
+
+func setup(d: Dictionary, cam: Camera3D) -> void:
+	data = d
+	camera = cam
+	max_hp = d.hp
+	hp = max_hp
+	speed = d.speed
+	rng.randomize()
+	_build(d.color)
+
+
+## Speed right now: an enraged Brute swings faster the more it bleeds.
+func cur_speed() -> float:
+	var s := speed
+	if data.has("enrage") and hp / max_hp < float(data.enrage.below):
+		s *= float(data.enrage.speed)
+	return s
+
+
+func is_enraged() -> bool:
+	return data.has("enrage") and hp / max_hp < float(data.enrage.below)
+
+
+## The off-hand shield is up: the torso is covered until the enemy is reeling or broken.
+func guard_up() -> bool:
+	return data.get("guard", false) and state in ["idle", "windup", "recover"] and off_balance <= 0.0
+
+
+## The skeleton every design shares: the performers (Head, LeftHand, RightHand) plus a
+## Torso that follows the head. Meshes are hung on it by _dress(), one design at a time.
+func _build(_col: Color) -> void:
+	body = Node3D.new()
+	add_child(body)
+	torso = Node3D.new()
+	torso.name = "Torso"
+	torso.position = Vector3(0, 1.22, 0)
+	body.add_child(torso)
+	head = Node3D.new()
+	head.name = "Head"
+	head.position = Vector3(0, 1.68, 0)
+	body.add_child(head)
+	right_hand = Node3D.new()
+	right_hand.name = "RightHand"
+	body.add_child(right_hand)
+	left_hand = Node3D.new()
+	left_hand.name = "LeftHand"
+	body.add_child(left_hand)
+	_place(right_hand, REST_R)
+	_place(left_hand, REST_L)
+	_dress()
+
+
+## Swap to the design currently picked with F8, keeping any armour already knocked off.
+func rebuild_look() -> void:
+	var lost := 0
+	for pd in _pauldrons:
+		if not pd.visible:
+			lost += 1
+	for n in [torso, head, right_hand, left_hand]:
+		for c in n.get_children():
+			n.remove_child(c)  # out of the way now, so the new parts can take the old names
+			c.queue_free()
+	for st in _strings:
+		st.queue_free()
+	_strings.clear()
+	_mats.clear()
+	_base_colors.clear()
+	_pauldrons.clear()
+	_dress()
+	_exposed.clear()
+	for k in mini(lost, _pauldrons.size()):
+		_pauldrons[k].visible = false
+		_expose(_pauldrons[k])
+	_update_wounds()
+
+
+func _dress() -> void:
+	var col: Color = data.color
+	shield_arm = null
+	model_loaded = false
+	var picked := Looks.pick("enemy")
+	# a Wraith is a wraith whatever F8 says, except that Character has a modelled wraith of its own
+	var look: String = "Character" if picked == "Character" else data.get("look", picked)
+	match look:
+		"Character":
+			_dress_character(col)
+		"Great Helm":
+			_dress_great_helm(col)
+		"Wraith":
+			_dress_wraith(col)
+		"Marionette":
+			_dress_marionette()
+		_:
+			_dress_boxes(col)
+	if data.get("boss", false) and not model_loaded:  # a modelled boss has its crown built in
+		_crown()
+	weak_spot = _box(torso, Vector3(0.09, 0.09, 0.02), Vector3(0, 0, 0.17), Color(1.0, 0.8, 0.2))
+	weak_spot.visible = state == "broken"
+	if data.get("ink", false):
+		_ink(self)
+
+
+## The Errata: every surface in wet black ink, with a sheen. The weak spot stays gold.
+func _ink(n: Node) -> void:
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.03, 0.03, 0.05)
+	mat.roughness = 0.15
+	mat.metallic = 0.4
+	mat.rim_enabled = true
+	mat.rim = 0.6
+	for c in n.get_children():
+		if c is MeshInstance3D and c != weak_spot:
+			(c as MeshInstance3D).material_override = mat
+		_ink(c)
+
+
+# --- modelled bodies ------------------------------------------------------------------
+# tools/enemy_models.py (Blender) writes one glTF per character to assets/enemies/<slug>.glb,
+# split into objects named for the rig: Torso, Head, RightHand, LeftHand, PauldronL,
+# PauldronR, Weapon (right hand) and Shield (left hand). Any other object called
+# <Part>_<thing> hangs on that part. The files are read at runtime with GLTFDocument, so no
+# editor import step is needed and the tests see them headless.
+
+const MODEL_DIR := "res://assets/enemies/"
+const MODEL_SLOTS := {"Torso": "torso", "Head": "head", "RightHand": "right_hand", "LeftHand": "left_hand",
+	"PauldronL": "torso", "PauldronR": "torso", "Weapon": "right_hand", "Shield": "left_hand"}
+static var _model_cache := {}  # path -> the parsed scene (a Node kept out of the tree), or null if the file is missing
+var model_loaded := false  # this rig wears a modelled body rather than primitives
+
+
+## Where a character's model lives: its display name, lower case, spaces to underscores.
+static func model_path(d: Dictionary) -> String:
+	if d.has("model"):
+		return "res://assets/enemies/%s.glb" % str(d.model)
+	return MODEL_DIR + str(d.get("name", "")).to_lower().replace(" ", "_") + ".glb"
+
+
+static func _parse_model(path: String) -> Node:
+	if not FileAccess.file_exists(path):
+		return null
+	var doc := GLTFDocument.new()
+	var state := GLTFState.new()
+	var err := doc.append_from_file(path, state)
+	if err != OK:
+		push_warning("Bulwark: couldn't read enemy model %s (%s)" % [path, error_string(err)])
+		return null
+	return doc.generate_scene(state)
+
+
+## Hang the character's modelled parts on the rig. False if there's no file (or it has no
+## usable parts), in which case the procedural builder dresses it instead.
+func _load_model() -> bool:
+	var path := model_path(data)
+	if not _model_cache.has(path):
+		_model_cache[path] = _parse_model(path)
+	var proto: Node = _model_cache[path]
+	if proto == null:
+		return false
+	var root: Node = proto.duplicate()
+	var meshes: Array[MeshInstance3D] = []
+	_collect_meshes(root, meshes)
+	var slots := {"torso": torso, "head": head, "right_hand": right_hand, "left_hand": left_hand}
+	var found := {}
+	for mi in meshes:
+		var mname := String(mi.name)  # read before reparenting: a clash with a part still being freed renames it
+		var key := mname.get_slice("_", 0)  # Head_Hat hangs on the Head
+		if not MODEL_SLOTS.has(key):
+			continue
+		var xf := mi.transform
+		mi.get_parent().remove_child(mi)
+		slots[MODEL_SLOTS[key]].add_child(mi)
+		mi.transform = xf
+		_adopt_materials(mi)
+		found[mname] = mi
+	root.free()
+	if not (found.has("PauldronL") and found.has("PauldronR") and found.has("Torso") and found.has("Head")):
+		push_warning("Bulwark: enemy model %s is missing rig parts (%s)" % [path, found.keys()])
+		for mi in found.values():
+			mi.free()
+		_mats.clear()
+		_base_colors.clear()
+		return false
+	_pauldrons.append(found.PauldronL)
+	_pauldrons.append(found.PauldronR)
+	if found.has("Shield"):
+		shield_arm = found.Shield
+	model_loaded = true
+	return true
+
+
+static func _collect_meshes(n: Node, out: Array[MeshInstance3D]) -> void:
+	for c in n.get_children():
+		if c is MeshInstance3D:
+			out.append(c)
+		_collect_meshes(c, out)
+
+
+## Give the part its own copies of the file's materials, so wounds darken this rig alone:
+## tint_* takes the character's colour, glow_* lights itself and is left out of the wounds.
+func _adopt_materials(mi: MeshInstance3D) -> void:
+	var col: Color = data.color
+	for i in mi.mesh.get_surface_count():
+		var src := mi.mesh.surface_get_material(i) as StandardMaterial3D
+		if src == null:
+			continue
+		var m: StandardMaterial3D = src.duplicate()
+		var mname := src.resource_name
+		m.roughness = 1.0
+		m.metallic = 0.0
+		m.emission_enabled = true
+		if mname.begins_with("glow"):
+			m.emission = m.albedo_color
+			m.emission_energy_multiplier = 3.0
+		else:
+			if mname.begins_with("tint"):
+				m.albedo_color = col.lerp(m.albedo_color, 0.5)
+			m.emission = Color(1, 0.9, 0.8)
+			m.emission_energy_multiplier = 0.0
+			_mats.append(m)
+			_base_colors.append(m.albedo_color)
+		mi.set_surface_override_material(i, m)
+
+
+## A boss wears a crown, whatever it is.
+func _crown() -> void:
+	var gold := Color(0.95, 0.75, 0.2)
+	_mesh(head, _cyl(0.14, 0.13, 0.06, 8), Vector3(0, 0.2, 0), gold)
+	for k in 5:
+		var spike := _mesh(head, PrismMesh.new(), Vector3(sin(k * TAU / 5.0) * 0.12, 0.27, cos(k * TAU / 5.0) * 0.12), gold)
+		spike.scale = Vector3(0.03, 0.08, 0.03)
+
+
+## The weapon in its hand, by the enemy's character rather than by the design. `blade`
+## and `guard` are the design's own palette; `glow` draws the blade as something lit.
+func _weapon(blade: Color, guard: Color, glow: bool = false) -> void:
+	var draw_blade := func(parent: Node3D, size: Vector3, pos: Vector3, c: Color) -> MeshInstance3D:
+		return _glow(parent, size, pos, c) if glow else _box(parent, size, pos, c)
+	match data.get("weapon", "sword"):
+		"maul":
+			_box(right_hand, Vector3(0.07, 0.9, 0.07), Vector3(0, 0.45, 0), Color(0.35, 0.25, 0.15))
+			_box(right_hand, Vector3(0.3, 0.24, 0.24), Vector3(0, 0.92, 0), Color(0.3, 0.3, 0.32))
+			_box(right_hand, Vector3(0.33, 0.04, 0.27), Vector3(0, 0.82, 0), Color(0.2, 0.2, 0.22))
+		"rapier":
+			draw_blade.call(right_hand, Vector3(0.025, 1.0, 0.012), Vector3(0, 0.6, 0), blade.lightened(0.1))
+			_mesh(right_hand, _sphere(0.07, 6), Vector3(0, 0.09, 0), guard)  # cup guard
+			_box(right_hand, Vector3(0.02, 0.1, 0.02), Vector3(0, -0.1, 0), guard.darkened(0.3))
+		"rusted":
+			var rust := Color(0.45, 0.25, 0.12)
+			_box(right_hand, Vector3(0.05, 0.75, 0.02), Vector3(0, 0.47, 0), rust)
+			_box(right_hand, Vector3(0.06, 0.2, 0.025), Vector3(0.02, 0.55, 0), rust.darkened(0.3))  # pitted, jagged
+			_box(right_hand, Vector3(0.04, 0.12, 0.025), Vector3(-0.025, 0.3, 0), rust.lightened(0.15))
+			_box(right_hand, Vector3(0.22, 0.035, 0.05), Vector3(0, 0.09, 0), rust.darkened(0.4))
+		"flail":
+			_box(right_hand, Vector3(0.05, 0.5, 0.05), Vector3(0, 0.3, 0), Color(0.3, 0.22, 0.12))
+			for k in 4:
+				_box(right_hand, Vector3(0.02, 0.06, 0.02), Vector3(0, 0.6 + k * 0.07, 0), Color(0.25, 0.25, 0.27))  # chain
+			_glow(right_hand, Vector3(0.16, 0.16, 0.16), Vector3(0, 0.95, 0), Color(1.0, 0.45, 0.1))  # the brazier, full of coals
+			_box(right_hand, Vector3(0.2, 0.03, 0.2), Vector3(0, 0.86, 0), Color(0.2, 0.2, 0.2))
+		"none":
+			for hand in [right_hand, left_hand]:
+				for k in 4:
+					_glow(hand, Vector3(0.015, 0.14, 0.015), Vector3(-0.045 + k * 0.03, -0.14, 0.03), Color(0.5, 0.7, 1.0))  # long cold fingers
+		"axe":
+			_box(right_hand, Vector3(0.06, 1.1, 0.06), Vector3(0, 0.5, 0), Color(0.3, 0.2, 0.12))
+			var head_mi := _box(right_hand, Vector3(0.34, 0.3, 0.03), Vector3(0.12, 0.95, 0), blade)
+			_box(head_mi, Vector3(0.36, 0.04, 0.035), Vector3(0, -0.15, 0), blade.lightened(0.3))  # the edge
+			_box(right_hand, Vector3(0.1, 0.1, 0.1), Vector3(0, 0.95, 0), guard)
+		"staff":
+			_box(right_hand, Vector3(0.04, 1.2, 0.04), Vector3(0, 0.55, 0), Color(0.25, 0.2, 0.15))
+			_box(right_hand, Vector3(0.14, 0.18, 0.14), Vector3(0, 1.15, 0), Color(0.2, 0.2, 0.22))  # the lantern's cage
+			_glow(right_hand, Vector3(0.1, 0.14, 0.1), Vector3(0, 1.15, 0), blade)  # and its light
+			_mesh(right_hand, _cyl(0.0, 0.08, 0.06, 6), Vector3(0, 1.27, 0), Color(0.2, 0.2, 0.22))
+		"shield":
+			draw_blade.call(right_hand, Vector3(0.05, 0.85, 0.02), Vector3(0, 0.52, 0), blade)
+			_box(right_hand, Vector3(0.22, 0.035, 0.05), Vector3(0, 0.09, 0), guard)
+			shield_arm = _box(left_hand, Vector3(0.5, 0.75, 0.04), Vector3(0.05, 0.2, 0.08), guard.lightened(0.1))
+			_box(left_hand, Vector3(0.1, 0.12, 0.03), Vector3(0.05, 0.3, 0.11), Color(0.95, 0.75, 0.2))  # a boss on its face
+		_:
+			draw_blade.call(right_hand, Vector3(0.05, 0.85, 0.02), Vector3(0, 0.52, 0), blade)
+			_box(right_hand, Vector3(0.22, 0.035, 0.05), Vector3(0, 0.09, 0), guard)
+
+
+func _dress_boxes(col: Color) -> void:
+	_box(torso, Vector3(0.56, 0.5, 0.3), Vector3.ZERO, col)
+	_pauldrons.append(_box(torso, Vector3(0.2, 0.1, 0.32), Vector3(-0.3, 0.22, 0), col.lightened(0.1)))
+	_pauldrons.append(_box(torso, Vector3(0.2, 0.1, 0.32), Vector3(0.3, 0.22, 0), col.lightened(0.1)))
+	_box(torso, Vector3(0.48, 0.12, 0.28), Vector3(0, -0.3, 0), col.darkened(0.4))
+	_box(head, Vector3(0.3, 0.34, 0.3), Vector3.ZERO, col.lightened(0.15))
+	_box(head, Vector3(0.22, 0.035, 0.02), Vector3(0, 0.02, 0.16), Color(0.01, 0.01, 0.01))
+	_box(right_hand, Vector3(0.11, 0.13, 0.11), Vector3.ZERO, col.darkened(0.2))
+	_box(left_hand, Vector3(0.11, 0.13, 0.11), Vector3.ZERO, col.darkened(0.2))
+	_weapon(Color(0.7, 0.7, 0.75), Color(0.3, 0.3, 0.3))
+
+
+## Character: each enemy gets its own model, built to say who it is at a glance. The
+## footman is quilted cloth under a kettle hat; the brute is bare arms and a fur mantle;
+## the duelist a slim coat and a feathered hat; and so on. Pauldrons (two per model) are
+## whatever that character wears on its shoulders. The modelled body in assets/enemies is
+## used when it exists; these primitive builders are the fallback.
+func _dress_character(col: Color) -> void:
+	if _load_model():
+		return
+	match data.get("name", ""):
+		"Knight", "Vault Warden":
+			_dress_great_helm(col)
+		"Wraith":
+			_dress_wraith(col)
+		"Hollow King":
+			_dress_wraith(col)
+			_weapon(Color(0.5, 0.7, 1.0), Color(0.15, 0.15, 0.18), true)
+		"Footman":
+			_dress_footman(col)
+		"Brute":
+			_dress_brute(col)
+		"Duelist":
+			_dress_duelist(col)
+		"The Rusted":
+			_dress_rusted(col)
+		"Pyre Zealot":
+			_dress_zealot(col)
+		"Castellan":
+			_dress_castellan(col)
+		"Headsman":
+			_dress_headsman(col)
+		"Lamplighter":
+			_dress_lamplighter(col)
+		_:
+			_dress_great_helm(col)
+
+
+## A quilted gambeson, a kettle hat, a scruffy face, leather gloves and leather shoulder pads.
+func _dress_footman(col: Color) -> void:
+	var cloth := col.lerp(Color(0.6, 0.5, 0.35), 0.5)
+	var leather := Color(0.35, 0.22, 0.12)
+	var skin := Color(0.8, 0.62, 0.5)
+	_mesh(torso, _cyl(0.26, 0.3, 0.5, 7), Vector3.ZERO, cloth)
+	for k in 5:
+		_mesh(torso, _cyl(0.272, 0.292, 0.012, 7), Vector3(0, -0.2 + k * 0.1, 0), cloth.darkened(0.3))  # quilting
+	_box(torso, Vector3(0.5, 0.08, 0.3), Vector3(0, -0.28, 0), leather)  # belt
+	_box(torso, Vector3(0.08, 0.06, 0.02), Vector3(0, -0.28, 0.16), Color(0.6, 0.55, 0.4))  # buckle
+	for side in [-1.0, 1.0]:
+		var pd := _box(torso, Vector3(0.2, 0.08, 0.3), Vector3(0.3 * side, 0.22, 0), leather.lightened(0.1))
+		pd.rotation.z = -0.25 * side
+		_pauldrons.append(pd)
+	_box(head, Vector3(0.24, 0.3, 0.24), Vector3(0, -0.02, 0), skin)
+	_box(head, Vector3(0.05, 0.03, 0.02), Vector3(-0.06, 0.03, 0.125), Color(0.05, 0.03, 0.02))
+	_box(head, Vector3(0.05, 0.03, 0.02), Vector3(0.06, 0.03, 0.125), Color(0.05, 0.03, 0.02))
+	_box(head, Vector3(0.14, 0.05, 0.03), Vector3(0, -0.09, 0.12), Color(0.3, 0.2, 0.12))  # a beard
+	_mesh(head, _cyl(0.06, 0.16, 0.14, 8), Vector3(0, 0.18, 0), Color(0.4, 0.4, 0.42))  # kettle hat
+	_mesh(head, _cyl(0.24, 0.24, 0.025, 8), Vector3(0, 0.12, 0), Color(0.35, 0.35, 0.37))  # its brim
+	for hand in [right_hand, left_hand]:
+		_box(hand, Vector3(0.1, 0.12, 0.1), Vector3.ZERO, leather)
+		_box(hand, Vector3(0.11, 0.04, 0.07), Vector3(0, -0.06, 0.04), leather.darkened(0.2))
+	_weapon(Color(0.6, 0.6, 0.62), Color(0.3, 0.25, 0.18))
+
+
+## Huge: a wide bare chest, a fur mantle, an iron collar, spiked iron shoulder plates, a
+## bald head with a heavy jaw, and fists like hams.
+func _dress_brute(col: Color) -> void:
+	var skin := col.lerp(Color(0.75, 0.55, 0.42), 0.5)
+	var fur := Color(0.25, 0.18, 0.12)
+	var iron := Color(0.3, 0.3, 0.33)
+	_box(torso, Vector3(0.8, 0.6, 0.4), Vector3(0, -0.02, 0), skin)
+	_box(torso, Vector3(0.3, 0.3, 0.02), Vector3(0, 0.05, 0.21), skin.darkened(0.15))  # pecs line
+	_box(torso, Vector3(0.9, 0.18, 0.5), Vector3(0, 0.3, -0.02), fur)  # mantle
+	_mesh(torso, _cyl(0.17, 0.19, 0.08, 8), Vector3(0, 0.36, 0), iron)  # collar
+	for side in [-1.0, 1.0]:
+		var pd := _box(torso, Vector3(0.26, 0.1, 0.36), Vector3(0.42 * side, 0.3, 0), iron)
+		_pauldrons.append(pd)
+		for k in 2:
+			var spike := _mesh(pd, PrismMesh.new(), Vector3(0.0, 0.1, -0.1 + k * 0.2), iron.lightened(0.2))
+			spike.scale = Vector3(0.06, 0.12, 0.06)
+	_box(torso, Vector3(0.7, 0.14, 0.4), Vector3(0, -0.34, 0), Color(0.3, 0.2, 0.1))  # belt
+	_mesh(head, _sphere(0.19, 8), Vector3(0, 0.02, 0), skin)
+	_box(head, Vector3(0.26, 0.14, 0.22), Vector3(0, -0.1, 0.03), skin.darkened(0.1))  # jaw
+	_box(head, Vector3(0.05, 0.025, 0.02), Vector3(-0.07, 0.04, 0.17), Color(0.05, 0.03, 0.02))
+	_box(head, Vector3(0.05, 0.025, 0.02), Vector3(0.07, 0.04, 0.17), Color(0.05, 0.03, 0.02))
+	_box(head, Vector3(0.2, 0.03, 0.02), Vector3(0, 0.09, 0.17), Color(0.2, 0.12, 0.08))  # brow
+	for hand in [right_hand, left_hand]:
+		_box(hand, Vector3(0.17, 0.18, 0.16), Vector3.ZERO, skin)
+		_box(hand, Vector3(0.18, 0.06, 0.1), Vector3(0, -0.08, 0.05), skin.darkened(0.2))
+		_box(hand, Vector3(0.19, 0.06, 0.19), Vector3(0, 0.1, 0), Color(0.3, 0.2, 0.1))  # wrist wrap
+	_weapon(Color(0.3, 0.3, 0.32), Color(0.35, 0.25, 0.15))
+
+
+## A fencer: a slim coat, puffed sleeves at the shoulder, a wide-brimmed hat with a feather,
+## a thin mask, fine gloves.
+func _dress_duelist(col: Color) -> void:
+	var coat := col.lerp(Color(0.45, 0.15, 0.3), 0.5)
+	var cream := Color(0.85, 0.8, 0.7)
+	_mesh(torso, _cyl(0.17, 0.2, 0.54, 8), Vector3.ZERO, coat)
+	_box(torso, Vector3(0.04, 0.5, 0.02), Vector3(0, 0, 0.19), cream)  # buttons
+	for k in 4:
+		_mesh(torso, _sphere(0.015, 4), Vector3(0, -0.18 + k * 0.12, 0.2), Color(0.9, 0.8, 0.3))
+	for side in [-1.0, 1.0]:
+		var pd := _mesh(torso, _sphere(0.11, 6), Vector3(0.24 * side, 0.2, 0), coat.lightened(0.15))  # puffed sleeve
+		_pauldrons.append(pd)
+	_box(torso, Vector3(0.36, 0.06, 0.22), Vector3(0, -0.26, 0), Color(0.2, 0.12, 0.08))  # sash
+	_box(head, Vector3(0.2, 0.26, 0.2), Vector3(0, -0.02, 0), Color(0.82, 0.66, 0.54))
+	_box(head, Vector3(0.22, 0.07, 0.03), Vector3(0, 0.03, 0.1), Color(0.05, 0.05, 0.05))  # mask
+	_box(head, Vector3(0.08, 0.02, 0.02), Vector3(0, -0.08, 0.11), Color(0.3, 0.15, 0.1))  # a thin moustache
+	_mesh(head, _cyl(0.3, 0.3, 0.02, 10), Vector3(0, 0.13, 0), coat.darkened(0.3))  # hat brim
+	_mesh(head, _cyl(0.12, 0.13, 0.14, 8), Vector3(0, 0.2, 0), coat.darkened(0.3))
+	var feather := _mesh(head, PrismMesh.new(), Vector3(0.14, 0.26, -0.05), Color(0.9, 0.85, 0.7))
+	feather.scale = Vector3(0.02, 0.22, 0.08)
+	feather.rotation.z = -0.6
+	for hand in [right_hand, left_hand]:
+		_box(hand, Vector3(0.08, 0.1, 0.08), Vector3.ZERO, cream)
+		_box(hand, Vector3(0.09, 0.05, 0.1), Vector3(0, 0.07, 0), coat)  # cuff
+	_weapon(Color(0.85, 0.87, 0.92), Color(0.75, 0.6, 0.25))
+
+
+## Plate that has rotted on the body: a helm sitting crooked, a breastplate holed through,
+## green-brown rust on everything, pauldrons hanging by a strap.
+func _dress_rusted(_col: Color) -> void:
+	var rust := Color(0.42, 0.26, 0.14)
+	var rot := Color(0.3, 0.33, 0.18)
+	_mesh(torso, _cyl(0.24, 0.3, 0.5, 6), Vector3.ZERO, rust)
+	for k in 3:
+		_box(torso, Vector3(0.08 + k * 0.02, 0.06, 0.06), Vector3(-0.1 + k * 0.1, -0.12 + k * 0.09, 0.26), Color(0.03, 0.02, 0.02))  # holes
+	_box(torso, Vector3(0.3, 0.1, 0.02), Vector3(0.05, 0.1, 0.29), rot)  # a stain
+	for side in [-1.0, 1.0]:
+		var pd := _box(torso, Vector3(0.22, 0.08, 0.3), Vector3(0.32 * side, 0.2 - (0.05 if side > 0 else 0.0), 0), rust.darkened(0.15))
+		pd.rotation.z = -0.4 * side
+		pd.rotation.x = 0.3 * side
+		_pauldrons.append(pd)
+	_mesh(head, _cyl(0.16, 0.16, 0.34, 7), Vector3(0.02, 0, 0), rust.lightened(0.1))
+	head.get_child(head.get_child_count() - 1).rotation.z = 0.2  # crooked
+	_box(head, Vector3(0.22, 0.03, 0.02), Vector3(0.02, 0.03, 0.16), Color(0.01, 0.01, 0.01))
+	_glow(head, Vector3(0.04, 0.02, 0.01), Vector3(-0.04, 0.03, 0.165), Color(0.5, 1.0, 0.3))  # something glows in the slit
+	_box(head, Vector3(0.12, 0.06, 0.05), Vector3(-0.08, -0.12, 0.1), rot)
+	for hand in [right_hand, left_hand]:
+		_box(hand, Vector3(0.11, 0.12, 0.11), Vector3.ZERO, rust.darkened(0.1))
+		_box(hand, Vector3(0.05, 0.05, 0.05), Vector3(0.03, -0.02, 0.06), Color(0.03, 0.02, 0.02))
+	_weapon(rust, rust.darkened(0.4))
+
+
+## Robes, a deep hood, a chain of beads, bare hands wrapped in cloth, and the brazier.
+func _dress_zealot(col: Color) -> void:
+	var robe := col.lerp(Color(0.55, 0.2, 0.08), 0.5)
+	var wrap := Color(0.75, 0.65, 0.5)
+	_mesh(torso, _cyl(0.22, 0.34, 0.6, 7), Vector3(0, -0.05, 0), robe)
+	_box(torso, Vector3(0.06, 0.55, 0.02), Vector3(0, -0.05, 0.3), robe.darkened(0.35))  # the robe's seam
+	for k in 6:
+		_mesh(torso, _sphere(0.02, 4), Vector3(-0.1 + k * 0.04, 0.22 - absf(k - 2.5) * 0.03, 0.26), Color(0.25, 0.15, 0.1))  # beads
+	for side in [-1.0, 1.0]:
+		var pd := _box(torso, Vector3(0.2, 0.08, 0.28), Vector3(0.3 * side, 0.24, 0), robe.darkened(0.2))
+		_box(pd, Vector3(0.06, 0.03, 0.06), Vector3(0, 0.05, 0.08), Color(0.8, 0.6, 0.25))  # a brass stud
+		_pauldrons.append(pd)
+	_mesh(head, _cyl(0.05, 0.22, 0.4, 7), Vector3(0, 0.02, -0.02), robe.darkened(0.3))  # hood
+	_box(head, Vector3(0.18, 0.2, 0.06), Vector3(0, -0.02, 0.1), Color(0.6, 0.45, 0.35))  # the face inside
+	_box(head, Vector3(0.04, 0.02, 0.01), Vector3(-0.045, 0.02, 0.135), Color(0.05, 0.03, 0.02))
+	_box(head, Vector3(0.04, 0.02, 0.01), Vector3(0.045, 0.02, 0.135), Color(0.05, 0.03, 0.02))
+	_box(head, Vector3(0.06, 0.02, 0.01), Vector3(0, -0.06, 0.135), Color(0.4, 0.15, 0.1))  # singing
+	for hand in [right_hand, left_hand]:
+		_box(hand, Vector3(0.1, 0.12, 0.1), Vector3.ZERO, wrap)
+		_box(hand, Vector3(0.11, 0.02, 0.11), Vector3(0, 0.02, 0), wrap.darkened(0.25))
+		_box(hand, Vector3(0.11, 0.02, 0.11), Vector3(0, -0.03, 0), wrap.darkened(0.25))
+	_weapon(Color(0.4, 0.3, 0.2), Color(0.3, 0.2, 0.1))
+
+
+## The Castellan: the heaviest plate there is, a blue tabard, and his tower shield.
+func _dress_castellan(col: Color) -> void:
+	var steel := col.lerp(Color(0.55, 0.58, 0.65), 0.5)
+	var cloth := Color(0.15, 0.25, 0.55)
+	_mesh(torso, _cyl(0.27, 0.33, 0.52, 6), Vector3.ZERO, steel)
+	_box(torso, Vector3(0.3, 0.44, 0.02), Vector3(0, -0.04, 0.3), cloth)
+	_box(torso, Vector3(0.1, 0.1, 0.01), Vector3(0, 0.0, 0.31), Color(0.95, 0.75, 0.2))  # the keep's badge
+	_mesh(torso, _cyl(0.15, 0.17, 0.1, 8), Vector3(0, 0.3, 0), steel.darkened(0.2))
+	for side in [-1.0, 1.0]:
+		var pd := _box(torso, Vector3(0.26, 0.14, 0.36), Vector3(0.34 * side, 0.22, 0), steel.lightened(0.1))
+		_box(pd, Vector3(0.28, 0.04, 0.38), Vector3(0, 0.08, 0), steel.lightened(0.2))  # layered
+		_pauldrons.append(pd)
+	_mesh(head, _cyl(0.17, 0.17, 0.38, 8), Vector3.ZERO, steel.lightened(0.15))
+	_mesh(head, _cyl(0.0, 0.17, 0.08, 8), Vector3(0, 0.23, 0), steel.lightened(0.1))
+	_box(head, Vector3(0.26, 0.03, 0.02), Vector3(0, 0.03, 0.17), Color(0.01, 0.01, 0.01))
+	for k in 3:
+		_box(head, Vector3(0.015, 0.1, 0.02), Vector3(-0.05 + k * 0.05, -0.08, 0.17), Color(0.01, 0.01, 0.01))  # breaths
+	for hand in [right_hand, left_hand]:
+		_box(hand, Vector3(0.13, 0.13, 0.13), Vector3.ZERO, steel)
+		_box(hand, Vector3(0.12, 0.09, 0.14), Vector3(0, -0.1, -0.02), steel.darkened(0.1))
+	_weapon(Color(0.82, 0.84, 0.9), steel.darkened(0.1))
+
+
+## The headsman: a black hood with eye holes, a leather apron over a broad chest, bare
+## arms, straps for shoulders, and the axe.
+func _dress_headsman(_col: Color) -> void:
+	var skin := Color(0.7, 0.55, 0.45)
+	var leather := Color(0.25, 0.15, 0.08)
+	_box(torso, Vector3(0.7, 0.56, 0.36), Vector3.ZERO, skin)
+	_box(torso, Vector3(0.44, 0.6, 0.03), Vector3(0, -0.06, 0.19), leather)  # apron
+	_box(torso, Vector3(0.4, 0.06, 0.02), Vector3(0, 0.1, 0.21), Color(0.45, 0.1, 0.08))  # stained
+	for side in [-1.0, 1.0]:
+		var pd := _box(torso, Vector3(0.1, 0.06, 0.4), Vector3(0.22 * side, 0.3, 0), leather.lightened(0.15))  # straps
+		_pauldrons.append(pd)
+	_box(head, Vector3(0.28, 0.36, 0.28), Vector3(0, 0.02, 0), Color(0.06, 0.05, 0.05))  # hood
+	_box(head, Vector3(0.05, 0.04, 0.02), Vector3(-0.06, 0.04, 0.145), Color(0.6, 0.5, 0.4))  # the eyes behind
+	_box(head, Vector3(0.05, 0.04, 0.02), Vector3(0.06, 0.04, 0.145), Color(0.6, 0.5, 0.4))
+	for hand in [right_hand, left_hand]:
+		_box(hand, Vector3(0.15, 0.16, 0.14), Vector3.ZERO, skin)
+		_box(hand, Vector3(0.16, 0.05, 0.16), Vector3(0, 0.09, 0), leather)
+	_weapon(Color(0.5, 0.5, 0.52), leather)
+
+
+## The Lamplighter: a long dark coat, a tall hat, a thin pale face with eyes that glow, and
+## its staff with the lantern on it.
+func _dress_lamplighter(col: Color) -> void:
+	var coat := col.lerp(Color(0.12, 0.15, 0.25), 0.6)
+	_mesh(torso, _cyl(0.16, 0.26, 0.62, 7), Vector3(0, -0.04, 0), coat)
+	for k in 5:
+		_mesh(torso, _sphere(0.013, 4), Vector3(0.03, -0.2 + k * 0.1, 0.21), Color(0.7, 0.6, 0.3))
+	for side in [-1.0, 1.0]:
+		var pd := _box(torso, Vector3(0.16, 0.06, 0.26), Vector3(0.22 * side, 0.26, 0), coat.lightened(0.2))  # epaulettes
+		_box(pd, Vector3(0.14, 0.02, 0.02), Vector3(0, 0.04, 0.12), Color(0.7, 0.6, 0.3))
+		_pauldrons.append(pd)
+	_box(head, Vector3(0.18, 0.3, 0.18), Vector3(0, -0.03, 0), Color(0.78, 0.78, 0.72))
+	_glow(head, Vector3(0.04, 0.02, 0.02), Vector3(-0.05, 0.03, 0.095), Color(0.6, 0.85, 1.0))
+	_glow(head, Vector3(0.04, 0.02, 0.02), Vector3(0.05, 0.03, 0.095), Color(0.6, 0.85, 1.0))
+	_mesh(head, _cyl(0.2, 0.2, 0.02, 8), Vector3(0, 0.13, 0), coat.darkened(0.3))
+	_mesh(head, _cyl(0.11, 0.12, 0.3, 8), Vector3(0, 0.29, 0), coat.darkened(0.3))  # tall hat
+	for hand in [right_hand, left_hand]:
+		_box(hand, Vector3(0.08, 0.11, 0.08), Vector3.ZERO, Color(0.2, 0.2, 0.22))
+	_weapon(Color(0.5, 0.75, 1.0), Color(0.3, 0.25, 0.18), true)
+
+
+## Great Helm: a proper low-poly knight. Bucket helm with a cross visor and plume,
+## a tapered breastplate under a tabard, domed pauldrons, articulated gauntlets.
+func _dress_great_helm(col: Color) -> void:
+	var steel := col.lerp(Color(0.6, 0.62, 0.68), 0.6)
+	var cloth := Color(0.55, 0.12, 0.1)
+	_mesh(torso, _cyl(0.24, 0.31, 0.5, 6), Vector3.ZERO, steel)
+	_box(torso, Vector3(0.3, 0.42, 0.02), Vector3(0, -0.04, 0.27), cloth)  # tabard
+	_mesh(torso, _cyl(0.13, 0.15, 0.08, 8), Vector3(0, 0.29, 0), steel.darkened(0.2))  # gorget
+	for side in [-1.0, 1.0]:
+		var pd := _mesh(torso, _sphere(0.15, 6), Vector3(0.32 * side, 0.2, 0), steel.lightened(0.1))
+		pd.scale = Vector3(1.0, 0.6, 1.1)
+		_pauldrons.append(pd)
+	_mesh(head, _cyl(0.16, 0.16, 0.36, 8), Vector3.ZERO, steel.lightened(0.15))
+	_mesh(head, _cyl(0.0, 0.16, 0.06, 8), Vector3(0, 0.21, 0), steel.lightened(0.1))  # domed top
+	_box(head, Vector3(0.24, 0.03, 0.02), Vector3(0, 0.03, 0.16), Color(0.01, 0.01, 0.01))  # eye slit
+	_box(head, Vector3(0.03, 0.14, 0.02), Vector3(0, -0.06, 0.16), Color(0.01, 0.01, 0.01))  # breaths
+	var plume := _mesh(head, PrismMesh.new(), Vector3(0, 0.34, -0.05), cloth)
+	plume.scale = Vector3(0.05, 0.22, 0.28)
+	for hand in [right_hand, left_hand]:
+		_box(hand, Vector3(0.12, 0.12, 0.12), Vector3.ZERO, steel)
+		_box(hand, Vector3(0.13, 0.05, 0.08), Vector3(0, -0.06, 0.05), steel.darkened(0.2))  # fingers
+		_box(hand, Vector3(0.1, 0.08, 0.13), Vector3(0, -0.1, -0.02), steel.darkened(0.1))  # cuff
+	_weapon(Color(0.82, 0.84, 0.9), Color(0.35, 0.3, 0.2))
+
+
+## Wraith: no body. A hooded helm with burning eyes and two floating gauntlets over a
+## ragged cloak. The head and hands are all there is.
+func _dress_wraith(col: Color) -> void:
+	var dark := Color(0.06, 0.05, 0.07)
+	var bone := Color(0.7, 0.68, 0.62)
+	_mesh(torso, _cyl(0.1, 0.4, 0.8, 7), Vector3(0, -0.12, -0.05), dark)  # cloak
+	for side in [-1.0, 1.0]:
+		var pd := _box(torso, Vector3(0.16, 0.05, 0.22), Vector3(0.34 * side, 0.26, 0.02), col.darkened(0.3))
+		pd.rotation.z = -0.3 * side
+		_pauldrons.append(pd)
+	_mesh(head, _cyl(0.04, 0.21, 0.42, 7), Vector3(0, 0.03, -0.02), dark)  # hood
+	_box(head, Vector3(0.2, 0.24, 0.05), Vector3(0, -0.01, 0.12), Color(0.02, 0.02, 0.02))
+	for side in [-1.0, 1.0]:
+		_glow(head, Vector3(0.045, 0.02, 0.02), Vector3(0.05 * side, 0.02, 0.15), Color(1.0, 0.25, 0.1))
+	for hand in [right_hand, left_hand]:
+		_box(hand, Vector3(0.1, 0.11, 0.1), Vector3.ZERO, bone)
+		for k in 4:
+			_box(hand, Vector3(0.018, 0.08, 0.018), Vector3(-0.04 + k * 0.027, -0.08, 0.03), bone.darkened(0.2))
+	_weapon(Color(0.4, 0.6, 1.0), Color(0.15, 0.15, 0.18), true)
+
+
+## Marionette: a painted wooden puppet whose head and hands hang on strings from above.
+## A nod to what drives it: recorded head-and-hands motion and nothing else.
+func _dress_marionette() -> void:
+	var wood := Color(0.62, 0.45, 0.28)
+	var paint := Color(0.2, 0.35, 0.6)
+	_mesh(torso, _cyl(0.2, 0.25, 0.48, 8), Vector3.ZERO, paint)
+	_mesh(torso, _cyl(0.22, 0.22, 0.06, 8), Vector3(0, -0.24, 0), wood.darkened(0.3))  # belt hoop
+	for side in [-1.0, 1.0]:
+		var pd := _mesh(torso, _cyl(0.09, 0.09, 0.05, 8), Vector3(0.28 * side, 0.2, 0), wood)
+		pd.rotation.z = PI / 2
+		_pauldrons.append(pd)
+	_mesh(head, _sphere(0.17, 8), Vector3.ZERO, wood.lightened(0.15))
+	for side in [-1.0, 1.0]:
+		_box(head, Vector3(0.04, 0.05, 0.02), Vector3(0.06 * side, 0.03, 0.16), Color(0.05, 0.05, 0.05))
+		_box(head, Vector3(0.05, 0.025, 0.01), Vector3(0.09 * side, -0.04, 0.155), Color(0.85, 0.35, 0.3))  # cheeks
+	_box(head, Vector3(0.1, 0.015, 0.02), Vector3(0, -0.08, 0.15), Color(0.3, 0.05, 0.05))  # mouth slot
+	var hat := _mesh(head, _cyl(0.0, 0.17, 0.2, 8), Vector3(0, 0.22, 0), paint.darkened(0.3))
+	hat.rotation.z = 0.15
+	for hand in [right_hand, left_hand]:
+		_mesh(hand, _sphere(0.07, 6), Vector3.ZERO, wood)
+	_weapon(wood.lightened(0.25), wood.darkened(0.2))
+	for n in [head, right_hand, left_hand]:
+		var st := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = Vector3(0.006, 3.0, 0.006)
+		var m := StandardMaterial3D.new()
+		m.albedo_color = Color(0.85, 0.82, 0.75)
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		bm.material = m
+		st.mesh = bm
+		st.top_level = true
+		st.set_meta("follows", n)
+		add_child(st)
+		_strings.append(st)
+
+
+func _update_strings() -> void:
+	for st in _strings:
+		var n: Node3D = st.get_meta("follows")
+		st.global_position = n.global_position + Vector3(0, 1.5, 0)
+
+
+func _cyl(top: float, bottom: float, h: float, sides: int) -> CylinderMesh:
+	var m := CylinderMesh.new()
+	m.top_radius = top
+	m.bottom_radius = bottom
+	m.height = h
+	m.radial_segments = sides
+	m.rings = 1
+	return m
+
+
+func _sphere(r: float, segs: int) -> SphereMesh:
+	var m := SphereMesh.new()
+	m.radius = r
+	m.height = r * 2.0
+	m.radial_segments = segs
+	m.rings = maxi(2, int(segs / 2.0))
+	return m
+
+
+func _box(parent: Node3D, size: Vector3, pos: Vector3, col: Color) -> MeshInstance3D:
+	var bm := BoxMesh.new()
+	bm.size = size
+	return _mesh(parent, bm, pos, col)
+
+
+func _mesh(parent: Node3D, mesh: PrimitiveMesh, pos: Vector3, col: Color) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = col
+	mat.roughness = 1.0
+	mat.emission_enabled = true
+	mat.emission = Color(1, 0.9, 0.8)
+	mat.emission_energy_multiplier = 0.0
+	mesh.material = mat
+	_mats.append(mat)
+	_base_colors.append(col)
+	mi.mesh = mesh
+	mi.position = pos
+	parent.add_child(mi)
+	return mi
+
+
+## Something that glows on its own (eyes, an enchanted blade): not darkened by wounds.
+func _glow(parent: Node3D, size: Vector3, pos: Vector3, col: Color) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = size
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = col
+	mat.emission_enabled = true
+	mat.emission = col
+	mat.emission_energy_multiplier = 3.0
+	bm.material = mat
+	mi.mesh = bm
+	mi.position = pos
+	parent.add_child(mi)
+	return mi
+
+
+func _place(n: Node3D, pose: Array) -> void:
+	n.position = pose[0]
+	n.rotation = pose[1]
+
+
+func _process(delta: float) -> void:
+	var glow := heat * 0.6 + (0.9 + sin(Time.get_ticks_msec() * 0.03) * 0.3 if burning_time > 0.0 else 0.0)
+	if _flash > 0.0 or glow > 0.0:
+		_flash = maxf(0.0, _flash - delta * 4.0)
+		for m in _mats:
+			m.emission = Color(1, 0.9, 0.8).lerp(Color(1.0, 0.4, 0.1), clampf(glow, 0.0, 1.0)) if _flash < glow else Color(1, 0.9, 0.8)
+			m.emission_energy_multiplier = maxf(_flash, glow)
+	if burning_time > 0.0 and state != "dead":
+		burning_time -= delta
+		_burn_tick -= delta
+		if _burn_tick <= 0.0:
+			_burn_tick = 0.5
+			take_hit(BURN_DPS * 0.5, "torso", false)
+	heat = maxf(0.0, heat - delta * 0.05)
+	if poison_time > 0.0 and state != "dead":
+		poison_time -= delta
+		_poison_tick -= delta
+		if _poison_tick <= 0.0:
+			_poison_tick = 0.5
+			take_hit(POISON_DPS * 0.5, "torso", false)
+		for i in _mats.size():
+			_mats[i].albedo_color = _mats[i].albedo_color.lerp(Color(0.35, 0.7, 0.25), delta * 0.5)
+	if not _strings.is_empty():
+		_update_strings()
+	if state == "dead" or not active:
+		return
+	slow_time = maxf(0.0, slow_time - delta)
+	off_balance = maxf(0.0, off_balance - delta)
+	gummed = maxf(0.0, gummed - delta)
+	var dt := delta * (0.5 if slow_time > 0.0 else 1.0)
+	if _tween:
+		_tween.set_speed_scale(0.5 if slow_time > 0.0 else 1.0)
+	_timer -= dt
+	_since_stagger += dt
+	if _since_stagger > 3.0 and state != "broken":
+		stagger_meter = maxf(0.0, stagger_meter - STAGGER_DECAY * dt)
+	_update_gaze(delta)
+	_update_posture(delta)
+	match state:
+		"idle":
+			if _timer <= 0.0:
+				_begin_attack()
+		"windup":
+			progress = clampf(1.0 - _timer / _windup_total, 0.0, 1.0)
+			if _timer <= 0.0:
+				_strike()
+		"broken":
+			broken_time -= dt
+			if broken_time <= 0.0:
+				state = "idle"
+				weak_spot.visible = false
+				_timer = 0.8 / cur_speed()
+				_settle()
+		"recover", "stagger":
+			if _timer <= 0.0:
+				state = "idle"
+				var rest: Array = data.rest
+				_timer = rng.randf_range(rest[0], rest[1]) / cur_speed()
+				if _queued != "":
+					_timer = minf(_timer, 0.15)  # a follow-up doesn't wait
+
+
+## Head watches the player's hand when idle and the target zone while winding up;
+## the torso lags behind it (eyes fast, head medium, body slow).
+func _update_gaze(delta: float) -> void:
+	var look := look_target
+	if state == "windup" and not current.is_empty():
+		var c := Vector2.ZERO
+		for p in current.zone:
+			c += p
+		look = c / current.zone.size()
+	var yaw := (look.x - 0.5) * 0.9
+	var pitch := (0.45 - look.y) * 0.6
+	var rear := 0.0
+	if state == "windup" and not current.is_empty() and POSES[current.pose].get("head", false):
+		rear = -0.5 + progress * 0.9  # rears back, then lunges forward to spit
+	head.rotation.y = lerp_angle(head.rotation.y, yaw, 1.0 - exp(-delta * 8.0))
+	head.rotation.x = lerp_angle(head.rotation.x, -pitch + rear, 1.0 - exp(-delta * 8.0))
+	torso.rotation.y = lerp_angle(torso.rotation.y, yaw * 0.35, 1.0 - exp(-delta * 2.0))
+
+
+## Wounds show in the body: it hunches and sinks as HP drops, and reels while off balance.
+## Between swings each character carries itself its own way (data.idle).
+func _update_posture(delta: float) -> void:
+	var worn := 1.0 - hp / max_hp
+	var t := Time.get_ticks_msec() * 0.001
+	var reel := sin(t * 12.0) * 0.12 if off_balance > 0.0 else 0.0
+	# the fuller the stagger meter, the more it sways and its head lolls
+	var dizzy := stagger_fraction()
+	reel += sin(t * 5.0) * 0.08 * dizzy
+	var k := 1.0 - exp(-delta * 6.0)
+	var slump := 0.0
+	if state == "broken":
+		slump = 1.0
+		reel = sin(t * 3.0) * 0.05
+	var hunch := 0.0
+	var bob := sin(t * 3.0) * (0.015 + 0.03 * worn)  # breathing gets heavier as it's worn down
+	var sway := 0.0
+	var tilt := 0.0
+	match data.get("idle", "steady"):
+		"heavy":
+			bob = sin(t * 2.0) * (0.03 + 0.04 * worn)
+			if is_enraged():
+				bob += sin(t * 14.0) * 0.012  # shaking with it
+				tilt = sin(t * 9.0) * 0.04
+		"bounce":
+			bob = absf(sin(t * 6.0)) * 0.035  # up on its toes
+			sway = sin(t * 3.0) * 0.06
+		"shamble":
+			hunch = 0.3
+			tilt = 0.2
+			sway = sin(t * 1.3) * 0.03
+		"drift":
+			bob = sin(t * 1.5) * 0.06
+			sway = sin(t * 0.9) * 0.04
+		"guard":
+			hunch = 0.05
+	if state == "idle" or state == "recover":
+		body.position.y = bob
+		body.position.x = lerpf(body.position.x, sway, k)
+	torso.rotation.x = lerpf(torso.rotation.x, worn * 0.25 + slump * 0.25 + hunch, k)
+	body.rotation.z = lerpf(body.rotation.z, reel + tilt * 0.3, k)
+	body.position.y = lerpf(body.position.y, -0.1 * slump, k) if state == "broken" else body.position.y
+	head.position.y = lerpf(head.position.y, 1.68 - worn * 0.08 - slump * 0.12 - hunch * 0.1, k)
+	head.rotation.z = lerpf(head.rotation.z, sin(t * 2.3) * 0.25 * dizzy + slump * 0.3 + tilt, k)
+	if shield_arm and state != "dead":
+		# the Castellan keeps the wall up: the shield covers the torso until it's rattled
+		var up: bool = guard_up() and not (state == "windup" and current.get("pose", "") == "bash")
+		var target := Vector3(-0.25, 1.2, 0.45) if up else REST_L[0]
+		if state == "idle" or state == "recover":
+			left_hand.position = left_hand.position.lerp(target, k)
+			left_hand.rotation = left_hand.rotation.lerp(Vector3(0.15, 0.6, 0.0) if up else REST_L[1], k)
+
+
+func stagger_fraction() -> float:
+	return clampf(stagger_meter / float(data.get("stagger", 40.0)), 0.0, 1.0)
+
+
+## Pressure from the player: prevented damage (parries count double) and damage dealt.
+func add_stagger(amount: float) -> void:
+	if state == "dead" or state == "broken" or amount <= 0.0:
+		return
+	stagger_meter += amount
+	_since_stagger = 0.0
+	if stagger_meter >= float(data.get("stagger", 40.0)):
+		_break()
+
+
+func _break() -> void:
+	state = "broken"
+	broken_time = BROKEN_TIME
+	stagger_meter = 0.0
+	current = {}
+	progress = 0.0
+	weak_spot.position = Vector3(rng.randf_range(-0.15, 0.15), rng.randf_range(-0.1, 0.12), 0.17)
+	weak_spot.visible = true
+	_move({"s": [Vector3(0.35, 0.95, 0.15), Vector3(1.2, 0, -0.4)]}, "s", 0.25, Tween.EASE_OUT)
+	broke.emit()
+
+
+## Where armour came off, raw flesh shows: hits there land harder for the rest of the fight.
+func _expose(pd: MeshInstance3D) -> void:
+	var patch := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(0.16, 0.08, 0.3)
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.6, 0.12, 0.1)
+	mat.emission_enabled = true
+	mat.emission = Color(0.9, 0.15, 0.1)
+	mat.emission_energy_multiplier = 0.6
+	bm.material = mat
+	patch.mesh = bm
+	patch.position = pd.position + Vector3(0, -0.02, 0)
+	pd.get_parent().add_child(patch)
+	_exposed.append(patch)
+
+
+## A superheated hit: heat builds until it catches fire. A fireproof character shrugs it off.
+func heat_up(amount: float) -> void:
+	if state == "dead" or data.get("fireproof", false):
+		return
+	heat += amount
+	if heat >= 1.0:
+		heat = 0.0
+		burning_time = BURN_TIME
+		ignited.emit()
+
+
+func poison(secs: float) -> void:
+	poison_time = maxf(poison_time, secs)
+
+
+## A corrosive hit eats into the armour (the Rusted's rotten plate goes twice as fast).
+func corrode(amount: float) -> void:
+	corrosion = minf(1.0, corrosion + amount * float(data.get("corrode_mult", 1.0)))
+	_update_wounds()
+
+
+func _update_wounds() -> void:
+	var hurt := clampf(1.0 - hp / max_hp, 0.0, 1.0)
+	var worn := maxf(hurt, corrosion)
+	for i in _mats.size():
+		_mats[i].albedo_color = _base_colors[i].darkened(hurt * 0.45).lerp(Color(0.35, 0.45, 0.2), corrosion * 0.4)
+	# Plate is hard to beat off: a pauldron only gives way late in a fight (60% and 90% of
+	# its HP lost). Corrosion eats it on its own, much faster scale (a quarter and a half),
+	# so a corrosive weapon is how you get at the flesh under it early.
+	var lost := 0
+	for pd in _pauldrons:
+		if not pd.visible:
+			lost += 1
+	var breaks: Array = data.get("armor_breaks", ARMOR_BREAKS)
+	var should := 0
+	var by_rot := 0
+	for b in breaks:
+		if hurt >= float(b):
+			should += 1
+	for b in CORRODE_BREAKS:
+		if corrosion >= b:
+			by_rot += 1
+	should = maxi(should, by_rot)
+	while lost < mini(should, _pauldrons.size()):
+		var pd := _pauldrons[lost]
+		pd.visible = false
+		_expose(pd)
+		armor_fell.emit(camera.unproject_position(pd.global_position))
+		lost += 1
+
+
+## The player blocked. Clean blocks are what the characters react to: the Duelist answers
+## with a riposte, the Castellan loses patience after a few and bashes the pile apart.
+func on_blocked(clean: bool) -> void:
+	if state == "dead":
+		return
+	if not clean:
+		clean_blocks = 0
+		return
+	clean_blocks += 1
+	if data.has("riposte"):
+		queue_attack(data.riposte, 0.45)
+	if data.has("bash_after") and clean_blocks >= int(data.bash_after):
+		clean_blocks = 0
+		queue_attack("shield_bash", 0.8)
+
+
+## The blade hit something sticky: it comes away gummed, and the next wind-up is slower.
+func gum_up(secs: float) -> void:
+	gummed = maxf(gummed, secs)
+
+
+func queue_attack(id: String, windup: float = -1.0) -> void:
+	if state == "dead" or not EnemyDefs.ATTACKS.has(id):
+		return
+	_queued = id
+	_queued_windup = windup
+
+
+## Picks the next attack (a queued follow-up first), never the same one twice running.
+## Tracking attacks centre their zone on wherever the player's hand is right now.
+func _begin_attack(forced: String = "", windup: float = -1.0) -> void:
+	var id := forced
+	if id == "" and _queued != "":
+		id = _queued
+		windup = _queued_windup
+		_queued = ""
+		_queued_windup = -1.0
+	if id == "":
+		var pool: Array = data.attacks
+		id = pool[rng.randi() % pool.size()]
+		if id == _last_attack and pool.size() > 1:
+			id = pool[(pool.find(id) + 1) % pool.size()]
+	_last_attack = id
+	current = EnemyDefs.ATTACKS[id].duplicate(true)
+	current.id = id
+	current.damage *= data.get("power", 1.0)
+	if current.get("track", false):
+		current.zone = _tracked_zone(current.zone)
+	var w: float = current.windup if windup < 0.0 else windup
+	if gummed > 0.0:
+		w *= 1.4
+		gummed = 0.0
+	_windup_total = w / cur_speed()
+	_timer = _windup_total
+	progress = 0.0
+	state = "windup"
+	var pose: Dictionary = POSES[current.pose]
+	_move(pose, "wind", _windup_total * 0.85, Tween.EASE_OUT)
+	Sfx.play("windup", -14.0, 0.7 * (1.2 if is_enraged() else 1.0))
+
+
+## Shift a zone so its centre sits on the player's hand, kept on screen.
+func _tracked_zone(zone: Array) -> Array:
+	var c := Vector2.ZERO
+	for p in zone:
+		c += p
+	c /= zone.size()
+	var lo := Vector2(1, 1)
+	var hi := Vector2.ZERO
+	for p in zone:
+		lo = lo.min(p - c)
+		hi = hi.max(p - c)
+	var target := look_target.clamp(Vector2(0.03, 0.03) - lo, Vector2(0.97, 0.97) - hi)
+	var out: Array = []
+	for p in zone:
+		out.append(p - c + target)
+	return out
+
+
+func _strike() -> void:
+	var atk := current
+	current = {}
+	state = "recover"
+	_timer = 0.55 / cur_speed()
+	_move(POSES[atk.pose], "hit", 0.09, Tween.EASE_IN)
+	get_tree().create_timer(0.2).timeout.connect(_settle)
+	if atk.has("next"):
+		queue_attack(atk.next, float(atk.get("next_windup", 0.6)))
+	strike.emit(atk)
+
+
+func _settle() -> void:
+	if state == "dead" or state == "windup":
+		return
+	_move({"rest": REST_R}, "rest", 0.35, Tween.EASE_IN_OUT)
+
+
+func _move(pose: Dictionary, key: String, dur: float, ease: Tween.EaseType) -> void:
+	if _tween:
+		_tween.kill()
+	var r: Array = pose[key]
+	_tween = create_tween().set_parallel(true).set_trans(Tween.TRANS_QUAD).set_ease(ease)
+	if pose.get("shield", false):
+		# the shield arm does the moving; the sword hand stays put
+		_tween.tween_property(left_hand, "position", r[0], dur)
+		_tween.tween_property(left_hand, "rotation", r[1], dur)
+		return
+	_tween.tween_property(right_hand, "position", r[0], dur)
+	_tween.tween_property(right_hand, "rotation", r[1], dur)
+	var l_pos: Vector3 = REST_L[0]
+	var l_rot: Vector3 = REST_L[1]
+	if pose.get("mirror", false):
+		l_pos = Vector3(-r[0].x, r[0].y, r[0].z)
+		l_rot = Vector3(r[1].x, -r[1].y, -r[1].z)
+	elif pose.get("l", false):
+		l_pos = r[0] + Vector3(-0.12, -0.12, 0.02)
+	_tween.tween_property(left_hand, "position", l_pos, dur)
+	_tween.tween_property(left_hand, "rotation", l_rot, dur)
+
+
+## Hit-location circles in screen pixels, in the order weapons should check them.
+func regions() -> Array:
+	var out: Array = []
+	if weak_spot.visible:
+		out.append(_region("weak", weak_spot))
+	for pd in _pauldrons:
+		if not pd.visible:
+			out.append(_region("exposed", pd))
+	out.append(_region("head", head))
+	out.append(_region("right_hand", right_hand))
+	out.append(_region("left_hand", left_hand))
+	out.append(_region("torso", torso))
+	return out
+
+
+func _region(id: String, n: Node3D) -> Dictionary:
+	var info: Dictionary = REGIONS[id]
+	var p := n.global_position
+	var c := camera.unproject_position(p)
+	var edge := camera.unproject_position(p + camera.global_basis.x * float(info.radius))
+	var mult: float = info.mult
+	var armor: float = info.armor
+	if id == "torso" and guard_up():
+		mult *= 0.4  # the shield is in the way
+		armor = 1.6
+	return {"id": id, "center": c, "radius": c.distance_to(edge), "mult": mult, "armor": armor}
+
+
+## How much a weapon's hit does to this character: a Wraith lets plain steel through it but
+## not lightning or fire; the Zealot can't stand the cold.
+func weapon_mult(it: Item) -> float:
+	var elemental: bool = it.charge > 0.3 or it.heat > 0.3 or it.cold > 0.3
+	if elemental:
+		return float(data.get("elemental_mult", 1.0))
+	return float(data.get("weapon_mult", 1.0))
+
+
+func punch_mult() -> float:
+	return float(data.get("punch_mult", 1.0))
+
+
+## Returns the region hit, so the caller can show it.
+## `stagger_mult` scales how much the hit fills the stagger meter: weapon hits barely do
+## (blocking is what breaks an enemy), the rest count in full.
+func take_hit(dmg: float, region: String = "torso", can_stagger: bool = true, stagger_mult: float = 1.0) -> void:
+	if state == "dead":
+		return
+	if state == "broken":
+		dmg *= 1.5
+	elif off_balance > 0.0:
+		dmg *= 1.5
+	add_stagger(dmg * stagger_mult)
+	hp -= dmg
+	_flash = 1.0
+	_update_wounds()
+	if region == "weak":
+		weak_spot.visible = false  # one big hit, then it closes
+	if hp <= 0.0 and float(data.get("revive", 0.0)) > 0.0 and not has_meta("revived"):
+		set_meta("revived", true)  # it puts itself back together, once
+		hp = max_hp * float(data.revive)
+		_flash = 1.0
+		stagger()
+		return
+	if hp <= 0.0:
+		_die()
+		return
+	# knocking the attacking hand mid-swing is the easiest way to interrupt it
+	var poise: float = data.poise * (0.5 if region == "right_hand" else 1.0)
+	if can_stagger and state == "windup" and dmg >= poise:
+		stagger()
+
+
+## The swing was stopped cold: the enemy reels, leaving an opening (longer for the nervous).
+func throw_off_balance(t: float) -> void:
+	if state == "dead" or state == "broken":
+		return
+	off_balance = t * float(data.get("flinch", 1.0))
+	_timer = maxf(_timer, off_balance)
+
+
+func stagger() -> void:
+	if state == "dead" or state == "broken":
+		return
+	state = "stagger"
+	current = {}
+	progress = 0.0
+	_timer = float(data.get("stagger_time", 0.9))
+	_move({"s": [Vector3(0.45, 1.5, -0.1), Vector3(0.6, 0, -0.8)]}, "s", 0.15, Tween.EASE_OUT)
+	get_tree().create_timer(0.4).timeout.connect(_settle)
+
+
+func _die() -> void:
+	state = "dead"
+	current = {}
+	weak_spot.visible = false
+	if _tween:
+		_tween.kill()
+	var t := create_tween().set_parallel(true)
+	t.tween_property(body, "rotation:x", -1.3, 0.8).set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)
+	t.tween_property(body, "position:y", -0.6, 0.8)
+	died.emit()

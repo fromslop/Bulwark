@@ -1,0 +1,1736 @@
+class_name Item
+extends RigidBody2D
+## A physical object made of a grid of cells, each with its own material and health.
+## Damage lands on cells; failing cells splinter, dent or tear, and any part that loses
+## its connection to the rest falls away as its own body.
+
+const CELL := ItemDefs.CELL
+const DIRS: Array[Vector2i] = [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]
+# Velocity parry: above PARRY_MIN px/s a cell starts blocking extra, at PARRY_FULL it stops everything.
+const PARRY_MIN := 450.0
+const PARRY_FULL := 2400.0
+# Impacts: a new contact closing faster than this (px/s) damages the cell it lands on
+const IMPACT_MIN_DV := 700.0
+const IMPACT_DV_PER_DAMAGE := 300.0
+const SOUND_MIN_DV := 220.0  # gentler knocks than this are silent
+# Broken-off pieces keep only these. Elemental and magical modifiers live in the whole item,
+# so a volatile crate explodes once, a superheated item's splinters don't each become a new
+# fire source, and every chain reaction runs out.
+const SHIELD_WEIGHT := 0.6  # shields are built to be carried: lighter than the same metal as a lump
+const UNGLUABLE := ["coin", "menu", "upgrade", "potion"]
+const FUSE_CAP := 900  # cells: past this a glued lump is too big to be one thing
+const PART_WHOLE := 0.7  # a part torn off with this much of itself left falls away as itself
+const WEAR_RING := 0.45  # share of a blow's wear on the cells round where it struck
+const WEAPON_GUARD := 0.75  # a blade is a poor wall: weapons block this much as well as their material
+const BRACE_TIME := 0.45  # Space with a shield: braced this long, every block a parry
+const CRATE_OPEN_AT := 0.7  # a crate bursts once it's lost this much of its condition
+const LOCK_RUST := 0.05  # per rust tick (4 a second) at full rust: a corroding crate's lock goes in ~5 s
+const WHETSTONE_WEAR := 0.1  # of the condition a whetstone puts back, what it loses itself
+const ANVIL_WEAR := 0.05
+const WEIGHTLESS_DENSITY := 0.04  # what's left of an item's weight when it goes weightless
+const CONTACT_EVERY := 4  # physics steps between contact exchanges (heat, cold, charge)
+const INHERITED_MODS := ["heavy", "weightless", "reinforced", "bouncy", "spiked", "small", "large", "huge"]
+# Fire runs out: after burning this long an item is charred and can't catch again.
+const BURN_LIMIT := 8.0
+const MAGNET_RANGE := 260.0
+const MAGNET_ACCEL := 2200.0
+
+
+var def: Dictionary
+var cells := {}   # Vector2i -> {mat, hp, max, shade}
+# Collision is one rectangle per horizontal run of cells (far fewer shapes than one per
+# cell); a row's rectangles are rebuilt when one of its cells goes.
+var _shapes: Array[CollisionShape2D] = []  # merged rectangles covering the cells
+var _shapes_dirty := false
+# Drawing is split: the cells are drawn once and only redrawn when they change; moving
+# effects (sparks, flames, glints, drips...) go on a separate light layer.
+var _fx: Fx
+var _tint := Vector2i(-1, -1)  # heat/cold, quantised: the cells only redraw when it steps
+var _edges: Array = []   # [cell, dir] for every outside edge
+var _tops: Array = []    # cells with nothing above
+var _drips: Array = []   # decoration picks, by hash
+var _bubbles: Array = []
+var _sparkles: Array = []
+var _shiny: Array = []   # metal, gold and gems (Material Texture sheen)
+var origin := Vector2.ZERO
+var owned := true
+var held := false
+var swing_time := 0.0
+var swing_hit := false
+var cooldown := 0.0  # seconds until this weapon can swing again
+var _ready_flash := 0.0
+var _animated := false  # has a modifier with a moving look
+var age := 0.0
+var base_angular_damp := 0.8
+var base_gravity := 1.0
+var base_linear_damp := 0.0
+var levitate_time := 0.0
+var brace_time := 0.0  # a shield set against the blow: blocks count as parries
+var storm_time := 0.0  # Ring of the Storm: electrified for a while
+var reverse_time := 0.0  # Ring of Reversal: falls up for a while
+var _legendary := false  # legendary gear wears an aura
+var _prestigium := false  # has prestigium cells (they mend themselves)
+var _lock_rust := 0.0  # a metal crate's lock rusting through: at 1 it opens
+var _wear_cell := Vector2i(-9999, -9999)  # the cell a whetstone or anvil is wearing down now
+var _blade: Array = []  # non-handle cells top to bottom, where a weapon's engravings go
+var max_total := 1.0
+# elements: charge flows instantly through metal; heat creeps through contact and sets burnables alight
+var charge := 0.0
+var heat := 0.0
+var conductive := false
+var flammable := false
+var cold := 0.0
+var burn_time := 0.0
+var soak := {}  # liquid -> how much has soaked in (coatings take hold past a threshold)
+var _shattered := false
+var charred := false
+var _tick := 0.0
+var _joints := {}  # Item -> [PinJoint2D, PinJoint2D] (sticky)
+var _impacts: Array = []  # [global point, closing speed, other] gathered in _integrate_forces
+var _fuse := -1.0  # volatile: counting down to an explosion
+var _frozen_friction := false
+var _vel_now := Vector2.ZERO  # velocity at the last two physics steps (for impacts)
+var _vel_prev := Vector2.ZERO
+var _contact_ids := {}
+var _last_good := Transform2D.IDENTITY
+var _density_mult := 1.0
+var _pending_debris: Array = []
+var swing_mass := 1.0  # what a swing has to move: glued-on parts count half (see _recompute_mass)
+var swing_part: Dictionary = {}  # the weapon part this swing is made with (glued things: the one held)
+var _glue := 0  # cells with wet glue on them (cells[c].glue): only these grab
+var _rebuild_queued := false
+# Rust is a state like heat: a corrosive thing starts it, it eats a metal cell now and then,
+# and it creeps into other metal it touches (weaker each hop), fading unless it's fed.
+var rusting := 0.0
+var _trail: Array = []  # global transforms over the last few frames of a swing (the motion blur)
+var hit_flash := 0.0  # the blade just landed: it flashes
+
+
+static func create(d: Dictionary) -> Item:
+	d.modifiers = ItemDefs.current_mods(d.get("modifiers", []))
+	if d.has("fused_cells"):
+		# a glued-together thing from the save: its cells as they were, not its mask's
+		var fc: Dictionary = d.fused_cells
+		var org: Vector2 = d.get("fused_origin", Vector2.ZERO)
+		d.erase("fused_cells")
+		d.erase("fused_origin")
+		var fused := Item.new()
+		fused._init_from(d, fc, org)
+		return fused
+	var mask := ItemDefs.scale_mask(ItemDefs.shape_mask(d.shape), d.get("size", 1.0))
+	var hp_mult := 1.0
+	for m in d.modifiers:
+		hp_mult *= ItemDefs.MODIFIERS[m].get("hp", 1.0)
+	var cs := {}
+	for y in mask.size():
+		var row: String = mask[y]
+		for x in row.length():
+			var ch := row[x]
+			if ch == ".":
+				continue
+			var mat: String = d.material if ch == "M" else ItemDefs.MASK_MATS.get(ch, d.material)
+			if ch == "i" and d.kind == "shield" and Materials.get_mat(d.material).get("conducts", false):
+				mat = d.material  # a metal shield's boss and bands are its own metal, not a weak spot
+			var hp: float = Materials.hp_of(mat) * hp_mult
+			cs[Vector2i(x, y)] = {"mat": mat, "hp": hp, "max": hp, "shade": 1.0}
+			if ch == "h":
+				cs[Vector2i(x, y)].handle = true
+	_shade(cs)
+	var it := Item.new()
+	it._init_from(d, cs, Vector2(mask[0].length(), mask.size()) * CELL * 0.5)
+	return it
+
+
+static func _shade(cs: Dictionary) -> void:
+	for c in cs:
+		var s := 1.0
+		if not cs.has(c + Vector2i.UP) or not cs.has(c + Vector2i.LEFT):
+			s = 1.15
+		if not cs.has(c + Vector2i.DOWN) or not cs.has(c + Vector2i.RIGHT):
+			s = 0.75
+		var h: int = absi((c.x * 73856093) ^ (c.y * 19349663))
+		cs[c].shade = s * (0.94 + float(h % 13) / 100.0)
+
+
+func _init_from(d: Dictionary, cs: Dictionary, org: Vector2) -> void:
+	def = d
+	cells = cs
+	origin = org
+	collision_layer = 1
+	collision_mask = 3
+	if d.get("phases", false):
+		collision_layer = 0  # nothing bumps into it, and it only stops at walls and shelves
+		collision_mask = 2
+	continuous_cd = RigidBody2D.CCD_MODE_CAST_RAY
+	contact_monitor = true
+	max_contacts_reported = 24 if cs.size() > 12 else 6  # a flat item resting on the floor uses several
+	var pm := PhysicsMaterial.new()
+	pm.friction = 0.7
+	pm.bounce = 0.85 if d.modifiers.has("bouncy") else 0.1
+	physics_material_override = pm
+	_legendary = int(d.get("rarity", 0)) >= 3 and d.kind in ["weapon", "shield"] and not d.get("piece", false)
+	_density_mult = SHIELD_WEIGHT if d.kind == "shield" else 1.0
+	_density_mult *= float(d.get("weight", 1.0))  # a buckler is built light
+	for m in d.modifiers:
+		_density_mult *= ItemDefs.MODIFIERS[m].get("density", 1.0)
+	if d.modifiers.has("weightless"):
+		_go_weightless()
+	_rebuild_shapes()
+	for c in cells:
+		if cells[c].get("glue", false):
+			_glue += 1
+	_fx = Fx.new()
+	_fx.item = self
+	_fx.visible = false
+	add_child(_fx)
+	add_to_group("items")
+	if d.kind == "coin":
+		add_to_group("coins")
+	for m in d.modifiers:
+		if m in ["sticky", "corrosive", "regenerating", "magnetic", "volatile"]:
+			_animated = true
+	if d.kind == "debris":
+		add_to_group("debris")
+	max_total = 0.0
+	for c in cells:
+		max_total += cells[c].max
+	if d.modifiers.has("electrified"):
+		charge = 1.0
+	if d.modifiers.has("superheated"):
+		heat = 1.0
+	if d.modifiers.has("frosty"):
+		cold = 1.0
+	_recompute_mass()
+
+
+## (Re)build the collision rectangles for one row of cells.
+## Collision: the cells covered by as few rectangles as possible. Each row's runs of cells
+## are found, then a run that repeats exactly in the next row grows downward into one tall
+## rectangle (a blade or a shield face becomes a handful of shapes instead of one per row).
+## A long run's pile is hundreds of bodies, and the solver's cost goes with the shape count.
+func _rebuild_shapes() -> void:
+	for cs in _shapes:
+		cs.disabled = true  # gone this step, freed at the end of the frame
+		cs.queue_free()
+	_shapes.clear()
+	_shapes_dirty = false
+	var rows := {}  # y -> xs in that row
+	for c in cells:
+		if not rows.has(c.y):
+			rows[c.y] = []
+		rows[c.y].append(c.x)
+	var ys := rows.keys()
+	ys.sort()
+	var open := {}  # Vector2i(start, end) of a run -> Vector2i(first row, last row)
+	for y in ys:
+		var xs: Array = rows[y]
+		xs.sort()
+		var i := 0
+		while i < xs.size():
+			var start: int = xs[i]
+			var end: int = start
+			while i + 1 < xs.size() and xs[i + 1] == end + 1:
+				i += 1
+				end = xs[i]
+			var run := Vector2i(start, end)
+			if open.has(run) and open[run].y == y - 1:
+				open[run].y = y
+			else:
+				if open.has(run):
+					_add_rect(run, open[run])
+				open[run] = Vector2i(y, y)
+			i += 1
+		for run in open.keys():
+			if open[run].y < y:
+				_add_rect(run, open[run])
+				open.erase(run)
+	for run in open:
+		_add_rect(run, open[run])
+
+
+func _add_rect(run: Vector2i, span: Vector2i) -> void:
+	var rs := RectangleShape2D.new()
+	rs.size = Vector2((run.y - run.x + 1) * CELL, (span.y - span.x + 1) * CELL)
+	var cs := CollisionShape2D.new()
+	cs.shape = rs
+	cs.position = (cell_pos(Vector2i(run.x, span.x)) + cell_pos(Vector2i(run.y, span.y))) * 0.5
+	add_child(cs)
+	_shapes.append(cs)
+
+
+func _physics_process(delta: float) -> void:
+	age += delta
+	if not _is_sane():
+		return
+	if swing_time > 0.0:
+		swing_time -= delta
+		_trail.push_front(global_transform)
+		if _trail.size() > 7:
+			_trail.pop_back()
+	elif not _trail.is_empty():
+		_trail.pop_back()
+	hit_flash = maxf(0.0, hit_flash - delta)
+	if cooldown > 0.0:
+		cooldown = maxf(0.0, cooldown - delta)
+		if cooldown == 0.0:
+			_ready_flash = 0.2
+			queue_redraw()  # colour comes back
+	if _ready_flash > 0.0:
+		_ready_flash = maxf(0.0, _ready_flash - delta)
+	if levitate_time > 0.0:
+		levitate_time -= delta
+		if levitate_time <= 0.0:
+			_end_weightless_spell()
+	if brace_time > 0.0:
+		brace_time = maxf(0.0, brace_time - delta)
+	if storm_time > 0.0:
+		storm_time = maxf(0.0, storm_time - delta)
+	if reverse_time > 0.0:
+		reverse_time = maxf(0.0, reverse_time - delta)
+	# only touch the body's settings when they change: each write goes to the physics
+	# server, and a long run has a few hundred bodies doing this 120 times a second
+	var floating := levitate_time > 0.0 or base_gravity == 0.0
+	var gs := -1.0 if reverse_time > 0.0 else (0.0 if floating else 1.0)
+	var ld := 1.2 if levitate_time > 0.0 else base_linear_damp
+	var ad := 0.3 if swing_time > 0.0 else 5.0 if held else base_angular_damp
+	if gs != gravity_scale:
+		gravity_scale = gs
+	if ld != linear_damp:
+		linear_damp = ld
+	if ad != angular_damp:
+		angular_damp = ad
+	_process_impacts()
+	_update_elements(delta)
+	if has_mod("magnetic"):
+		_magnetize()
+	if _fuse >= 0.0:
+		_fuse -= delta
+		if _fuse < 0.0:
+			explode()
+			return
+	var tint := Vector2i(int(heat * 8.0), int(cold * 8.0))
+	if tint != _tint:
+		_tint = tint
+		queue_redraw()
+	var fx_on := _fx_active()
+	_fx.visible = fx_on
+	if fx_on:
+		_fx.queue_redraw()
+
+
+## Impacts are judged by how fast two things met when they first touch (not by how much
+## this body's own velocity changed: a shield lying on the floor barely moves when a mace
+## lands on it, but it should still crack). Lighter impactors count for less.
+func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
+	var seen := {}
+	for i in state.get_contact_count():
+		var id := state.get_contact_collider_id(i)
+		if seen.has(id):
+			continue
+		seen[id] = true
+		if _contact_ids.has(id):
+			continue  # already touching: resting, not a new knock
+		var other := state.get_contact_collider_object(i)
+		var n := state.get_contact_local_normal(i)
+		var ov := Vector2.ZERO
+		var om := INF
+		if other is Item:
+			om = other.mass
+			# depending on step order the other body's pre-hit velocity is in one of these
+			var a: Vector2 = other._vel_now
+			var b: Vector2 = other._vel_prev
+			ov = a if absf((_vel_now - a).dot(n)) > absf((_vel_now - b).dot(n)) else b
+		elif other is RigidBody2D:
+			om = other.mass
+			ov = other.linear_velocity
+		var share := 1.0 if om == INF else 2.0 * om / (mass + om)
+		var dv := absf((_vel_now - ov).dot(n)) * share
+		if dv > SOUND_MIN_DV:
+			_impacts.append([state.get_contact_local_position(i), dv, other])
+	_contact_ids = seen
+	_vel_prev = _vel_now
+	_vel_now = state.linear_velocity
+
+
+## Hard knocks hurt: the cell at the contact takes damage, more if the other thing is harder.
+func _process_impacts() -> void:
+	if _impacts.is_empty():
+		return
+	var list := _impacts
+	_impacts = []
+	for hit in list:
+		var dv: float = hit[1]
+		var hardness := 1.0
+		var other = hit[2]
+		if other is Item and is_instance_valid(other):
+			var oc: Vector2i = other.nearest_cell(hit[0])
+			if other.cells.has(oc):
+				hardness = clampf(Materials.get_mat(other.cells[oc].mat).hp / 6.0, 0.4, 2.0)
+		var cell := nearest_cell(hit[0])
+		if cells.has(cell):
+			var loud := clampf((dv - SOUND_MIN_DV) / 1500.0, 0.0, 1.0)
+			Sfx.play(Sfx.impact_for(cells[cell].mat), lerpf(-22.0, -2.0, loud), clampf(2.0 / sqrt(maxf(mass, 1.0) / 10.0), 0.6, 1.8))
+		if dv <= IMPACT_MIN_DV:
+			continue
+		damage_cell(cell, (dv - IMPACT_MIN_DV) / IMPACT_DV_PER_DAMAGE * hardness, true)
+		if has_mod("volatile") and dv > IMPACT_MIN_DV * 2.0:
+			light_fuse(0.05)
+
+
+func nearest_cell(p: Vector2, metal_only: bool = false) -> Vector2i:
+	var l := to_local(p)
+	var best := Vector2i(-99999, -99999)
+	var best_d := INF
+	for c in cells:
+		if metal_only and not Materials.get_mat(cells[c].mat).get("conducts", false):
+			continue
+		var d := cell_pos(c).distance_squared_to(l)
+		if d < best_d:
+			best_d = d
+			best = c
+	return best
+
+
+## Coins, scraps and pauldrons: the loose metal a magnet gathers. Whole gear is left alone,
+## so a magnetic shield is still a shield and your sword doesn't come stuck to it.
+func is_loose_metal() -> bool:
+	return conductive and def.kind in ["coin", "debris", "junk"]
+
+
+## A magnet tidies the loose metal around it into a pile and stays put itself.
+func _magnetize() -> void:
+	for n in get_tree().get_nodes_in_group("items"):
+		var o := n as Item
+		if o == null or o == self or o.held or o.freeze or not o.is_loose_metal():
+			continue
+		var d := o.global_position - global_position
+		var dist := d.length()
+		if dist > MAGNET_RANGE or dist < 1.0:
+			continue
+		var f := d / dist * (1.0 - dist / MAGNET_RANGE) * MAGNET_ACCEL * o.mass
+		o.apply_central_force(-f)
+
+
+func light_fuse(t: float = 0.4) -> void:
+	if _fuse < 0.0 or t < _fuse:
+		_fuse = t
+
+
+func explode() -> void:
+	if is_queued_for_deletion():
+		return
+	var power := sqrt(float(cells.size()) / 40.0)
+	Sfx.play("boom", 0.0, 1.2 / maxf(power, 0.5))
+	get_tree().call_group("game", "on_explosion", to_global(center_of_mass), 110.0 + 50.0 * power, power, self)
+	# a few chunks fly; the rest is gone in the blast
+	var keys := cells.keys()
+	keys.shuffle()
+	for i in mini(10, keys.size()):
+		var c: Vector2i = keys[i]
+		_spawn_piece({c: cells[c]}, Vector2.from_angle(randf() * TAU) * randf_range(300.0, 700.0))
+	queue_free()
+
+
+func is_burning() -> bool:
+	return (flammable or has_mod("oiled")) and heat > 0.6 and not charred
+
+
+func has_mod(m: String) -> bool:
+	return def.modifiers.has(m)
+
+
+## Give this item (and only this item, not pieces sharing its def) a new modifier.
+func add_mod(m: String) -> void:
+	if has_mod(m):
+		return
+	def = def.duplicate(true)
+	def.modifiers.append(m)
+	if m in ["sticky", "corrosive", "regenerating", "magnetic", "volatile"]:
+		_animated = true
+	if m == "electrified":
+		charge = 1.0
+	elif m == "superheated":
+		heat = 1.0
+	elif m == "tempered":
+		for c in cells:
+			if Materials.get_mat(cells[c].mat).get("conducts", false):
+				cells[c].max *= 1.3
+				cells[c].hp = cells[c].max
+		max_total = 0.0
+		for c in cells:
+			max_total += cells[c].max
+	elif m == "reinforced":
+		# a resin block applied after the fact: the whole piece gets the toughness it would
+		# have been made with, and the resin fills every crack (it comes out as good as new)
+		var k: float = ItemDefs.MODIFIERS.reinforced.hp
+		for c in cells:
+			cells[c].max *= k
+			cells[c].hp = cells[c].max
+		max_total *= k
+	elif m == "heavy":
+		_density_mult *= 1.8
+		for c in cells:
+			cells[c].max *= 1.2
+			cells[c].hp *= 1.2
+		max_total *= 1.2
+		_recompute_mass()
+	elif m == "weightless":
+		if levitate_time > 0.0:
+			_end_weightless_spell()  # it's for good now
+			levitate_time = 0.0
+		_density_mult *= WEIGHTLESS_DENSITY
+		_recompute_mass()
+		_go_weightless()
+	queue_redraw()
+
+
+## Weightless: no gravity and almost no mass, so it flicks round with no effort and adds
+## next to nothing to what it's glued to. A little air drag so it drifts to a stop instead
+## of sailing off.
+func _go_weightless() -> void:
+	base_gravity = 0.0
+	base_linear_damp = 1.2
+	base_angular_damp = 1.5
+
+
+## The Ring of Levitation: weightless for a while (mass and all), then back to normal.
+func weightless_for(seconds: float) -> void:
+	if has_mod("weightless"):
+		return
+	if levitate_time <= 0.0:
+		_density_mult *= WEIGHTLESS_DENSITY
+		_recompute_mass()
+	levitate_time = maxf(levitate_time, seconds)
+	queue_redraw()
+
+
+func _end_weightless_spell() -> void:
+	_density_mult /= WEIGHTLESS_DENSITY
+	_recompute_mass()
+	queue_redraw()
+
+
+## Regrow the item at another size (a growth or shrinking potion): the mask is rescaled and
+## rebuilt, keeping the material of every cell as best it can and the same condition.
+func rescale(factor: float) -> void:
+	if def.has("parts"):
+		return  # a glued-together thing is built from its pieces, not a mask: it can't be resized
+	var cond := health_ratio()
+	var new_size: float = clampf(def.get("size", 1.0) * factor, 0.4, 2.5)
+	def = def.duplicate(true)
+	def.size = new_size
+	if def.has("swing_damage") and ItemDefs.DEFS.has(def.get("id", "")):
+		def.swing_damage = float(ItemDefs.DEFS[def.id].swing_damage) * new_size
+	var mask := ItemDefs.scale_mask(ItemDefs.shape_mask(def.shape), new_size)
+	var main_mat: String = def.get("material", "wood")
+	var hp_mult := 1.0
+	for m in def.modifiers:
+		hp_mult *= ItemDefs.MODIFIERS[m].get("hp", 1.0)
+	var cs := {}
+	for y in mask.size():
+		var row: String = mask[y]
+		for x in row.length():
+			var ch := row[x]
+			if ch == ".":
+				continue
+			var mat: String = main_mat if ch == "M" else ItemDefs.MASK_MATS.get(ch, main_mat)
+			if ch == "i" and def.kind == "shield" and Materials.get_mat(main_mat).get("conducts", false):
+				mat = main_mat
+			var hp: float = Materials.hp_of(mat) * hp_mult * cond
+			cs[Vector2i(x, y)] = {"mat": mat, "hp": hp, "max": Materials.hp_of(mat) * hp_mult, "shade": 1.0}
+			if ch == "h":
+				cs[Vector2i(x, y)].handle = true
+	Item._shade(cs)
+	cells = cs
+	origin = Vector2(mask[0].length(), mask.size()) * CELL * 0.5
+	_rebuild_shapes()
+	max_total = 0.0
+	for c in cells:
+		max_total += cells[c].max
+	_recompute_mass()
+	queue_redraw()
+
+
+## The nearest bit of this item to a point, if it's within reach (magnetic catch). INF if not.
+func catch_at(p: Vector2, reach: float) -> Vector2:
+	var c := nearest_cell(p)
+	if not cells.has(c):
+		return Vector2.INF
+	var g := to_global(cell_pos(c))
+	return g if g.distance_to(p) <= reach else Vector2.INF
+
+
+## Rust takes hold (from a corrosive thing, a rotten blade, or rusting metal it touches).
+func catch_rust(level: float) -> void:
+	if conductive and level > rusting:
+		rusting = minf(1.0, level)
+
+
+## Pull every weld off this item (and off whatever was welded to it).
+func unstick() -> void:
+	for k in _joints.keys():
+		for j in _joints[k]:
+			if is_instance_valid(j):
+				j.queue_free()
+	_joints.clear()
+	for n in get_tree().get_nodes_in_group("items"):
+		var o := n as Item
+		if o and o._joints.has(self):
+			for j in o._joints[self]:
+				if is_instance_valid(j):
+					j.queue_free()
+			o._joints.erase(self)
+
+
+func is_stuck() -> bool:
+	if not _joints.is_empty():
+		return true
+	for n in get_tree().get_nodes_in_group("items"):
+		var o := n as Item
+		if o and o._joints.has(self):
+			return true
+	return false
+
+
+## Turn one cell into another material, keeping how damaged it was.
+func transmute_cell(c: Vector2i, mat: String) -> void:
+	if not cells.has(c) or cells[c].mat == mat:
+		return
+	var cell: Dictionary = cells[c]
+	var frac := clampf(cell.hp / cell.max, 0.25, 1.0)
+	var mx := Materials.hp_of(mat)
+	max_total += mx - float(cell.max)
+	cell.mat = mat
+	cell.max = mx
+	cell.hp = mx * frac
+	_queue_rebuild()  # mass, conductivity and flammability follow the new material
+
+
+## Corrosion: the cell rusts (and shows it) as it's eaten away.
+func rust_cell(c: Vector2i, amount: float) -> void:
+	if not cells.has(c) or cells[c].mat == "prestigium":
+		return  # prestigium never rusts
+	cells[c].rust = minf(1.0, cells[c].get("rust", 0.0) + 0.25)
+	damage_cell(c, amount, true)
+
+
+## A transmuting drop soaks outward from where it landed: the cell it hit and up to
+## `count` connected cells nearest to it (wrapped handles keep their grip). Returns how
+## many changed.
+func transmute_spread(start: Vector2i, mat: String, count: int) -> int:
+	if not cells.has(start):
+		return 0
+	var turned := 0
+	var seen := {start: true}
+	var queue: Array = [start]
+	while not queue.is_empty() and turned < count:
+		var c: Vector2i = queue.pop_front()
+		if cells[c].mat != mat and not cells[c].get("handle", false):
+			transmute_cell(c, mat)
+			turned += 1
+		for d in DIRS:
+			var n: Vector2i = c + d
+			if cells.has(n) and not seen.has(n):
+				seen[n] = true
+				queue.append(n)
+	return turned
+
+
+## Once most of an item is a new material it *is* that material: name and weapon stats follow.
+func adopt_material(mat: String) -> void:
+	if def.get("material", "") == mat or (def.has("fixed_mods") and not (mat == "prestigium" and def.has("legend"))):
+		return  # legendaries keep their metal, except to ascend
+	var counts := {}
+	var total := 0
+	for c in cells:
+		if cells[c].get("handle", false):
+			continue
+		counts[cells[c].mat] = counts.get(cells[c].mat, 0) + 1
+		total += 1
+	if total == 0 or counts.get(mat, 0) * 2 < total:
+		return
+	def = def.duplicate(true)
+	def.material = mat
+	if def.has("title"):
+		def.name = "%s %s" % [mat.capitalize(), def.title]
+	if mat == "prestigium" and def.has("legend"):
+		ItemDefs.ascend(def)
+		queue_redraw()
+
+
+## A potion's glass gave way: its liquid sprays out over whatever's nearby.
+func shatter() -> void:
+	if _shattered or def.kind != "potion":
+		return
+	_shattered = true
+	get_tree().call_group("game", "on_potion_shatter", self)
+	queue_free()
+
+
+func _update_elements(delta: float) -> void:
+	if has_mod("electrified") or storm_time > 0.0:
+		charge = 1.0
+	else:
+		charge = maxf(0.0, charge - delta * 1.5)
+	if has_mod("superheated"):
+		heat = 1.0
+	elif is_burning() and cold <= 0.0:
+		heat = maxf(heat, 0.75)  # fire feeds itself until frost gets at it
+	else:
+		heat = maxf(0.0, heat - delta * 0.08)
+	if has_mod("frosty"):
+		cold = 1.0
+	else:
+		cold = maxf(0.0, cold - delta * 0.1)
+	# heat and cold eat each other: frost puts fires out, fire thaws ice
+	if heat > 0.0 and cold > 0.0:
+		var m := minf(heat, cold) * delta * 2.0
+		if not has_mod("superheated"):
+			heat = maxf(0.0, heat - m)
+		if not has_mod("frosty"):
+			cold = maxf(0.0, cold - m)
+	if conductive and heat > 0.6 and cold > 0.25 and not has_mod("tempered"):
+		add_mod("tempered")  # quenched while red-hot: the metal comes out tougher
+		heat = 0.2
+		get_tree().call_group("game", "on_tempered", self)
+	var frozen := cold > 0.5
+	if frozen != _frozen_friction:
+		_frozen_friction = frozen
+		physics_material_override.friction = 0.03 if frozen else 0.7
+	# Contact exchange. An inert thing (no charge, heat or cold, nothing that acts on touch)
+	# has nothing to give and its neighbours push into it themselves, so it skips the
+	# loop: most of a long run's pile is inert coins and scraps.
+	# It runs at a quarter of the physics rate, staggered across items, with the rates
+	# scaled to match.
+	var inert := charge <= 0.1 and heat <= 0.0 and cold <= 0.0 and _glue == 0
+	var exchange := (Engine.get_physics_frames() + get_instance_id()) % CONTACT_EVERY == 0
+	var dt := delta * CONTACT_EVERY
+	var touching: Array[Item] = []
+	for b in ([] if inert or not exchange else get_colliding_bodies()):
+		var o := b as Item
+		if o == null:
+			continue
+		touching.append(o)
+		# push to the neighbour and pull from it, so contact works even when only one
+		# side reports it (frozen shop stock, for example)
+		if charge > 0.1 and o.conductive and o.charge < charge * 0.9:
+			o.charge = charge * 0.9
+		elif o.charge > 0.1 and conductive and charge < o.charge * 0.9:
+			charge = o.charge * 0.9
+		if heat > o.heat:
+			o.heat = minf(1.0, o.heat + (heat - o.heat) * dt * (2.0 if o.conductive else 0.8))
+		elif o.heat > heat:
+			heat = minf(1.0, heat + (o.heat - heat) * dt * (2.0 if conductive else 0.8))
+		if cold > o.cold:
+			o.cold = minf(1.0, o.cold + (cold - o.cold) * dt * (1.5 if o.conductive else 0.6))
+		elif o.cold > cold:
+			cold = minf(1.0, cold + (o.cold - cold) * dt * (1.5 if conductive else 0.6))
+		# glue only grabs with its glued patch: press that patch against the other thing, one of
+		# the two in your hand, and the one in your hand takes the other in
+		if _glue > 0 and (held or o.held) and _glue_touches(o):
+			if held:
+				fuse(o)
+			else:
+				o.fuse(self)
+	if has_mod("volatile") and (heat > 0.7 or charge > 0.5):
+		light_fuse()
+	_tick -= delta
+	if _tick > 0.0:
+		return
+	_tick = 0.25
+	if _prestigium:
+		for c in cells:  # prestigium knits itself back together
+			var cell: Dictionary = cells[c]
+			if cell.mat == "prestigium" and cell.hp < cell.max:
+				cell.hp = minf(cell.max, cell.hp + cell.max * 0.01)
+	if touching.is_empty() and (rusting > 0.0 or has_mod("corrosive") or def.get("utility", "") in ["whetstone", "anvil"]):
+		for b in get_colliding_bodies():  # these act on touch whether or not the exchange ran this step
+			if b is Item:
+				touching.append(b)
+	if has_mod("corrosive"):
+		rusting = 1.0
+		for o in touching:
+			o.catch_rust(0.9)
+	if rusting > 0.0:
+		# rust eats a metal cell now and then, creeps into metal it touches, and fades
+		var metal: Array = []
+		for c in cells:
+			if Materials.get_mat(cells[c].mat).get("conducts", false):
+				metal.append(c)
+		if metal.is_empty():
+			rusting = 0.0
+		else:
+			# only something corrosive spreads it (above); rust caught from one stays where it is
+			rust_cell(metal[randi() % metal.size()], maxf(0.5, max_total * 0.001) * rusting)
+			if def.has("loot"):
+				_lock_rust += rusting * LOCK_RUST  # the lock goes first
+				_check_crate()
+			if not has_mod("corrosive"):
+				rusting = maxf(0.0, rusting - 0.012)
+	if is_burning():
+		burn_time += 0.25
+		if burn_time >= BURN_LIMIT:
+			charred = true  # burnt out: smoulders down and won't light again
+			queue_redraw()
+		var burnable: Array = []
+		for c in cells:
+			if Materials.get_mat(cells[c].mat).get("burns", false):
+				burnable.append(c)
+		if not burnable.is_empty():
+			damage_cell(burnable[randi() % burnable.size()], 0.6, false)
+	if has_mod("regenerating"):
+		repair(0.0075)
+	if def.has("parts") and def.kind == "weapon":
+		for pd in def.parts:
+			if pd.get("utility", "") == "whetstone":
+				var restored := repair(0.006)
+				if restored > 0.0:
+					# it wears the stone, not the blade
+					for c in cells:
+						if def.parts[int(cells[c].get("part", 0))] == pd:
+							damage_cell(c, restored * WHETSTONE_WEAR * 2.0, false)
+							break
+				break
+	match def.get("utility", ""):
+		"whetstone":
+			for o in touching:
+				if o.def.kind == "weapon":
+					_wear_from(o.repair(0.02) * WHETSTONE_WEAR)
+		"anvil":
+			for o in touching:
+				if o.conductive and o.def.kind != "coin":
+					_wear_from(o.repair(0.02) * ANVIL_WEAR)
+
+
+## Dab glue on: the cells within `radius` of the cell nearest `at` get a wet patch. Only
+## glued cells grab (see the contact loop), so glue goes where you put it.
+func glue_patch(at: Vector2, radius: int = 1) -> void:
+	var c0 := nearest_cell(at)
+	if not cells.has(c0):
+		return
+	for c in cells:
+		if absi(c.x - c0.x) + absi(c.y - c0.y) <= radius and not cells[c].get("glue", false):
+			cells[c].glue = true
+			_glue += 1
+	if not has_mod("sticky"):
+		add_mod("sticky")  # (shows on the inspect card; the patch is what grabs)
+	queue_redraw()
+
+
+func glued_at(p: Vector2) -> bool:
+	var c := cell_at_global(p)
+	return cells.has(c) and cells[c].get("glue", false)
+
+
+## Is the glued patch pressed against `o`? (a glued cell, or the cell next to it, overlaps o)
+func _glue_touches(o: Item) -> bool:
+	for c in cells:
+		if not cells[c].get("glue", false):
+			continue
+		var p := to_global(cell_pos(c))
+		if o.has_cell_at(p):
+			return true
+		for d in DIRS:
+			if o.has_cell_at(p + to_global(Vector2(d) * CELL) - global_position):
+				return true
+	return false
+
+
+## A thing made sticky (a rolled modifier, an old save) gets one small patch on an edge.
+func _ensure_glue() -> void:
+	if not has_mod("sticky") or _glue > 0 or cells.is_empty():
+		return
+	var edge: Array = cells.keys().filter(func(c: Vector2i) -> bool: return _is_edge(c))
+	var pick: Vector2i = edge[absi(hash(def.get("id", ""))) % edge.size()] if not edge.is_empty() else cells.keys()[0]
+	glue_patch(to_global(cell_pos(pick)), 1)
+
+
+## Glue: take `o` into this item. Its cells join this one's grid where they lie (snapped to
+## the nearest free cell), each remembering which piece it came from, so a buckler glued to
+## a sword still blocks like a buckler and weighs what a buckler weighs. One rigid body, so
+## nothing jitters at a joint; breakage, blocking and splitting all work as for any item.
+## Modifiers are pooled (the glue is used up). If damage later tears a part off mostly whole,
+## it falls away as itself again.
+func fuse(o: Item) -> bool:
+	if o == self or not is_instance_valid(o) or o.is_queued_for_deletion() or is_queued_for_deletion():
+		return false
+	if o.freeze or not o.owned or not owned or o.def.kind in UNGLUABLE or def.kind in UNGLUABLE or o.def.get("phases", false):
+		return false
+	if cells.size() + o.cells.size() > FUSE_CAP:
+		return false
+	def = def.duplicate(true)
+	if not def.has("parts"):
+		var own := _part_summary(def, _density_mult, cells.size())
+		def.parts = [own]
+		for c in cells:
+			cells[c].part = 0
+	var offset: int = def.parts.size()
+	var theirs: Array = o.def.parts if o.def.has("parts") else [_part_summary(o.def, o._density_mult, o.cells.size())]
+	for pd in theirs:
+		def.parts.append((pd as Dictionary).duplicate(true))
+	var placed := 0
+	for c in o.cells:
+		var lp := to_local(o.to_global(o.cell_pos(c)))
+		var idx := Vector2i(roundi((lp.x + origin.x) / CELL - 0.5), roundi((lp.y + origin.y) / CELL - 0.5))
+		var spot := idx
+		if cells.has(spot):
+			spot = Vector2i(9999, 9999)
+			for d in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN, Vector2i(1, 1), Vector2i(-1, 1), Vector2i(1, -1), Vector2i(-1, -1)]:
+				if not cells.has(idx + d):
+					spot = idx + d
+					break
+			if spot.x == 9999:
+				continue  # lost in the overlap
+		var cell: Dictionary = (o.cells[c] as Dictionary).duplicate()
+		cell.part = offset + int(cell.get("part", 0))
+		cell.erase("handle")  # only the main piece's grip is a grip
+		cells[spot] = cell
+		placed += 1
+	if placed == 0:
+		return false
+	_bridge(offset)
+	var title := str(o.def.get("title", o.def.get("name", "thing")))
+	def.name = "%s + %s" % [str(def.get("name", def.get("title", ""))), title]
+	def.fused = true
+	for m in o.def.modifiers:
+		if m != "sticky" and not has_mod(m) and ItemDefs.MODIFIERS.has(m) and ItemDefs._compatible(m, def.modifiers):
+			add_mod(m)
+	def.modifiers.erase("sticky")  # the glue is spent
+	for c in cells:
+		cells[c].erase("glue")
+	_glue = 0
+	heat = maxf(heat, o.heat)
+	charge = maxf(charge, o.charge)
+	cold = maxf(cold, o.cold)
+	Item._shade(cells)
+	max_total = 0.0
+	for c in cells:
+		max_total += cells[c].max
+	if o.held:
+		get_tree().call_group("game", "release_if_holding", o)
+	o.queue_free()
+	_shapes_dirty = true
+	_rebuild_shapes()
+	_recompute_mass()
+	queue_redraw()
+	Sfx.play("soft", -2.0, 0.7)
+	get_tree().call_group("game", "on_fused", self)
+	return true
+
+
+## Glued pieces that only touch at a corner, or not quite at all, are joined by a seam of
+## glue cells along the shortest gap, so the whole is one connected thing (otherwise the
+## first knock would split them straight back apart).
+func _bridge(glue_part: int) -> void:
+	for guard in 8:
+		var comps := _components()
+		if comps.size() <= 1:
+			return
+		comps.sort_custom(func(a: Array, b: Array) -> bool: return a.size() > b.size())
+		var main_comp: Array = comps[0]
+		var other: Array = comps[1]
+		var best_a := Vector2i.ZERO
+		var best_b := Vector2i.ZERO
+		var best_d := 1 << 30
+		for a in main_comp:
+			for b in other:
+				var d: int = absi(a.x - b.x) + absi(a.y - b.y)
+				if d < best_d:
+					best_d = d
+					best_a = a
+					best_b = b
+		# a staircase of glue from one to the other (4-connected)
+		var cur: Vector2i = best_a
+		while cur != best_b:
+			if cur.x != best_b.x:
+				cur.x += signi(best_b.x - cur.x)
+			else:
+				cur.y += signi(best_b.y - cur.y)
+			if not cells.has(cur):
+				var hp := Materials.hp_of("glue")
+				cells[cur] = {"mat": "glue", "hp": hp, "max": hp, "shade": 1.0, "part": glue_part}
+		# a fat seam: a cell either side of the join too
+		for d in [Vector2i.LEFT, Vector2i.RIGHT, Vector2i.UP, Vector2i.DOWN]:
+			var n: Vector2i = best_a + d
+			if not cells.has(n):
+				var hp2 := Materials.hp_of("glue")
+				cells[n] = {"mat": "glue", "hp": hp2, "max": hp2, "shade": 1.0, "part": glue_part}
+
+
+static func _part_summary(d: Dictionary, dens: float, n: int) -> Dictionary:
+	var pd := d.duplicate(true)
+	pd.erase("parts")
+	pd.erase("fused")
+	pd.dens = dens
+	pd.n = n
+	return pd
+
+
+func _stick_to(o: Item) -> void:
+	for k in _joints.keys():
+		if not is_instance_valid(k):
+			_joints.erase(k)
+	if _joints.has(o) or o._joints.has(self) or _joints.size() >= 4:
+		return
+	# two plain pins along the line between the bodies make a rigid weld
+	# (a zero-width angular limit on one pin is unstable in the 2D solver)
+	var a := to_global(center_of_mass)
+	var b := o.to_global(o.center_of_mass)
+	var pins: Array[PinJoint2D] = []
+	for t in [0.35, 0.65]:
+		var j := PinJoint2D.new()
+		add_child(j)
+		j.global_position = a.lerp(b, t)
+		j.node_a = j.get_path_to(self)
+		j.node_b = j.get_path_to(o)
+		pins.append(j)
+	_joints[o] = pins
+
+
+## Safety net: if the solver ever hands us non-finite numbers, snap back to the last good
+## state instead of letting NaNs spread through contacts and joints.
+func _is_sane() -> bool:
+	if global_transform.is_finite() and linear_velocity.is_finite() and is_finite(angular_velocity):
+		_last_good = global_transform
+		return true
+	for k in _joints.keys():
+		for j in _joints[k]:
+			if is_instance_valid(j):
+				j.queue_free()
+	_joints.clear()
+	PhysicsServer2D.body_set_state(get_rid(), PhysicsServer2D.BODY_STATE_TRANSFORM, _last_good)
+	linear_velocity = Vector2.ZERO
+	angular_velocity = 0.0
+	return false
+
+
+## Move a body that's already in the physics world (plain position writes get overwritten).
+func teleport(p: Vector2) -> void:
+	global_position = p
+	PhysicsServer2D.body_set_state(get_rid(), PhysicsServer2D.BODY_STATE_TRANSFORM, global_transform)
+	linear_velocity = Vector2.ZERO
+	angular_velocity = 0.0
+
+
+func cell_pos(c: Vector2i) -> Vector2:
+	return (Vector2(c) + Vector2(0.5, 0.5)) * CELL - origin
+
+
+func cell_at_global(p: Vector2) -> Vector2i:
+	var l := to_local(p) + origin
+	return Vector2i(floori(l.x / CELL), floori(l.y / CELL))
+
+
+## True if the cell at this local grab point is a wrapped handle.
+func is_handle_at_local(local: Vector2) -> bool:
+	var c := cell_at_global(to_global(local))
+	return cells.has(c) and cells[c].get("handle", false)
+
+
+func has_cell_at(p: Vector2) -> bool:
+	return cells.has(cell_at_global(p))
+
+
+func point_velocity(p: Vector2) -> Vector2:
+	var r := p - to_global(center_of_mass)
+	return linear_velocity + Vector2(-angular_velocity * r.y, angular_velocity * r.x)
+
+
+## 0..1 parry strength for a given speed in px/s.
+static func parry_for_speed(speed: float) -> float:
+	return clampf((speed - PARRY_MIN) / (PARRY_FULL - PARRY_MIN), 0.0, 1.0)
+
+
+## Rough "how parry-ready is this whole item right now", used for the glint.
+func speed_parry() -> float:
+	var radius := origin.length()
+	return parry_for_speed(linear_velocity.length() + absf(angular_velocity) * radius * 0.7)
+
+
+func block_at(p: Vector2) -> float:
+	var c := cell_at_global(p)
+	if not cells.has(c):
+		return 0.0
+	var cell: Dictionary = cells[c]
+	var hpf := clampf(cell.hp / cell.max, 0.0, 1.0)
+	var pd := _part_of(cell)  # a glued-on part blocks as what it is: a buckler on a sword is a shield
+	var b: float = Materials.get_mat(cell.mat).block * (0.85 + 0.15 * hpf) * float(pd.get("guard", 1.0))
+	if pd.kind == "weapon":
+		b *= WEAPON_GUARD
+	return minf(b, 0.99)
+
+
+## What a cell is part of: the item itself, or (once things are glued together) the piece it
+## came from: {kind, guard, id, ...}.
+func _part_of(cell: Dictionary) -> Dictionary:
+	if cell.has("part") and def.has("parts") and int(cell.part) < def.parts.size():
+		return def.parts[int(cell.part)]
+	return def
+
+
+## The kind of thing at a point of this item ("shield" where a buckler is glued on).
+func kind_at(p: Vector2) -> String:
+	var c := cell_at_global(p)
+	return str(_part_of(cells[c]).kind) if cells.has(c) else str(def.kind)
+
+
+## The piece of this item at a local point (the grip): a glued sword-and-buckler held by the
+## buckler is a buckler to Space, held by the sword it's a sword. Every part still blocks.
+func part_at_local(local: Vector2) -> Dictionary:
+	var c := cell_at_global(to_global(local))
+	if not cells.has(c):
+		c = nearest_cell(to_global(local))
+	return _part_of(cells[c]) if cells.has(c) else def
+
+
+func has_part(kind: String) -> bool:
+	if not def.has("parts"):
+		return def.kind == kind
+	for pd in def.parts:
+		if pd.kind == kind:
+			return true
+	return false
+
+
+## Glued-on weight that isn't weapon or shield makes a weapon hit harder: a rock on a club
+## is a mace. Up to x1.6.
+func heft() -> float:
+	if not def.has("parts") or def.kind != "weapon":
+		return 1.0
+	var blade := 0.0
+	var extra := 0.0
+	for c in cells:
+		var pd := _part_of(cells[c])
+		var m: float = Materials.get_mat(cells[c].mat).density * float(pd.get("dens", _density_mult))
+		if pd.kind == "weapon":
+			blade += m
+		elif pd.kind != "shield":
+			extra += m
+	return clampf(1.0 + 0.5 * extra / maxf(blade, 1.0), 1.0, 1.6)
+
+
+func damage_at(p: Vector2, amount: float) -> void:
+	damage_cell(cell_at_global(p), amount, true)
+
+
+## An enemy blow chewing into it where a lane met it: the cell it struck and the ring of
+## cells round it (a lane is a broad stroke, not a pinprick), each by its material's wear.
+func wear_at(p: Vector2, amount: float) -> void:
+	var c := cell_at_global(p)
+	if not cells.has(c):
+		return
+	for dy in range(-1, 2):
+		for dx in range(-1, 2):
+			var n := c + Vector2i(dx, dy)
+			if cells.has(n):
+				var w: float = Materials.get_mat(cells[n].mat).get("wear", 1.0)
+				damage_cell(n, amount * w * (1.0 if n == c else WEAR_RING), n == c)
+
+
+func damage_cell(c: Vector2i, amount: float, spread: bool) -> void:
+	if not cells.has(c) or amount <= 0.0:
+		return
+	var cell: Dictionary = cells[c]
+	var m := Materials.get_mat(cell.mat)
+	if cold > 0.5:
+		amount *= 1.5  # frozen things are brittle
+	cell.hp -= amount
+	if spread:
+		var s: Vector2 = m.spread
+		damage_cell(c + Vector2i.LEFT, amount * s.x, false)
+		damage_cell(c + Vector2i.RIGHT, amount * s.x, false)
+		damage_cell(c + Vector2i.UP, amount * s.y, false)
+		damage_cell(c + Vector2i.DOWN, amount * s.y, false)
+	if cell.hp <= 0.0 and cells.has(c):
+		_fail_cell(c, m)
+	_queue_rebuild()
+
+
+func _fail_cell(c: Vector2i, m: Dictionary) -> void:
+	var cell: Dictionary = cells[c]
+	var overflow: float = -cell.hp
+	Sfx.play("crack", -10.0, 1.4 if m.behavior == "dent" else 1.0)
+	if def.kind == "potion" and cell.mat == "glass":
+		call_deferred("shatter")
+	cells.erase(c)
+	_shapes_dirty = true
+	if m.behavior != "tear":
+		# the failed cell comes off as a splinter / scrap of its own
+		cell.hp = cell.max * 0.6
+		var fling := Vector2(randf_range(-1.0, 1.0), randf_range(-1.4, -0.2)).normalized() * randf_range(80.0, 240.0)
+		_pending_debris.append({"cells": {c: cell}, "vel": fling})
+	if m.behavior == "splinter" and overflow > 0.0:
+		# cracks run along the grain
+		damage_cell(c + Vector2i.UP, overflow * 0.8 + 0.3, false)
+		damage_cell(c + Vector2i.DOWN, overflow * 0.8 + 0.3, false)
+
+
+## Legendary gear shimmers: a rim of colour running round its edge and stars glinting off
+## it. Ascended (prestigium) legendaries burn paler and brighter, with a halo.
+func _draw_aura(cv: CanvasItem, t: float, half: Vector2) -> void:
+	var asc: bool = def.get("ascended", false)
+	# the rim: a line just outside every outer edge, its colour running round the item,
+	# with a fainter glow further out
+	for i in _edges.size():
+		var e: Array = _edges[i]
+		var d := Vector2(e[1])
+		var tan := Vector2(-d.y, d.x) * (CELL * 0.5 + 1.0)
+		var hue := fmod(t * 0.3 + float(i) / _edges.size(), 1.0)
+		var col := Color.from_hsv(hue, 0.25 if asc else 0.65, 1.0, 0.9 if asc else 0.75)
+		var p := cell_pos(e[0]) + d * (CELL * 0.5 + 1.5)
+		cv.draw_line(p - tan, p + tan, col, 2.0)
+		var p2 := p + d * 3.0
+		cv.draw_line(p2 - tan, p2 + tan, Color(col.r, col.g, col.b, 0.25), 3.0)
+	for k in (5 if asc else 2):
+		var e2: Array = _edges[int(t * 5.0 + k * 13) % _edges.size()]
+		var tw := fmod(t * 1.7 + k * 0.37, 1.0)
+		var p := cell_pos(e2[0]) + Vector2(e2[1]) * (4.0 + tw * 8.0)
+		var s := 3.0 + 2.0 * (1.0 - tw)
+		var a := 1.0 - tw
+		cv.draw_line(p - Vector2(s, 0), p + Vector2(s, 0), Color(1, 1, 1, a), 1.0)
+		cv.draw_line(p - Vector2(0, s), p + Vector2(0, s), Color(1, 1, 1, a), 1.0)
+	if asc:
+		cv.draw_arc(center_of_mass, origin.length() * 0.6 + 6.0 + sin(t * 3.0) * 2.0, 0.0, TAU, 40, Color(0.85, 0.75, 1.0, 0.35), 2.0)
+
+
+## Where a weapon's boss runes go: four per boss slain, spread down the blade.
+func _inlay_cells() -> Array:
+	var bosses := int(def.get("boss_kills", 0))
+	var out: Array = []
+	if _blade.is_empty():
+		return out
+	for i in mini(bosses * 4, _blade.size()):
+		var c: Vector2i = _blade[(i * 5 + 2) % _blade.size()]
+		if cells.has(c):
+			out.append(c)
+	return out
+
+
+## A weapon wears what it has done: a tally notch cut in the edge for every foe slain, gold
+## runes inlaid for every boss (they glow from the third), and a gilded edge from the fifth.
+func _draw_engravings() -> void:
+	var kills := int(def.get("kills", 0))
+	var bosses := int(def.get("boss_kills", 0))
+	if (kills == 0 and bosses == 0) or _edges.is_empty():
+		return
+	var notched := 0
+	var i := 0
+	while notched < mini(kills, 24) and i < _edges.size() * 2:
+		var e: Array = _edges[(i * 7) % _edges.size()]
+		i += 1
+		if cells[e[0]].get("handle", false):
+			continue
+		var p := cell_pos(e[0])
+		var d := Vector2(e[1])
+		draw_line(p + d * 0.5, p + d * (CELL * 0.5), Color(0.08, 0.06, 0.05, 0.9), 1.5)
+		notched += 1
+	for c in _inlay_cells():
+		var p := cell_pos(c)
+		draw_line(p - Vector2(2, 0), p + Vector2(2, 0), Color(0.95, 0.75, 0.3), 1.0)
+		draw_line(p - Vector2(0, 2), p + Vector2(0, 2), Color(0.95, 0.75, 0.3), 1.0)
+	if bosses >= 5:
+		for e in _edges:
+			if not cells[e[0]].get("handle", false):
+				draw_rect(Rect2(cell_pos(e[0]) - Vector2(CELL, CELL) * 0.5, Vector2(CELL, CELL)), Color(1.0, 0.8, 0.35, 0.5), false, 1.0)
+
+
+## Space with a shield: set it against the next blow. For a moment every block it makes
+## is a parry. Shields take time to reset (their cooldown).
+func brace() -> bool:
+	if not has_part("shield") or cooldown > 0.0:
+		return false  # (a glued thing braces when it has a shield in it and is held by that)
+	brace_time = BRACE_TIME
+	cooldown = def.get("cooldown", 1.4)
+	queue_redraw()
+	return true
+
+
+## Mend every cell by `fraction` of its toughness. Returns how much condition came back.
+func repair(fraction: float) -> float:
+	var restored := 0.0
+	for c in cells:
+		var cell: Dictionary = cells[c]
+		var hp: float = cell.hp
+		cell.hp = minf(cell.max, cell.hp + cell.max * fraction)
+		restored += cell.hp - hp
+		if cell.get("rust", 0.0) > 0.0:
+			cell.rust = maxf(0.0, cell.rust - fraction * 2.0)
+	rusting = maxf(0.0, rusting - fraction * 4.0)  # mending scours the rust off too
+	queue_redraw()
+	return restored
+
+
+## A whetstone or anvil wears as it works: a share of what it put back comes off it, a
+## cell at a time (stone chips, iron dents). Harder ones have more to lose.
+func _wear_from(amount: float) -> void:
+	if amount <= 0.0 or cells.is_empty():
+		return
+	# one edge cell at a time, so it visibly chips away rather than crumbling all at once
+	if not cells.has(_wear_cell):
+		_wear_cell = _edges[randi() % _edges.size()][0] if not _edges.is_empty() else cells.keys()[0]
+	damage_cell(_wear_cell, amount, false)
+
+
+func start_swing(dir: float, power: float, haste: float = 1.0, part: Dictionary = {}) -> bool:
+	if swing_time > 0.0 or cooldown > 0.0:
+		return false
+	swing_part = part if not part.is_empty() else def  # a glued thing swings with the weapon you hold it by
+	cooldown = float(swing_part.get("cooldown", def.get("cooldown", 1.0))) * haste
+	queue_redraw()  # drained of colour while it recovers
+	swing_time = 0.35
+	swing_hit = false
+	angular_velocity = dir * float(swing_part.get("swing_speed", def.get("swing_speed", 10.0))) * power / maxf(1.0, sqrt(swing_mass / 15.0))
+	return true
+
+
+## Average condition of the main-material cells (a dented blade hits softer).
+func edge_condition() -> float:
+	var total := 0.0
+	var n := 0
+	for c in cells:
+		if cells[c].mat == def.material:
+			total += clampf(cells[c].hp / cells[c].max, 0.0, 1.0)
+			n += 1
+	return total / n if n > 0 else 0.3
+
+
+func health_ratio() -> float:
+	var total := 0.0
+	for c in cells:
+		total += maxf(cells[c].hp, 0.0)
+	return total / maxf(max_total, 0.001)
+
+
+## What this item is called: the name its owner gave it, or what it is.
+func display_name() -> String:
+	return str(def.get("custom_name", def.name))
+
+
+func describe() -> String:
+	var s: String = display_name()
+	if not def.modifiers.is_empty():
+		s += " [" + ", ".join(PackedStringArray(def.modifiers)) + "]"
+	return "%s   %d%% intact   mass %.0f" % [s, health_ratio() * 100.0, mass]
+
+
+func _queue_rebuild() -> void:
+	if not _rebuild_queued:
+		_rebuild_queued = true
+		call_deferred("_rebuild")
+
+
+func _rebuild() -> void:
+	_rebuild_queued = false
+	if _shattered:
+		return
+	for p in _pending_debris:
+		_spawn_piece(p.cells, p.vel)
+	_pending_debris.clear()
+	if cells.is_empty():
+		queue_free()
+		return
+	var comps := _components()
+	if comps.size() > 1:
+		comps.sort_custom(func(a: Array, b: Array) -> bool: return a.size() > b.size())
+		for i in range(1, comps.size()):
+			var sub := {}
+			for c in comps[i]:
+				sub[c] = cells[c]
+				cells.erase(c)
+				_shapes_dirty = true
+			_spawn_piece(sub, Vector2.ZERO)
+	if _shapes_dirty:
+		_rebuild_shapes()
+	_recompute_mass()
+	queue_redraw()
+	_check_crate()
+
+
+## A crate spills its loot once it's taken enough of a beating, or once rust has eaten its
+## lock through.
+func _check_crate() -> void:
+	if not def.has("loot") or def.get("opened", false) or def.kind == "debris" or not owned:
+		return  # shop stock stays shut until it's bought
+	if health_ratio() < CRATE_OPEN_AT or _lock_rust >= 1.0:
+		def.opened = true  # shared by every piece of this crate
+		get_tree().call_group("game", "on_crate_broken", self)
+
+
+func _components() -> Array:
+	var seen := {}
+	var comps: Array = []
+	for start in cells:
+		if seen.has(start):
+			continue
+		var comp: Array = []
+		var stack: Array = [start]
+		seen[start] = true
+		while not stack.is_empty():
+			var cur: Vector2i = stack.pop_back()
+			comp.append(cur)
+			for d in DIRS:
+				var n: Vector2i = cur + d
+				if cells.has(n) and not seen.has(n):
+					seen[n] = true
+					stack.append(n)
+		comps.append(comp)
+	return comps
+
+
+func _spawn_piece(sub: Dictionary, extra_vel: Vector2) -> void:
+	if get_parent() == null:
+		return
+	var d := def.duplicate(true)
+	if def.has("parts"):
+		# a glued-on part torn away: if it's all one piece and mostly whole, it's itself again
+		var part := -1
+		for c in sub:
+			var p: int = int(sub[c].get("part", 0))
+			part = p if part == -1 or part == p else -2
+		if part >= 0 and part < def.parts.size():
+			var pd: Dictionary = def.parts[part]
+			d = pd.duplicate(true)
+			d.erase("dens")
+			d.erase("n")
+			for c in sub:
+				sub[c].erase("part")
+			if sub.size() >= int(pd.get("n", 1)) * PART_WHOLE:
+				var whole := Item.new()
+				whole._init_from(d, sub, origin)
+				whole.owned = owned
+				whole.transform = transform
+				whole.linear_velocity = linear_velocity + extra_vel
+				whole.angular_velocity = angular_velocity
+				get_parent().add_child(whole)
+				return
+	d.erase("loot")  # only the crate itself spills its contents
+	d.piece = true  # a broken-off chunk: not a whole thing any more (hoard utilities skip it)
+	if d.kind == "potion":
+		d.kind = "debris"  # a broken flask's pieces are just glass
+		d.name = "Glass shard"
+	d.modifiers = d.modifiers.filter(func(m: String) -> bool: return INHERITED_MODS.has(m))
+	if sub.size() <= 3:
+		d.kind = "debris"
+		var mat: String = sub.values()[0].mat
+		d.name = "%s %s" % [mat.capitalize(), "splinter" if mat == "wood" else "scrap"]
+	var piece := Item.new()
+	piece._init_from(d, sub, origin)
+	piece.owned = owned
+	piece.heat = heat * 0.7  # leftover heat and cold fade on their own
+	piece.cold = cold * 0.7
+	piece.charred = charred
+	piece.burn_time = burn_time
+	piece.transform = transform
+	piece.linear_velocity = linear_velocity + extra_vel
+	piece.angular_velocity = angular_velocity + randf_range(-3.0, 3.0)
+	get_parent().add_child(piece)
+
+
+func _recompute_mass() -> void:
+	var total := 0.0
+	var swing := 0.0
+	var com := Vector2.ZERO
+	conductive = false
+	flammable = false
+	_prestigium = false
+	for c in cells:
+		var md := Materials.get_mat(cells[c].mat)
+		conductive = conductive or md.get("conducts", false)
+		_prestigium = _prestigium or cells[c].mat == "prestigium"
+		flammable = flammable or md.get("burns", false)
+		var pd := _part_of(cells[c])
+		var m: float = Materials.get_mat(cells[c].mat).density * float(pd.get("dens", _density_mult))
+		total += m
+		swing += m if (not cells[c].has("part") or pd.kind == "weapon") else m * 0.5
+		com += cell_pos(c) * m
+	mass = maxf(total, 0.05)
+	swing_mass = maxf(swing, 0.05)
+	_blade = cells.keys().filter(func(c: Vector2i) -> bool: return not cells[c].get("handle", false))
+	_blade.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return a.y < b.y or (a.y == b.y and a.x < b.x))
+	center_of_mass_mode = RigidBody2D.CENTER_OF_MASS_MODE_CUSTOM
+	center_of_mass = com / maxf(total, 0.0001)
+	_edges.clear()
+	_tops.clear()
+	_drips.clear()
+	_bubbles.clear()
+	_sparkles.clear()
+	_shiny.clear()
+	for c in cells:
+		for d in DIRS:
+			if not cells.has(c + d):
+				_edges.append([c, d])
+		if not cells.has(c + Vector2i.UP):
+			_tops.append(c)
+		var h: int = absi((c.x * 73856093) ^ (c.y * 19349663))
+		if h % 5 == 0 and not cells.has(c + Vector2i.DOWN):
+			_drips.append(c)
+		if h % 7 == 0:
+			_bubbles.append(c)
+		if h % 11 == 0:
+			_sparkles.append(c)
+		var mat: String = cells[c].mat
+		if mat in ["copper", "iron", "steel", "gold", "gem"]:
+			_shiny.append(c)
+
+
+func _draw() -> void:
+	var half := Vector2(CELL, CELL) * 0.5
+	var glint := speed_parry()
+	var t := Time.get_ticks_msec() * 0.001
+	var mods: Array = def.modifiers
+	var dull := cooldown > 0.0 and def.has("cooldown")  # recovering from a swing: drained of colour
+	var look := Looks.pick("items")
+	if look == "Raised Tiles":
+		# the whole silhouette casts a shadow down and to the right
+		for c in cells:
+			draw_rect(Rect2(cell_pos(c) - half + Vector2(4, 4).rotated(-global_rotation), Vector2(CELL, CELL)), Color(0, 0, 0, 0.35))
+	for c in cells:
+		var cell: Dictionary = cells[c]
+		var m := Materials.get_mat(cell.mat)
+		var hpf := clampf(cell.hp / cell.max, 0.0, 1.0)
+		var base: Color = def.gem if cell.mat == "gem" and def.has("gem") else m.color
+		if cell.mat == "glass" and def.has("liquid_color"):
+			base = (def.liquid_color as Color).lerp(Color(1, 1, 1), 0.2)
+		if has_mod("poisoned") and not cells.has(c + Vector2i.UP):
+			base = base.lerp(Color(0.4, 0.9, 0.3), 0.5)  # venom glistening on the top edge
+		if has_mod("oiled"):
+			base = base.darkened(0.25)
+		var col: Color = base * float(cell.shade)
+		col = col.darkened((1.0 - hpf) * 0.45)
+		if cell.get("rust", 0.0) > 0.0:
+			col = col.lerp(Color(0.55, 0.28, 0.12), cell.rust * 0.65)
+		if dull:
+			var g := col.get_luminance() * 0.8
+			col = col.lerp(Color(g, g, g), 0.6)
+		if charred and m.get("burns", false):
+			col = col.darkened(0.6)
+		if cold > 0.05:
+			col = col.lerp(Color(0.75, 0.9, 1.0), cold * 0.5)
+		if heat > 0.05:
+			col = col.lerp(Color(1.0, 0.35, 0.1), heat * (0.6 if m.get("conducts", false) else 0.25))
+		col.a = 1.0
+		var r := Rect2(cell_pos(c) - half, Vector2(CELL, CELL))
+		if m.behavior == "dent" and hpf < 0.6:
+			r = r.grow(-1.0)
+		draw_rect(r, col)
+		match look:
+			"Material Texture":
+				_texture_cell(c, cell.mat, r, col, t)
+			"Raised Tiles":
+				var inner := r.grow(-1.0)
+				draw_line(inner.position, Vector2(inner.end.x, inner.position.y), col.lightened(0.35), 1.0)
+				draw_line(inner.position, Vector2(inner.position.x, inner.end.y), col.lightened(0.2), 1.0)
+				draw_line(Vector2(inner.position.x, inner.end.y), inner.end, col.darkened(0.45), 1.0)
+				draw_line(Vector2(inner.end.x, inner.position.y), inner.end, col.darkened(0.35), 1.0)
+		if cell.get("handle", false):
+			# leather wrapping: dark diagonal bands
+			draw_line(r.position + Vector2(0, CELL * 0.75), r.position + Vector2(CELL, CELL * 0.25), Color(0.25, 0.15, 0.08), 2.0)
+		if m.behavior == "splinter" and hpf < 0.5:
+			draw_line(r.position + Vector2(CELL * 0.5, 0), r.position + Vector2(CELL * 0.4, CELL), col.darkened(0.5), 1.0)
+		elif m.behavior == "tear" and hpf < 0.5:
+			draw_rect(r.grow(-2.0), col.darkened(0.6))
+		var h: int = absi((c.x * 73856093) ^ (c.y * 19349663))
+		var edge := _is_edge(c)
+		if mods.has("reinforced"):
+			draw_rect(r, Color(1.0, 0.65, 0.15, 0.18))  # a glaze of amber resin over all of it
+			if edge:
+				draw_rect(r, Color(0.85, 0.5, 0.1, 0.7), false, 1.0)
+		if cell.get("glue", false):
+			draw_rect(r, Color(0.95, 0.75, 0.2, 0.8))  # wet glue: a glossy amber patch, outlined: this side grabs
+			draw_rect(r, Color(1.0, 0.9, 0.45, 0.95), false, 1.0)
+			draw_rect(Rect2(r.position + Vector2(1, 1), Vector2(2, 2)), Color(1.0, 0.97, 0.8, 0.95))
+		if edge:
+			if mods.has("heavy"):
+				draw_rect(r, Color(0.05, 0.05, 0.05, 0.6), false, 1.5)
+			if (mods.has("weightless") or levitate_time > 0.0) and h % 3 == 0:
+				draw_rect(r, Color(0.85, 0.95, 1.0, 0.45), false, 1.0)  # a faint shimmer at the edges
+			if mods.has("bouncy"):
+				draw_rect(r, Color(1.0, 0.5, 0.8, 0.5), false, 1.0)
+		if mods.has("spiked"):
+			for d in DIRS:
+				if not cells.has(c + d) and h % 2 == 0:
+					var out := Vector2(d)
+					var side := Vector2(-out.y, out.x) * 2.0
+					var b := cell_pos(c) + out * CELL * 0.5
+					draw_colored_polygon(PackedVector2Array([b - side, b + side, b + out * 5.0]), Color(0.7, 0.7, 0.72))
+	if look == "Outlined Sprite":
+		# one dark outline around the whole silhouette, with a light bevel on top-left edges
+		for c in cells:
+			var p := cell_pos(c)
+			for d in DIRS:
+				if not cells.has(c + d):
+					var e := Vector2(d) * (CELL * 0.5 + 1.0)
+					var tt := Vector2(-d.y, d.x) * (CELL * 0.5 + 1.0)
+					draw_line(p + e - tt, p + e + tt, Color(0.04, 0.03, 0.03), 2.0)
+					if d == Vector2i.UP or d == Vector2i.LEFT:
+						var e2 := Vector2(d) * (CELL * 0.5 - 1.0)
+						var t2 := Vector2(-d.y, d.x) * (CELL * 0.5 - 1.0)
+						draw_line(p + e2 - t2, p + e2 + t2, Color(1, 1, 1, 0.25), 1.0)
+	if def.kind == "weapon":
+		_draw_engravings()
+	if base_gravity == 0.0 or levitate_time > 0.0:
+		draw_arc(center_of_mass, origin.length() * 0.5 + 4.0, 0.0, TAU, 16, Color(0.55, 0.8, 1.0, 0.35), 1.0)
+	if mods.has("volatile"):
+		# a rune at the heart of it (the effects layer makes it pulse)
+		var cc := center_of_mass
+		draw_line(cc + Vector2(-4, -4), cc + Vector2(4, 4), Color(0.6, 0.1, 0.05), 2.0)
+		draw_line(cc + Vector2(-4, 4), cc + Vector2(4, -4), Color(0.6, 0.1, 0.05), 2.0)
+
+
+## Material Texture: each material gets its own surface pattern so you can tell them
+## apart at a glance: wood grain, a sheen that slides across metal as it turns, leather
+## stitching, stone speckle, a weave on cloth, sparkle on gold and gems.
+func _texture_cell(c: Vector2i, mat: String, r: Rect2, col: Color, t: float) -> void:
+	var h: int = absi((c.x * 73856093) ^ (c.y * 19349663))
+	match mat:
+		"wood":
+			draw_line(r.position + Vector2(2 + (c.y % 2), 0), r.position + Vector2(2 + (c.y % 2), CELL), col.darkened(0.25), 1.0)
+			if h % 23 == 0:
+				draw_circle(r.get_center(), 1.5, col.darkened(0.45))  # knot
+		"copper", "iron", "steel":
+			draw_line(r.position + Vector2(0, CELL * 0.5), r.position + Vector2(CELL, CELL * 0.5), col.lightened(0.1), 1.0)
+		"leather":
+			if _is_edge(c) and (c.x + c.y) % 2 == 0:
+				draw_rect(Rect2(r.get_center() - Vector2(1, 1), Vector2(2, 2)), Color(0.85, 0.75, 0.55))
+		"stone":
+			if h % 3 == 0:
+				draw_rect(Rect2(r.position + Vector2(h % 5, (h / 5) % 5), Vector2(1.5, 1.5)), col.lightened(0.3))
+			if h % 4 == 0:
+				draw_rect(Rect2(r.position + Vector2((h / 7) % 5, h % 4), Vector2(1.5, 1.5)), col.darkened(0.35))
+		"cloth":
+			if (c.x + c.y) % 2 == 0:
+				draw_rect(r.grow(-1.5), col.darkened(0.12))
+		"gold", "gem":
+			pass  # sparkle is on the effects layer
+
+
+## Does anything about this item move right now? Only then does its effects layer draw.
+func _fx_active() -> bool:
+	return charge > 0.1 or is_burning() or _fuse >= 0.0 or _ready_flash > 0.0 or speed_parry() > 0.05 \
+		or _animated or rusting > 0.0 or not _trail.is_empty() or hit_flash > 0.0 or brace_time > 0.0 \
+		or _legendary or int(def.get("boss_kills", 0)) >= 3 \
+		or (Looks.pick("items") == "Material Texture" and not _shiny.is_empty())
+
+
+## Everything that moves, drawn on the light effects layer. It samples a few cells from
+## the cached lists rather than walking every cell.
+func _draw_fx(cv: CanvasItem) -> void:
+	var t := Time.get_ticks_msec() * 0.001
+	var half := Vector2(CELL, CELL) * 0.5
+	# a swing leaves a smear of the blade behind it: ghosts of where it just was, fading
+	if not _trail.is_empty():
+		var blade_col: Color = Materials.get_mat(def.get("material", "wood")).color
+		var inv := global_transform.affine_inverse()
+		for i in _trail.size():
+			var past: Transform2D = _trail[i]
+			var a := 0.45 * (1.0 - float(i + 1) / float(_trail.size() + 1))
+			var col := Color(blade_col.r, blade_col.g, blade_col.b, a).lightened(0.3)
+			for c in cells:
+				if cells[c].get("handle", false):
+					continue
+				var p: Vector2 = inv * (past * cell_pos(c))
+				cv.draw_rect(Rect2(p - half, Vector2(CELL, CELL)), col)
+	if _legendary and not _edges.is_empty():
+		_draw_aura(cv, t, half)
+	if int(def.get("boss_kills", 0)) >= 3:
+		# three bosses down: the inlaid runes glow
+		var g := 0.45 + 0.3 * sin(t * 3.0)
+		for c in _inlay_cells():
+			cv.draw_rect(Rect2(cell_pos(c) - Vector2(2, 2), Vector2(4, 4)), Color(1.0, 0.8, 0.4, g))
+	if brace_time > 0.0 and not _edges.is_empty():
+		# braced: the rim of the shield lit gold
+		var a := brace_time / BRACE_TIME
+		for e in _edges:
+			cv.draw_rect(Rect2(cell_pos(e[0]) - half, Vector2(CELL, CELL)), Color(1.0, 0.85, 0.35, 0.55 * a), false, 1.5)
+	if hit_flash > 0.0:
+		for c in cells:
+			if not cells[c].get("handle", false):
+				cv.draw_rect(Rect2(cell_pos(c) - half, Vector2(CELL, CELL)), Color(1, 1, 0.9, hit_flash * 4.0))
+	if rusting > 0.0 and not _edges.is_empty():
+		for i in 1 + int(rusting * 3.0):
+			var e: Array = _edges[(int(t * 3.0) + i * 7) % _edges.size()]
+			cv.draw_rect(Rect2(cell_pos(e[0]) - Vector2(1, 1) + Vector2(e[1]) * 3.0, Vector2(2, 2)), Color(0.8, 0.4, 0.1, 0.7 * rusting))
+	if _fuse >= 0.0 and int(_fuse * 20.0) % 2 == 0:
+		for c in cells:
+			cv.draw_rect(Rect2(cell_pos(c) - half, Vector2(CELL, CELL)), Color(1, 1, 1, 0.9))
+	if is_burning() and not _tops.is_empty():
+		for i in mini(8, _tops.size()):
+			var c: Vector2i = _tops[randi() % _tops.size()]
+			if not cells.has(c) or not Materials.get_mat(cells[c].mat).get("burns", false) and not has_mod("oiled"):
+				continue
+			var fh := randf_range(3.0, 10.0)
+			cv.draw_rect(Rect2(cell_pos(c) - half + Vector2(randf_range(0, CELL - 3), -fh), Vector2(3, fh)),
+				Color(1.0, randf_range(0.4, 0.8), 0.1, 0.85))
+	if charge > 0.1 and not _edges.is_empty():
+		for i in 2 + int(charge * 4.0):
+			var a := cell_pos(_edges[randi() % _edges.size()][0])
+			var b := a + Vector2(randf_range(-9, 9), randf_range(-9, 9))
+			cv.draw_line(a, b, Color(0.6, 0.85, 1.0, charge), 1.0)
+			cv.draw_line(b, b + Vector2(randf_range(-6, 6), randf_range(-6, 6)), Color(0.8, 0.95, 1.0, charge * 0.7), 1.0)
+	# fast-moving items glint along their edges: they're parrying. A weapon also glints for a
+	# moment when it's ready to swing again.
+	var shine := maxf(speed_parry(), _ready_flash * 5.0)
+	if shine > 0.05:
+		for e in _edges:
+			var d: Vector2i = e[1]
+			var p := cell_pos(e[0])
+			var o := Vector2(d) * CELL * 0.5
+			var tt := Vector2(-d.y, d.x) * CELL * 0.5
+			cv.draw_line(p + o - tt, p + o + tt, Color(1, 1, 0.85, minf(1.0, shine)), 2.0)
+	var mods: Array = def.modifiers
+	if _glue > 0:
+		for c in _drips:
+			if not cells.has(c) or not cells[c].get("glue", false):
+				continue
+			var h: int = absi((c.x * 73856093) ^ (c.y * 19349663))
+			var drip := fmod(t * 0.7 + h * 0.13, 1.0) * 8.0
+			cv.draw_rect(Rect2(cell_pos(c) + Vector2(-1, CELL * 0.5), Vector2(2, drip)), Color(0.85, 0.9, 0.3, 0.7))
+	if mods.has("corrosive"):
+		for c in _bubbles:
+			var h: int = absi((c.x * 73856093) ^ (c.y * 19349663))
+			var rise := fmod(t * 0.5 + h * 0.37, 1.0)
+			cv.draw_circle(cell_pos(c) + Vector2(sin(t * 3.0 + h), -rise * 14.0), 1.5 * (1.0 - rise), Color(0.5, 1.0, 0.3, 0.8))
+	if mods.has("regenerating"):
+		for c in _sparkles:
+			var h: int = absi((c.x * 73856093) ^ (c.y * 19349663))
+			if fmod(t + h * 0.21, 2.0) < 0.15:
+				cv.draw_rect(Rect2(cell_pos(c) - Vector2(1, 1), Vector2(2, 2)), Color(0.6, 1.0, 0.6))
+	if mods.has("magnetic"):
+		var pulse := fmod(t, 1.0)
+		cv.draw_arc(center_of_mass, origin.length() * (0.6 + pulse * 0.8), 0.0, TAU, 24, Color(1.0, 0.3, 0.3, 0.3 * (1.0 - pulse)), 1.0)
+	if mods.has("volatile"):
+		var a := 0.5 + 0.5 * sin(t * 6.0)
+		var cc := center_of_mass
+		cv.draw_line(cc + Vector2(-4, -4), cc + Vector2(4, 4), Color(1, 0.2, 0.1, a), 2.0)
+		cv.draw_line(cc + Vector2(-4, 4), cc + Vector2(4, -4), Color(1, 0.2, 0.1, a), 2.0)
+	if Looks.pick("items") == "Material Texture":
+		for c in _shiny:
+			if not cells.has(c):
+				continue
+			var h: int = absi((c.x * 73856093) ^ (c.y * 19349663))
+			if cells[c].mat in ["gold", "gem"]:
+				if fmod(t * 1.5 + h * 0.37, 3.0) < 0.12:
+					cv.draw_rect(Rect2(cell_pos(c) - Vector2(1, 1), Vector2(2, 2)), Color(1, 1, 0.9))
+			else:
+				var g := to_global(cell_pos(c))
+				var band := fmod(g.x + g.y + global_rotation * 200.0, 90.0)
+				if band < 10.0:
+					cv.draw_rect(Rect2(cell_pos(c) - half, Vector2(CELL, CELL)), Color(1, 1, 1, 0.35 * (1.0 - absf(band - 5.0) / 5.0)))
+
+
+## The effects layer: a child canvas that draws the item's moving effects on top of it.
+class Fx:
+	extends Node2D
+
+	var item: Item
+
+	func _draw() -> void:
+		if item and is_instance_valid(item):
+			item._draw_fx(self)
+
+
+func _is_edge(c: Vector2i) -> bool:
+	for d in DIRS:
+		if not cells.has(c + d):
+			return true
+	return false
