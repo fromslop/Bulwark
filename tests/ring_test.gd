@@ -90,6 +90,22 @@ func _process(_d: float) -> bool:
 			main._on_ring_used("ring_reversal", main.hand.position, 0)
 		60:
 			_check(floater.global_position.y < y0 - 40.0, "Ring of Reversal should make the pile fall up (%.0f -> %.0f)" % [y0, floater.global_position.y])
+			# the fight bonus: fast and unhurt pays most; slow and battered pays nothing extra
+			var best: Dictionary = main.fight_bonus(5.0, 30.0, 0.0, 100.0)
+			var none: Dictionary = main.fight_bonus(60.0, 30.0, 60.0, 100.0)
+			var mid: Dictionary = main.fight_bonus(30.0, 30.0, 20.0, 100.0)
+			_check(is_equal_approx(best.speed, main.SPEED_BONUS) and is_equal_approx(best.health, main.HEALTH_BONUS), "a quick, unhurt win should earn the full bonus (%s)" % [best])
+			_check(none.speed == 0.0 and none.health == 0.0, "a slow, battered win should earn no bonus (%s)" % [none])
+			_check(mid.speed > 0.0 and mid.speed < main.SPEED_BONUS and mid.health > 0.0 and mid.health < main.HEALTH_BONUS, "in between should earn some of each (%s)" % [mid])
+			var coins0: int = main.coin_total()
+			main._fight_base = 20
+			main._fight_start = main.clock - 5.0
+			main._fight_par = 30.0
+			main._fight_taken = 0.0
+			main._pay_fight_bonus()
+			var paid: int = main.coin_total() - coins0
+			print("fight bonus for a 5 s, unhurt win on a 20-coin fight: +%d" % paid)
+			_check(paid >= 20, "a fast flawless win should pay about double the reward on top (%d)" % paid)
 			print("ring test: %d failures" % fails.size())
 			for x in fails:
 				print("  FAIL ", x)

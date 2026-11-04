@@ -65,6 +65,12 @@ const STORM_DAMAGE := 4.0  # per tick
 # different element landing on a marked foe sets the pair off (once every REACT_COOLDOWN).
 const MARK_TIME := 5.0
 const CHANDELIER_DAMAGE := 35.0
+# The fight bonus: a fight's coin reward goes up the faster it's won and the less of your
+# hand it cost. Par time grows with the foes' total health.
+const PAR_BASE := 20.0  # seconds, plus PAR_PER_HP for every point of foe health
+const PAR_PER_HP := 0.08
+const SPEED_BONUS := 0.5  # won in half the par time: +50% (nothing past 1.5x par)
+const HEALTH_BONUS := 0.6  # 5% of the hand or less lost: +60% (nothing past 50%)
 const DAMAGE_SOUND_TAKEN := 30.0  # a hit to the hand this big gets the pain sting at full volume
 const DAMAGE_SOUND_DEALT := 60.0  # and a hit on a foe this big, the reward sting
 const REACT_COOLDOWN := 1.5
@@ -137,6 +143,12 @@ var rerolls := 0       # this shop visit
 var secret_next := false  # the hidden lever was pulled: the next fight is in the Hidden Vault
 var secret_stage := ""  # a secret place unlocked this run (secrets.gd): the next ordinary fight is there
 var _stars_caught := 0  # this fight's falling stars (the way into the Clockwork Orrery)
+var _next_plan: Dictionary = {}  # the next fight, rolled when the shop opens (see _plan_fight)
+var scrying: Scrying  # the shop gong's face, showing it
+var _fight_start := 0.0  # when this fight began (clock)
+var _fight_taken := 0.0  # what got through to the hand this fight
+var _fight_base := 0  # the foes' coin rewards, for the bonus
+var _fight_par := 30.0
 var _fight_reactions: Array = []  # different reactions set off this fight (the way into the Ink Margin)
 var _chute_gold := 0  # gold fed down the chute this shop visit (the way into the Gilded Gullet)
 var _tooth_given := false
@@ -151,6 +163,9 @@ var _bone_timer := 0.0  # Ossuary: bones drop now and then
 # What the pile is worth right now (hoard utilities): refreshed every second
 var hoard_wear := 1.0     # Trophy Pegs: gear wear from blows
 var hoard_stagger := 1.0  # War Banner: stagger from blocks
+var hoard_ward := 0.0     # Sentinel Stones: how much of the gap a piece you aren't holding closes
+const WARD_PER := 0.12
+const WARD_MAX := 6
 var hoard_damage := 1.0   # Packrat Idol: weapon damage
 var popups: Popups  # damage numbers
 var _scrap_bank := 0.0
@@ -254,7 +269,9 @@ func _build_2d() -> void:
 	add_child(popups)
 	hand.hurt_taken.connect(func(a: float) -> void:
 		popups.number(hand.position + Vector2(0, -34), a, Color(1.0, 0.25, 0.2), true)
-		_damage_sound(a, true))
+		_damage_sound(a, true)
+		if state == State.COMBAT:
+			_fight_taken += a)
 	hand.ring_used.connect(_on_ring_used)
 	hand.released.connect(_on_released)
 	ui = CanvasLayer.new()
@@ -332,6 +349,8 @@ func coin_value(it: Item) -> int:
 ## gong by the door. Nothing here can hurt you. `carry` is something brought back from a run.
 func _go_home(carry: Item = null) -> void:
 	state = State.HOME
+	_end_scrying()
+	_next_plan = {}
 	Music.set_mode(Music.Mode.AMBIENT)
 	round_num = 0
 	prestige = 0
@@ -637,25 +656,55 @@ func _clear_enemies() -> void:
 	enemy = null
 
 
-func _start_fight() -> void:
+## What a fight will be: where, against whom. Rolled when the shop opens (so its gong can
+## show it) and used when the fight starts; rolled fresh if something changed in between
+## (a secret opened in the shop). The Hidden Vault and the secret places come first; a
+## secret never takes a boss's place.
+func _plan_fight(r: int, p: int) -> Dictionary:
 	var vault := secret_next
-	secret_next = false
-	var hidden := ""
-	if not vault and secret_stage != "" and not is_boss_round():  # a secret never takes a boss's place
-		hidden = secret_stage
+	var hidden: String = secret_stage if (not vault and secret_stage != "" and r % EnemyDefs.STAGES != EnemyDefs.BOSS_STAGE) else ""
+	var place: String = "Hidden Vault" if vault else (hidden if hidden != "" else Backdrop.for_round(r, rng, p))
+	var defs: Array
+	if vault:
+		defs = [EnemyDefs.WARDEN.duplicate(true)]
+	elif hidden != "":
+		defs = [_guardian(hidden, p)]
+	else:
+		defs = EnemyDefs.encounter(r, p, rng)
+	return {"round": r, "prestige": p, "place": place, "defs": defs, "vault": vault, "hidden": hidden}
+
+
+func _end_scrying() -> void:
+	if scrying and is_instance_valid(scrying):
+		scrying.queue_free()
+	scrying = null
+
+
+func _start_fight() -> void:
+	var plan := _next_plan
+	_next_plan = {}
+	var stale: bool = plan.is_empty() or plan.round != round_num or plan.prestige != prestige or plan.vault != secret_next \
+		or (secret_stage != "" and plan.hidden != secret_stage and not is_boss_round())
+	if stale:
+		plan = _plan_fight(round_num, prestige)
+	var vault: bool = plan.vault
+	var hidden: String = plan.hidden
+	if vault:
+		secret_next = false
+	if hidden != "":
 		secret_stage = ""
 	_stars_caught = 0
+	_fight_start = clock
+	_fight_taken = 0.0
 	_fight_reactions.clear()
 	_quake = 5.0
 	_rain = 3.0
-	_set_backdrop("Hidden Vault" if vault else (hidden if hidden != "" else Backdrop.for_round(round_num, rng, prestige)))
+	_set_backdrop(plan.place)
 	_add_features()
 	props.setup(setting(), rng.randi())
 	_clear_enemies()
-	var defs: Array = [EnemyDefs.WARDEN.duplicate(true)] if vault else EnemyDefs.encounter(round_num, prestige, rng)
-	if hidden != "":
-		defs = [_guardian(hidden)]
-	elif not vault:
+	var defs: Array = plan.defs
+	if hidden == "" and not vault:
 		_last_foe_def = defs[0].duplicate(true)
 	for i in defs.size():
 		var e := Enemy.new()
@@ -677,6 +726,12 @@ func _start_fight() -> void:
 		enemies.append(e)
 	if defs.size() > 1:
 		enemies[1]._timer += 1.5  # they don't swing in unison
+	_fight_base = 0
+	var total_hp := 0.0
+	for d in defs:
+		_fight_base += int(d.get("reward", 0))
+		total_hp += float(d.get("hp", 100.0))
+	_fight_par = PAR_BASE + total_hp * PAR_PER_HP
 	enemy = enemies[0]
 	for it in items_root.get_children():
 		if it is Item:
@@ -744,6 +799,7 @@ func _on_enemy_died() -> void:
 		enemy = alive[0]
 		return
 	state = State.VICTORY
+	_pay_fight_bonus()
 	Music.set_mode(Music.Mode.CALM)  # drums out; the base plays on through the shop
 	_state_timer = 2.2
 	overlay.clear_zone()
@@ -864,6 +920,8 @@ func _refresh_hoard() -> void:
 	hoard_wear = 1.0 - 0.08 * mini(5, pauldrons) if _has_utility("pegs") else 1.0
 	hoard_stagger = 1.0 + 0.15 * mini(3, shields) if _has_utility("banner") else 1.0
 	hoard_damage = 1.0 + 0.02 * mini(10, gear) if _has_utility("idol") else 1.0
+	var stones := _owned_count(func(it: Item) -> bool: return it.def.get("utility", "") == "sentinel" and it.health_ratio() >= 0.3)
+	hoard_ward = 1.0 - pow(1.0 - WARD_PER, mini(WARD_MAX, stones))
 
 
 ## A whole thing, not a broken-off chunk or scrap of one (those don't count for the hoard).
@@ -922,6 +980,13 @@ func _open_shop() -> void:
 	overlay.dice = DICE
 	overlay.chute = CHUTE
 	overlay.door = DOOR if is_boss_round() else {}
+	# the next fight is decided now, so the gong's face can show it
+	var next_round := round_num + 1
+	_next_plan = _plan_fight(next_round, prestige + (1 if next_round % EnemyDefs.STAGES == 0 else 0))
+	_end_scrying()
+	scrying = Scrying.new()
+	overlay.add_child(scrying)
+	scrying.setup(self, _next_plan)
 	rerolls = 0
 	free_rerolls = 0
 	for n in get_tree().get_nodes_in_group("items"):
@@ -1098,6 +1163,7 @@ func _strike_gong() -> void:
 func _close_shop() -> void:
 	# unbought stock, and anything that burned or broke off it, goes back on the shelf
 	_clear_shop()
+	_end_scrying()
 	overlay.gong = {}
 	overlay.dice = {}
 	overlay.chute = {}
@@ -1245,6 +1311,8 @@ func _resolve_attack(atk: Dictionary, who: Enemy = null) -> void:
 					parry *= SHIELD_SWING_PARRY  # (dragged, a shield is too heavy to parry: a glued one swung on a weapon isn't)
 				if it.brace_time > 0.0 or (legend == "unyielding" and asc):
 					parry = 1.0
+				if it != hand.held:
+					b += (1.0 - b) * hoard_ward  # Sentinel Stones: the pile stands guard on its own
 				var chew := energy * b  # what this piece takes, cleave or not
 				if legend == "unyielding":
 					b = 1.0  # the Aegis: nothing gets past
@@ -2174,9 +2242,11 @@ func on_altar(it: Item, at: Vector2) -> void:
 
 ## The guardian of a secret place. The Errata is a misprint of the last ordinary foe: its
 ## body and moves, in ink, a little faster.
-func _guardian(place: String) -> Dictionary:
+func _guardian(place: String, p: int = -1) -> Dictionary:
+	if p < 0:
+		p = prestige
 	var id: String = Secrets.STAGES[place].foe
-	var d := EnemyDefs.scaled(id, prestige)
+	var d := EnemyDefs.scaled(id, p)
 	if id == "Errata":
 		var src: Dictionary = _last_foe_def if not _last_foe_def.is_empty() else EnemyDefs.scaled("Footman", prestige)
 		d.attacks = (src.attacks as Array).duplicate()
@@ -2265,6 +2335,37 @@ func on_still_star(at: Vector2) -> void:
 func on_ink_blot(at: Vector2) -> void:
 	overlay.sparks(at, 20000.0, Color(0.05, 0.05, 0.08))
 	_unlock_secret("Ink Margin")
+
+
+## The fight bonus as fractions of the reward: {speed, health}. Speed: won in half the par
+## time or less pays SPEED_BONUS, falling to nothing at 1.5x par. Health: losing 5% of the
+## hand or less pays HEALTH_BONUS, falling to nothing at 50%.
+static func fight_bonus(secs: float, par: float, taken: float, max_hp: float) -> Dictionary:
+	var speed := SPEED_BONUS * clampf((1.5 * par - secs) / par, 0.0, 1.0)
+	var lost := taken / maxf(1.0, max_hp)
+	var health := HEALTH_BONUS * clampf((0.5 - lost) / 0.45, 0.0, 1.0)
+	return {"speed": speed, "health": health}
+
+
+## A fight won: pay the bonus for speed and for keeping the hand whole, as extra coin
+## spilling from where the foe stood, each part named so you know what earned it.
+func _pay_fight_bonus() -> void:
+	if _fight_base <= 0:
+		return
+	var secs := clock - _fight_start
+	var b := fight_bonus(secs, _fight_par, _fight_taken, hand.max_hp)
+	var speed_coins := roundi(_fight_base * float(b.speed))
+	var health_coins := roundi(_fight_base * float(b.health))
+	var at := Vector2(640, 260)
+	if speed_coins > 0:
+		popups.word(at + Vector2(-110, 0), "SWIFT +%d" % speed_coins, Color(0.6, 0.85, 1.0))
+	if health_coins > 0:
+		var lost := _fight_taken / maxf(1.0, hand.max_hp)
+		var label := "FLAWLESS" if _fight_taken < 1.0 else ("UNSCATHED" if lost <= 0.05 else "GUARDED")
+		popups.word(at + Vector2(110, 0), "%s +%d" % [label, health_coins], Color(1.0, 0.82, 0.3))
+	if speed_coins + health_coins > 0:
+		_spawn_coins(speed_coins + health_coins, at + Vector2(0, 40), 220.0)
+		Sfx.play("buy", 0.0, 1.0)
 
 
 ## Audio for how much a blow did. Taken: a dissonant, driven sting (louder and a touch lower
@@ -2432,7 +2533,6 @@ func _on_punched(at: Vector2) -> void:
 			var dmg: float = PUNCH_DAMAGE * hand.strength * r.mult * e.punch_mult()
 			e.take_hit(dmg, r.id, true, PUNCH_STAGGER)
 			Sfx.play("punch", 0.0)
-			hand.hurt(r.armor * e.data.armor * 3.0)  # knuckles on armour
 			overlay.ring(r.center, r.radius, Color(1, 1, 0.85), 0.25)
 			return
 

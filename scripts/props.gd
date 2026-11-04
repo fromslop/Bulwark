@@ -34,6 +34,8 @@ const INFO := {
 	"trophies": ["Trophy Board", ""],  # filled in from the save: see describe()
 	"cat": ["The Cat", "Asleep on the sill. Rest your empty hand on it a while."],
 	"hearth": ["Hearth", ""],  # filled in from the save: see describe()
+	"gong": ["Gong", "Strike it to go on. Look closely at its face first."],
+	"placard": ["Bulwark", ""],  # the build's version: see describe()
 	"ink_blot": ["Ink Blot", "The reactions left a stain on the air. It looks thin enough to punch through."],
 }
 
@@ -88,6 +90,7 @@ func setup(setting: String, rng_seed: int) -> void:
 			_add("dummy", Vector2(420, 470), 80.0)  # stands on the floor
 			_add("trophies", Vector2(790, 200), 34.0)  # on the wall between the beam and the mantel
 			_add("cat", Vector2(300, 408), 26.0)  # on the window sill
+			_add("placard", Vector2(790, 266), 30.0)  # under the trophy board: which build this is
 			_add("hearth", Vector2(1060, 640), 95.0)  # the fireplace: melts junk down
 		"Gilded Gullet":
 			_add("chandelier", Vector2(640, 48), 26.0)
@@ -119,6 +122,8 @@ func describe(key: String) -> Array:
 	if kind == "hearth" and game:
 		return ["Hearth", "Throw junk in the fire (scraps, pauldrons, skulls, rocks) and it melts down. Melt enough and a Coin Purse pops out to take on a run.\nMelted so far: %d of %d" %
 			[floori(float(game.save.stats.get("smelt", 0.0))), int(game.SMELT_PURSE)]]
+	if kind == "placard":
+		return ["Bulwark", "Build %s" % version()]
 	if kind == "trophies" and game:
 		var st: Dictionary = game.save.stats
 		return ["Trophy Board", "Runs %d   ·   Deaths %d   ·   Foes felled %d   ·   Bosses %d\nDeepest run: prestige %d   ·   Best hit: %d" %
@@ -126,8 +131,15 @@ func describe(key: String) -> Array:
 	return INFO.get(kind, ["?", ""])
 
 
+## This build's version (project.godot: application/config/version), e.g. "v0.3.0".
+static func version() -> String:
+	return "v" + str(ProjectSettings.get_setting("application/config/version", "0.0.0"))
+
+
 ## The prop under the hand, for the inspect card: "prop:<kind>", or "".
 func info_at(p: Vector2) -> String:
+	if game and game.state == game.State.SHOP and not game.overlay.gong.is_empty() and p.distance_to(game.overlay.gong.pos) <= float(game.overlay.gong.radius) + 8.0:
+		return "prop:gong"
 	for pr in props:
 		if pr.kind == "brick" and pr.hits == 0:
 			continue  # a secret isn't named until it's been found
@@ -565,6 +577,14 @@ func _build3d(pr: Dictionary) -> void:
 					_piece(root, _cyl3(5, 3, 12, k, 8), Vector3(-28 + i * 14, -2, 8), Color(0.95, 0.75, 0.25), k, 0.8)
 				for i in mini(int(game.save.stats.bosses), 6):
 					_piece(root, _ball3(4.5, k, 6), Vector3(-28 + i * 11, 14, 8), Color(0.9, 0.88, 0.8), k)
+		"placard":
+			_piece(root, _box3(120, 64, 6, k), Vector3.ZERO, wood, k)
+			_piece(root, _box3(112, 56, 2, k), Vector3(0, 0, 3.5), wood.lightened(0.12), k)
+			for sx in [-1, 1]:
+				_piece(root, _cyl3(2, 2, 3, k, 6), Vector3(sx * 52, -25, 5), iron, k, 0.0, Vector3(PI / 2, 0, 0))
+			var ink := Color(0.16, 0.1, 0.05)
+			_letters(root, "BULWARK", 18, Vector3(0, -11, 5), ink, k)
+			_letters(root, version(), 18, Vector3(0, 13, 5), ink, k)
 		"cat":
 			var fur := Color(0.2, 0.2, 0.22)
 			var cat := Node3D.new()
@@ -582,6 +602,22 @@ func _build3d(pr: Dictionary) -> void:
 		"hearth":
 			pass  # the fireplace is already in the room
 	_build_star_and_planets()
+
+
+## Words burnt into a prop, `size` screen pixels tall, centred on `px`.
+func _letters(parent: Node3D, text: String, size: int, px: Vector3, col: Color, k: float) -> void:
+	var l := Label3D.new()
+	l.text = text
+	l.font_size = size * 4
+	l.pixel_size = k / 4.0
+	l.outline_size = 0
+	l.modulate = col
+	l.shaded = true
+	l.double_sided = false
+	l.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR
+	l.position = Vector3(px.x, -px.y, px.z) * k
+	l.set_meta("prop", true)
+	parent.add_child(l)
 
 
 func _build_star_and_planets() -> void:

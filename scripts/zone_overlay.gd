@@ -30,6 +30,7 @@ var enemy_fire := Rect2()  # where to draw flames when the enemy is burning
 var water_y := -1.0  # Cistern floodwater surface, when there is any
 var hearth := Rect2()  # Forge hearth heat zone
 var _gong_swing := 0.0
+var gong_tremble := 0.0  # px: a boss waits beyond the shop gong
 var _flash_poly := PackedVector2Array()
 var _flash_t := 0.0
 var _flash_leak := 0.0
@@ -330,8 +331,7 @@ func _draw_shop() -> void:
 	if not gong.is_empty():
 		var p: Vector2 = gong.pos
 		var rad: float = gong.radius
-		var sway := sin(Time.get_ticks_msec() * 0.02) * _gong_swing * 8.0
-		var c := p + Vector2(sway, 0)
+		var c := gong_center()
 		draw_line(Vector2(p.x - 30, p.y - rad - 40), Vector2(p.x + 30, p.y - rad - 40), Color(0.3, 0.2, 0.1), 6.0)
 		draw_line(Vector2(p.x - 20, p.y - rad - 40), c + Vector2(-12, -rad + 4), Color(0.5, 0.45, 0.35), 2.0)
 		draw_line(Vector2(p.x + 20, p.y - rad - 40), c + Vector2(12, -rad + 4), Color(0.5, 0.45, 0.35), 2.0)
@@ -340,6 +340,16 @@ func _draw_shop() -> void:
 		draw_circle(c, rad * 0.25, Color(0.5, 0.35, 0.15))
 		if _gong_swing > 0.0:
 			draw_arc(c, rad * (1.0 + (1.0 - _gong_swing) * 0.8), 0.0, TAU, 32, Color(1, 0.85, 0.4, _gong_swing * 0.6), 2.0)
+
+
+## Where the gong's face is this frame: swinging after a strike, trembling if a boss waits.
+func gong_center() -> Vector2:
+	if gong.is_empty():
+		return Vector2.ZERO
+	var t := Time.get_ticks_msec() * 0.001
+	var sway := sin(t * 20.0) * _gong_swing * 8.0
+	var shake := Vector2(sin(t * 41.0), cos(t * 37.0) * 0.5) * gong_tremble
+	return (gong.pos as Vector2) + Vector2(sway, 0) + shake
 
 
 # --- attack telegraph designs --------------------------------------------------

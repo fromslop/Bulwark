@@ -423,7 +423,8 @@ func _px(x: float, y: float, w: float, h: float, col: Color) -> void:
 
 
 ## The hand's pieces in hand-pixels, for the current gesture: [x, y, w, h, kind].
-## Kinds: palm, finger, thumb, knuckle, cuff. Fingers are listed index first.
+## Kinds: palm, finger, thumb, knuckle, cuff. Fingers are listed index first, from the
+## thumb side (the left) to the little finger.
 func _shape(g: String) -> Array:
 	var f := hurt_fraction()
 	var out: Array = []
@@ -437,22 +438,22 @@ func _shape(g: String) -> Array:
 			out = [[-8, -5, 16, 14, "palm"], [-7, -5, 3, 3, "knuckle"], [-3, -5, 3, 3, "knuckle"],
 				[1, -5, 3, 3, "knuckle"], [5, -5, 3, 3, "knuckle"], [-10, -4, 3, 5, "thumb"], [-10, -11, 3, 7, "thumb"], [-8, 9, 16, 4, "cuff"]]
 		"grip":
-			out = [[-7, -1, 14, 13, "palm"], [-7, 12, 14, 4, "cuff"], [0, 2, 7, 3, "thumb"]]
+			out = [[-7, -1, 14, 13, "palm"], [-7, 12, 14, 4, "cuff"], [-7, 2, 7, 3, "thumb"]]
 			for i in 4:
 				out.append([fx[i], -4, 3, 3, "finger"])
 				out.append([fx[i], -1, 3, 1, "knuckle"])
 		"point":
-			out = [[-7, -1, 14, 13, "palm"], [-7, 12, 14, 4, "cuff"], [7, 1, 3, 4, "thumb"], [9, -2, 3, 4, "thumb"]]
+			out = [[-7, -1, 14, 13, "palm"], [-7, 12, 14, 4, "cuff"], [-10, 1, 3, 4, "thumb"], [-12, -2, 3, 4, "thumb"]]
 			out.append([fx[0], -1 - 11, 3, 11, "finger"])
 			for i in range(1, 4):
 				out.append([fx[i], -4, 3, 3, "finger"])
 				out.append([fx[i], -1, 3, 1, "knuckle"])
 		"limp":
-			out = [[-7, -1, 14, 13, "palm"], [-7, 12, 14, 4, "cuff"], [7, 3, 4, 5, "thumb"]]
+			out = [[-7, -1, 14, 13, "palm"], [-7, 12, 14, 4, "cuff"], [-11, 3, 4, 5, "thumb"]]
 			for i in 4:
 				out.append([fx[i], -1 - 4, 3, 4, "finger"])
 		_:  # open
-			out = [[-7, -1, 14, 13, "palm"], [-7, 12, 14, 4, "cuff"], [7, 2, 3, 4, "thumb"], [9, -1, 3, 4, "thumb"]]
+			out = [[-7, -1, 14, 13, "palm"], [-7, 12, 14, 4, "cuff"], [-10, 2, 3, 4, "thumb"], [-12, -1, 3, 4, "thumb"]]
 			for i in 4:
 				var h: float = lens[i] + sin(_t * 2.0 + i) * 0.4  # fingers idle
 				if i == 3 and f > 0.75:
@@ -705,7 +706,7 @@ func _finger_spot(i: int) -> Vector2:
 	var fist := gesture in ["fist", "thumbs"]
 	var curled := gesture in ["grip", "point"] and not (gesture == "point" and i == 0)
 	if i == 4:
-		return Vector2(-10, 1) if fist else Vector2(7.5, 4)  # thumb
+		return Vector2(-10, 1) if fist else Vector2(-10.5, 4)  # thumb (beside the index finger, as in a fist)
 	if fist:
 		return Vector2(-7 + i * 4, -5)
 	if curled:

@@ -37,7 +37,8 @@ A plain weapon hits soft. The big numbers come from what you've built:
 - **Rings** (below).
 - **Openings your blocks make:** a reeling or broken enemy takes 1.5x.
 
-Weapon hits barely fill the stagger meter (20%; punches 50%). **Blocking is what breaks an
+Weapon hits barely fill the stagger meter (20%; punches 50%, and a punch never hurts your
+own hand, armour or not). **Blocking is what breaks an
 enemy**, and a shield best of all: a blow a shield takes the brunt of counts double, and a
 braced shield turns every block into a parry (which counts double again).
 
@@ -126,6 +127,8 @@ deaths, foes felled, bosses, best hit); **the cat** asleep on the window sill (r
 empty hand on it; punch it and it jumps); and the **hearth**, which melts junk down (leave
 scraps, pauldrons, skulls or rocks in the fire: every 10 scrap value melted, saved across
 sessions, pops out a **Coin Purse** to take on a run; Alt over the hearth shows the tally).
+A small wooden **placard** under the Trophy Board reads BULWARK and the build's version
+(`application/config/version` in `project.godot`: bump it for each build you hand out).
 Outside it's
 night: crickets, and the hearth crackling. **Punch the gong** to start a run. If you're
 holding something when you ring it, it comes with you.
@@ -185,10 +188,27 @@ it, and a grey one off every item that blocked, for how much of the blow it took
 Seven shelves. Four hold **gear**: weapons, shields, crates, utilities and consumables mixed
 together; the first stocking of every visit puts a consumable on the first shelf (rerolls
 don't). Potions are a novelty: a fraction of the weight of other gear, never more than one
-on the shelves at once. The fifth shelf (green cloth) is the **stat shelf**: always a hand
+on the shelves at once. Weapons and shields roll a little more often than the rest
+(`ItemDefs.KIND_WEIGHT`): about three shops in four have a weapon, and a third to two in
+five a shield. The fifth shelf (green cloth) is the **stat shelf**: always a hand
 upgrade or a stat draught (Oxblood Draught +15 HP, Iron Tonic +12% grip, Quicksilver Drop
 weapons recover 10% faster, Troll Marrow hits that get through hurt 10% less; they stack).
 The last two (gold cloth) hold **rings**, always two different ones you don't wear.
+
+**The gong's face shows what's next.** The next fight is decided when the shop opens
+(`Main._plan_fight`), and the gong's polished face (`scripts/scrying.gd`,
+`shaders/gong_face.gdshader`) shows it: the actual next place and the foe waiting in it,
+live and idling, mirrored and bulged like a convex mirror, rippling, graded through that
+place's own colours and washed in bronze. From across the shop it's just a shifting tint in
+the metal; it clears as your hand comes close. A boss beyond makes the gong tremble; a secret
+place gives the face a slow gold sweep. Nothing is written: Alt over the gong only says to
+look closely. (A secret opened while you're in the shop still takes over.)
+
+**The fight bonus.** A fight's coin reward goes up the faster it's won and the less of your
+hand it cost (`Main.fight_bonus`): won in half its par time (20 s, plus 0.08 s per point of
+the foes' health) pays +50%, falling to nothing at 1.5x par; losing 5% of the hand or less
+pays +60%, falling to nothing at half. The extra spills out when the fight ends, named:
+SWIFT, and FLAWLESS / UNSCATHED / GUARDED.
 
 ## Glue and fused gear
 Glue goes on as a **patch**: the Glue Pot dabs a few pixels where it touches (or under the
@@ -333,7 +353,8 @@ Stormcallers to fire at once; a Lightning Rod in an electrified pile cashes in e
   - *magnetic* gathers your coins, scraps and pauldrons into a pile around it (whole gear
     is left alone, so a magnetic shield is still a shield), and the enemy's blade is drawn
     to it too: it blocks a little wider than it is. The Lodestone utility is a magnet.
-  - *sticky* means a **patch of wet glue** (glossy amber pixels), not glue all over: see
+  - *sticky* never comes on gear from the shop or crates: only from glue (the Glue Pot,
+    Pitch). It means a **patch of wet glue** (glossy amber pixels), not glue all over: see
     **Glue and fused gear** below. A blade that meets the glue comes away gummed up and the
     enemy's next wind-up is slower.
   - *frosty* spreads cold, puts out fires, and makes things slippery and brittle.
@@ -351,7 +372,9 @@ Stormcallers to fire at once; a Lightning Rod in an electrified pile cashes in e
   hit 2% harder per whole weapon, shield and utility you own, up to +20%; broken-off chunks
   don't count for any of these), Merchant's Scales (+1 coin per 4 things
   after a fight), Crucible (metal scraps and pauldrons resting on it melt into coins after
-  a fight), Lodestone (gathers loose metal). Plus the old ones: Coin Purse, Ledger,
+  a fight), Lodestone (gathers loose metal), Sentinel Stone (everything you aren't holding
+  blocks better: each stone closes 12% of what would get past it, stacking up to six, about
+  54%; cheap and common, for a pile that tanks blows by itself). Plus the old ones: Coin Purse, Ledger,
   Whetstone, Anvil, Horseshoe, Grave Lantern.
 - **Whetstones and anvils wear out.** Each takes a share of the condition it puts back (a
   whetstone 10%, an anvil 5%), chipping away one edge cell at a time so you can watch it go.
@@ -697,6 +720,17 @@ play back to back, so the bash clip should end somewhere the overhead can start 
 Besides the attacks, three reactions use fixed poses worth a clip each: the stagger
 (`Enemy.stagger`, right hand flung up and out), the break (`Enemy._break`, slumped, hands
 low) and the death (`Enemy._die`, the whole body pitches forward).
+
+## Builds and versions
+The version lives in `project.godot` (`application/config/version`) and is shown on the
+placard at home. It goes up with the game: the middle number for new features, the last for
+fixes; the first only by decision.
+
+Linux (Hunter's platform) is built alongside: `python tools/build_linux.py` exports the
+"Linux" preset and packs `build/Bulwark-v<version>-linux-x86_64.tar.gz` (executable bit
+set, a run README inside). `.github/workflows/linux.yml` runs the same script on GitHub:
+every push to main builds it as a run artifact, and pushing a tag `v<version>` (it must match
+`project.godot`) publishes it on the repo's Releases page.
 
 ## Tests
 All headless, from the project folder:

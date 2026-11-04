@@ -1,0 +1,69 @@
+# The Linux build, kept alongside the Windows one. Every push to main builds it (the
+# archive is attached to the run as an artifact); pushing a tag v<version> also publishes
+# it as a GitHub release, downloadable from the repo's Releases page.
+# Same packaging as a local build: python tools/build_linux.py
+name: Linux build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  GODOT_VERSION: 4.7.2
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Godot and export templates
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/godot
+            ~/.local/share/godot/export_templates/${{ env.GODOT_VERSION }}.stable
+          key: godot-${{ env.GODOT_VERSION }}-stable
+
+      - name: Install Godot ${{ env.GODOT_VERSION }}
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          base=https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable
+          mkdir -p ~/godot ~/.local/share/godot/export_templates
+          curl -fsSL -o /tmp/godot.zip "$base/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          unzip -q /tmp/godot.zip -d ~/godot
+          mv ~/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64 ~/godot/godot
+          curl -fsSL -o /tmp/templates.tpz "$base/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          unzip -q /tmp/templates.tpz -d /tmp/tpl
+          mv /tmp/tpl/templates ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+
+      - name: Build
+        id: build
+        run: python3 tools/build_linux.py --godot ~/godot/godot
+
+      - name: Version matches the tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          if [ "${{ steps.build.outputs.version }}" != "${GITHUB_REF_NAME}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} but project.godot says ${{ steps.build.outputs.version }}"; exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Bulwark-${{ steps.build.outputs.version }}-linux-x86_64
+          path: ${{ steps.build.outputs.archive }}
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" "${{ steps.build.outputs.archive }}" \
+            --title "Bulwark ${GITHUB_REF_NAME}" \
+            --notes "Linux x86_64: download the .tar.gz, extract it, run ./Bulwark/Bulwark.x86_64 (needs Vulkan, or add --rendering-driver opengl3)."

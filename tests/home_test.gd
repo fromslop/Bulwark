@@ -157,6 +157,11 @@ func _test_hoard() -> void:
 		main._spawn(chunk, Vector2(300 + i * 50, 600))
 	main._refresh_hoard()
 	_check(is_equal_approx(main.hoard_damage, before), "broken-off chunks shouldn't count for the packrat idol (%.2f)" % main.hoard_damage)
+	_check(main.hoard_ward == 0.0, "no sentinel stones, no ward (%.2f)" % main.hoard_ward)
+	for i in 8:
+		main._spawn(ItemDefs.make("sentinel_stone", "stone"), Vector2(250 + i * 90, 560))
+	main._refresh_hoard()
+	_check(is_equal_approx(main.hoard_ward, 1.0 - pow(0.88, 6)), "sentinel stones should stack, capped at six (%.2f)" % main.hoard_ward)
 	_check(main.hand.max_hp == 116.0, "max HP should include the hoard bonus (%.0f)" % main.hand.max_hp)
 
 

@@ -54,6 +54,8 @@ const DEFS := {
 		"materials": ["iron"], "effect": "After each fight: metal scraps and pauldrons resting on it melt down into coins."},
 	"lodestone": {"title": "Lodestone", "kind": "utility", "utility": "lodestone", "shape": "lodestone", "price": 5,
 		"materials": ["stone"], "fixed_mods": ["magnetic"], "effect": "Draws your coins, scraps and pauldrons into a pile around it, out of the way."},
+	"sentinel_stone": {"title": "Sentinel Stone", "kind": "utility", "utility": "sentinel", "shape": "sentinel", "price": 4,
+		"materials": ["stone"], "effect": "Everything you aren't holding blocks better. Stacks: each stone closes 12% more of what gets past (up to 6)."},
 	# Kits: dab a modifier onto a piece of gear (like the Glue Pot)
 	"resin": {"title": "Resin Block", "kind": "consumable", "shape": "resin", "price": 4, "materials": ["wood"],
 		"applies": "reinforced", "uses": 1},
@@ -221,7 +223,7 @@ const MODIFIERS := {
 	"electrified": {"desc": "charged: shocks whatever it touches, flows through metal", "price": 1.6},
 	"superheated": {"desc": "red hot: sets wood alight, heats metal", "price": 1.6, "group": "temp"},
 	"frosty": {"desc": "freezes what it touches: slippery, brittle, puts out fires", "price": 1.5, "group": "temp"},
-	"sticky": {"desc": "has a patch of wet glue (the glossy amber pixels). Press that patch against something, one of them in your hand, and they fuse into one thing: each part still works as what it was (a buckler glued to a sword blocks like a buckler), and their modifiers pool. A blade that meets the glue is gummed up", "price": 1.2},
+	"sticky": {"desc": "has a patch of wet glue (the glossy amber pixels). Press that patch against something, one of them in your hand, and they fuse into one thing: each part still works as what it was (a buckler glued to a sword blocks like a buckler), and their modifiers pool. A blade that meets the glue is gummed up", "price": 1.2, "rolls": false},  # only from glue: the Glue Pot, Pitch
 	"poisoned": {"desc": "coated in venom: weapon hits poison the enemy", "price": 1.5},
 	"oiled": {"desc": "soaked in oil: catches fire easily, even metal", "price": 0.9},
 	"tempered": {"desc": "quenched while red-hot: 30% tougher", "price": 1.4},
@@ -340,14 +342,16 @@ const UPGRADES := {
 # is uncommon). The shop leans further up this ladder as the run goes on.
 const RARITY := {
 	"club": 0, "shortsword": 0, "dagger": 0, "buckler": 0, "round_shield": 0, "crate": 0, "rock": 0, "bandage": 0,
-	"glue_pot": 0, "resin": 0, "potion_oil": 0, "potion_wood": 0, "coin_purse": 0, "whetstone": 0, "scales": 0,
+	"glue_pot": 0, "resin": 0, "potion_oil": 0, "potion_wood": 0, "coin_purse": 0, "whetstone": 0, "scales": 0, "sentinel_stone": 0,
 	"tower_shield": 2, "greatsword": 2, "warhammer": 2, "reliquary": 2, "anvil": 2, "lantern": 2, "potion_iron": 2, "potion_levitation": 2,
 	"packrat_idol": 2, "crucible": 2, "wisp_jar": 2,
 	"potion_steel": 3, "potion_gold": 3, "potion_homeward": 3, "paragon": 3, "bastion": 3, "potion_prestigium": 3, "stormbrand": 3, "aegis": 3, "hearthblade": 3, "venom_fang": 3, "mirror_shield": 3, "sunderer": 3,
 }
 # Potions are a novelty, not the stock: they roll at a fraction of the weight of other gear,
-# and a shop never holds more than one at a time.
-const KIND_WEIGHT := {"potion": 0.22}
+# and a shop never holds more than one at a time. Weapons and shields roll a little more
+# often than the rest: about three shops in four have a weapon and two in five a shield, so
+# an unlucky shop or two still happens, just not as often.
+const KIND_WEIGHT := {"potion": 0.22, "weapon": 1.75, "shield": 1.5}
 const RARITY_NAMES := ["Common", "Uncommon", "Rare", "Legendary"]
 const RARITY_COLORS := [Color(0.7, 0.68, 0.62), Color(0.45, 0.85, 0.4), Color(0.4, 0.65, 1.0), Color(0.95, 0.6, 1.0)]
 # per stage of the run: [rounds up to, rarity weights, best material index, modifier chance]
@@ -612,7 +616,7 @@ static func roll_mods(rng: RandomNumberGenerator, first: float, rarity: int = 0,
 		mods.append(rares[rng.randi() % rares.size()])
 	if rng.randf() >= first:
 		return mods
-	var ids := MODIFIERS.keys().filter(func(k: String) -> bool: return not MODIFIERS[k].get("rare", false))
+	var ids := MODIFIERS.keys().filter(func(k: String) -> bool: return not MODIFIERS[k].get("rare", false) and MODIFIERS[k].get("rolls", true))
 	var chance := EXTRA_MOD + EXTRA_MOD_PER_RARITY * rarity + EXTRA_MOD_PER_PRESTIGE * run_prestige
 	while mods.size() < MAX_MODS:
 		for attempt in 8:
@@ -708,6 +712,8 @@ static func shape_mask(shape: String) -> PackedStringArray:
 			return PackedStringArray(["MMMMMMM", ".MMMMM.", ".MMMMM.", "..MMM..", ".MMMMM."])
 		"lodestone":
 			return PackedStringArray([".MMM.", "MMMMM", "MMMMM", "MMMMM", ".MMM."])
+		"sentinel":
+			return PackedStringArray(["..M..", ".MMM.", ".MgM.", ".MMM.", "MMMMM", "MMMMM"])
 		"wisp":
 			return PackedStringArray([".hh.", "MMMM", "MggM", "MggM", ".MM."])
 		"resin":
