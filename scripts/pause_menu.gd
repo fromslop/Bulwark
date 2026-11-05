@@ -24,13 +24,16 @@ func _ready() -> void:
 	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_panel.add_child(shade)
 	var box := VBoxContainer.new()
-	box.position = Vector2(540, 250)
+	box.position = Vector2(540, 220)
 	box.size = Vector2(200, 280)
 	box.add_theme_constant_override("separation", 12)
 	_panel.add_child(box)
 	_main = box
-	for entry in [["Resume", _resume], ["Settings", _open_settings], ["Controls", _open_controls], ["Restart run", _restart], ["Quit", _quit]]:
-		box.add_child(_button(entry[0], entry[1]))
+	for entry in [["Resume", _resume], ["Settings", _open_settings], ["Controls", _open_controls], ["Restart run", _restart], ["Reset save", _reset_save], ["Quit", _quit]]:
+		var b := _button(entry[0], entry[1])
+		if entry[0] == "Reset save":
+			_reset_button = b
+		box.add_child(b)
 	_build_settings()
 	_build_controls()
 
@@ -282,6 +285,30 @@ func _close_settings() -> void:
 	Settings.save_file()
 	_settings.visible = false
 	_main.visible = true
+
+
+## Wipe the save: the home, the codex, the tallies and the cups, all of it (settings and
+## looks are kept). Asks once more first: the button changes to a warning for a few
+## seconds, and only a second click does it.
+var _reset_button: Button
+var _reset_armed := false
+
+
+func _reset_save() -> void:
+	if not _reset_armed:
+		_reset_armed = true
+		_reset_button.text = "Erase everything?"
+		_reset_button.add_theme_color_override("font_color", Color(1.0, 0.4, 0.3))
+		get_tree().create_timer(3.0, true).timeout.connect(func() -> void:
+			if is_instance_valid(_reset_button):
+				_reset_armed = false
+				_reset_button.text = "Reset save"
+				_reset_button.remove_theme_color_override("font_color"))
+		return
+	SaveData.wipe()
+	get_tree().paused = false
+	if get_tree().reload_current_scene() != OK:
+		SaveData.wiping = false
 
 
 func _restart() -> void:

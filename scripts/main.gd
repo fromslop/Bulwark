@@ -46,7 +46,7 @@ const SHIELD_SWING_PARRY := 0.2  # a shield is too heavy to parry by swinging: b
 const PREVIEW_EVERY := 4  # frames between live lane-coverage previews
 const AVENGE_TIME := 3.0  # Avenging: how long a parry's vengeance waits for the next hit
 const WISP_SPEED := 0.25  # Wisp Cannon: how fast it has to move to fire (its parry-glint scale)
-const WISP_EVERY := 0.45
+const WISP_EVERY := 1.6
 const WISP_DAMAGE := 4.0
 const WISP_FLIGHT := 900.0
 const JAVELIN_SPEED := 650.0  # Javelin: let go faster than this (px/s) and it's thrown
@@ -148,6 +148,25 @@ var shelves: Array = []  # {rect, price, paid, item, body, kind}
 var racks: Array = []    # home: {pos, kind, item}
 var _state_timer := 0.0
 var _gong_struck := false
+## The Molten Core: a hoard heavy enough (this, all you own) breaks the shop floor and you fall
+## through the earth. It starts to crack at CRACK_AT of it. Each fall shores the floor up: the
+## next limit is what you fell with plus MOLTEN_STEP for every fall so far this run (about ten
+## more iron tower shields the first time, twenty the next...), so you don't fall straight back.
+const MOLTEN_MASS := 3000.0
+const MOLTEN_STEP := 2000.0
+const CRACK_AT := 0.7
+const FALL_DEPTH := 40.0  # metres of earth
+const FALL_TIME := 4.0
+const FALL_DRAG := 80.0  # the air's push on a falling thing, per cell of it: a wooden buckler rises past an iron tower shield
+const FALL_RISE_MAX := 320.0  # px/s: nothing rises faster than this
+var _falling := false
+var _molten_limit := MOLTEN_MASS  # what the shop floor holds this run (raised by every fall)
+var _falls := 0  # times through the floor this run
+## The Smelter beaten: the next shop has a lift back up instead of the door, and going on from
+## there (the gong) prestiges the run, as a boss does. You fell all the way down, after all.
+var _core_cleared := false
+var _lift_busy := false  # the lift is arriving or leaving: its doors aren't to be used
+var _weigh_t := 0.0
 var explosions := 0  # running count, for tests and tuning
 var rerolls := 0       # this shop visit
 var secret_next := false  # the hidden lever was pulled: the next fight is in the Hidden Vault
@@ -162,6 +181,7 @@ var _fight_par := 30.0
 var _fight_reactions: Array = []  # different reactions set off this fight (the way into the Ink Margin)
 var _chute_gold := 0  # gold fed down the chute this shop visit (the way into the Gilded Gullet)
 var _tooth_given := false
+var _recent_places: Array = []  # the last few places fought in this run, newest last (so the next isn't the same again)
 var _last_foe_def: Dictionary = {}  # the last ordinary foe fought: the Errata is a misprint of it
 var _quake := 0.0  # Giant's Table: time to the next footstep
 var _rain := 0.0  # Gilded Gullet: time to the next fall of coin
@@ -188,10 +208,11 @@ var _prev_weapon: Item  # the weapon held before the current one: Mimic copies i
 var _counter_bank := 0.0  # Riposte Guard: damage shields banked for the next weapon hit
 var _rally_until := 0.0
 var _storms: Array = []  # Stormcaller storms raging on a foe: {enemy, kind, t, tick}
-var _last_blocked := 0.0  # Ring of Echoes: how hard the last blow you blocked was  # scrap value fed to the chute, not yet paid out as a whole coin
+var _last_blocked := 0.0  # Ring of Echoes: how hard the last blow you blocked was
 
 
 func _ready() -> void:
+	Engine.time_scale = 1.0  # (a hit-stop cut short by a reload mustn't leave the next run slowed)
 	rng.randomize()
 	add_to_group("game")
 	SaveData.carry_over()  # (from when the game was Bulwark)
@@ -215,13 +236,18 @@ func _ready() -> void:
 
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_WM_CLOSE_REQUEST and state == State.HOME:
-		_save_home()
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		if state == State.HOME:
+			_save_home()
+		else:
+			save.write()  # (closing the window: kept as well as _exit_tree, a second write is cheap and a lost home isn't)
 
 
 func _exit_tree() -> void:
 	if state == State.HOME and is_instance_valid(hand):
 		_save_home()
+	elif save:
+		save.write()  # mid-run: the tallies, cups and finds so far (the home itself is unchanged)
 
 
 # --- setup -------------------------------------------------------------------
@@ -317,6 +343,9 @@ func _spawn(d: Dictionary, pos: Vector2) -> Item:
 	items_root.add_child(it)
 	it._ensure_glue()
 	_discover(d)
+	if _falling and it.owned:
+		it.set_meta("fall_gravity", it.base_gravity)  # (made mid-fall: it falls with the rest)
+		it.base_gravity = 0.0
 	return it
 
 
@@ -360,6 +389,7 @@ func coin_value(it: Item) -> int:
 ## gong by the door. Nothing here can hurt you. `carry` is something brought back from a run.
 func _go_home(carry: Item = null) -> void:
 	state = State.HOME
+	overlay.floor_crack = 0.0
 	_end_scrying()
 	_next_plan = {}
 	Music.set_mode(Music.Mode.AMBIENT)
@@ -367,6 +397,13 @@ func _go_home(carry: Item = null) -> void:
 	prestige = 0
 	ItemDefs.run_prestige = 0
 	secret_next = false
+	secret_stage = ""  # (a secret opened in the last run doesn't carry over into the next)
+	_molten_limit = MOLTEN_MASS
+	_falls = 0
+	_recent_places.clear()
+	_core_cleared = false
+	_lift_busy = false
+	overlay.lift = false
 	_clear_enemies()
 	_clear_shop()
 	for it in items_root.get_children():
@@ -404,6 +441,7 @@ func _go_home(carry: Item = null) -> void:
 	if carry:
 		carry.set_meta("kept", true)
 		_save_home()
+		call_deferred("_save_home")  # (and again once the racks are filled, so their slots are written)
 
 
 ## Write the home down: every item in it, where it sits, and how worn it is.
@@ -467,6 +505,8 @@ func _on_released(it: Item) -> void:
 
 ## Ring the gong at home: the run begins. Whatever's in your hand comes with you.
 func _start_run() -> void:
+	if codex.is_open():
+		codex.toggle()
 	save.tally("runs")
 	var carry := hand.held
 	_save_home(carry)
@@ -487,10 +527,51 @@ func _start_run() -> void:
 	_start_fight()
 
 
+## The lift down to the Molten Core arrives in the shop: the car comes down its shaft, a
+## ding, the doors slide open.
+func _lift_arrive() -> void:
+	_lift_busy = true
+	overlay.lift_car = 0.0
+	overlay.lift_open = 0.0
+	var tw := create_tween()
+	tw.tween_property(overlay, "lift_car", 1.0, 2.2).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	tw.tween_callback(func() -> void:
+		Sfx.play("ting", -2.0, 1.5)  # ding
+		get_tree().create_timer(0.18, false).timeout.connect(func() -> void: Sfx.play("ting", -4.0, 1.2)))
+	tw.tween_interval(0.35)
+	tw.tween_property(overlay, "lift_open", 1.0, 0.7).set_trans(Tween.TRANS_SINE)
+	tw.tween_callback(func() -> void: _lift_busy = false)
+	Sfx.play("windup", -10.0, 0.4)  # the cable's hum
+
+
+## Into the lift, holding one thing: the doors close on you and it takes you home.
+func _lift_leave(carry: Item) -> void:
+	_lift_busy = true
+	_gong_struck = true  # (nothing else moves the run on while the doors close)
+	carry.freeze = true  # (it rides with you)
+	overlay.ring(DOOR.pos, 60.0, Color(1, 0.9, 0.6), 0.5)
+	var tw := create_tween()
+	tw.tween_property(overlay, "lift_open", 0.0, 0.7).set_trans(Tween.TRANS_SINE)
+	tw.tween_callback(func() -> void: Sfx.play("clack", -4.0, 0.7))
+	tw.tween_property(overlay, "lift_car", 0.0, 1.2).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	tw.tween_callback(func() -> void:
+		_lift_busy = false
+		overlay.lift = false
+		if is_instance_valid(carry):
+			carry.freeze = false
+		if state == State.SHOP and is_instance_valid(carry):
+			save.prestige_best = maxi(save.prestige_best, prestige + 1)
+			Sfx.play("gong", -4.0, 1.4)
+			_go_home(carry))
+
+
 ## Through the door after a boss, holding one thing: home, and it's yours for good.
 func _return_home() -> void:
 	var carry := hand.held
-	if carry == null or not carry.owned:
+	if carry == null or not carry.owned or _lift_busy or _gong_struck:
+		return
+	if overlay.lift:
+		_lift_leave(carry)
 		return
 	save.prestige_best = maxi(save.prestige_best, prestige + 1)
 	overlay.ring(DOOR.pos, 80.0, Color(1, 0.9, 0.6), 0.6)
@@ -553,6 +634,12 @@ func _add_features() -> void:
 			_secret_prize(["electrified"])
 		"Ink Margin":
 			_secret_prize(["poisoned"])
+		"Molten Core":
+			# what the hardest fight pays: a blade of prestigium, red-hot, with an epic modifier and a rare
+			var epic := ItemDefs.pick_rare(rng, "weapon", [], true)
+			var rare := ItemDefs.pick_rare(rng, "weapon", [epic])
+			_fixture(ItemDefs.make(["greatsword", "warhammer", "longsword"][rng.randi() % 3], "prestigium", ["superheated", epic, rare]), Vector2(1100, 200), true)
+			_spawn_coins(60, Vector2(640, 300), 260.0)
 
 
 func _fixture(d: Dictionary, at: Vector2, hanging: bool) -> Item:
@@ -674,15 +761,25 @@ func _clear_enemies() -> void:
 func _plan_fight(r: int, p: int) -> Dictionary:
 	var vault := secret_next
 	var hidden: String = secret_stage if (not vault and secret_stage != "" and r % EnemyDefs.STAGES != EnemyDefs.BOSS_STAGE) else ""
-	var place: String = "Hidden Vault" if vault else (hidden if hidden != "" else Backdrop.for_round(r, rng, p))
+	var place: String = "Hidden Vault" if vault else (hidden if hidden != "" else Backdrop.for_round(r, rng, p, _recent_places))
 	var defs: Array
 	if vault:
-		defs = [EnemyDefs.WARDEN.duplicate(true)]
+		defs = [EnemyDefs.scale_def(EnemyDefs.WARDEN.duplicate(true), p)]
 	elif hidden != "":
 		defs = [_guardian(hidden, p)]
 	else:
 		defs = EnemyDefs.encounter(r, p, rng)
 	return {"round": r, "prestige": p, "place": place, "defs": defs, "vault": vault, "hidden": hidden}
+
+
+## Decide the next fight and show it in the gong's face (again, if a secret opens meanwhile).
+func _scry_next() -> void:
+	var next_round := _round_after()
+	_next_plan = _plan_fight(next_round, prestige + (1 if next_round % EnemyDefs.STAGES == 0 else 0))
+	_end_scrying()
+	scrying = Scrying.new()
+	overlay.add_child(scrying)
+	scrying.setup(self, _next_plan)
 
 
 func _end_scrying() -> void:
@@ -707,12 +804,18 @@ func _start_fight() -> void:
 	_stars_caught = 0
 	_fight_start = clock
 	_fight_taken = 0.0
+	_counter_bank = 0.0  # what the last fight banked stays in the last fight
+	_last_blocked = 0.0
+	_rally_until = 0.0
 	hand.pain = 0.0
 	_second_wind_used = false
 	_fight_reactions.clear()
 	_quake = 5.0
 	_rain = 3.0
 	_set_backdrop(plan.place)
+	_recent_places.append(plan.place)
+	if _recent_places.size() > 3:
+		_recent_places.pop_front()
 	_add_features()
 	props.setup(setting(), rng.randi())
 	_clear_enemies()
@@ -751,7 +854,7 @@ func _start_fight() -> void:
 			it.remove_meta("hit_boss")
 	_refresh_hoard()
 	state = State.COMBAT
-	Music.set_mode(Music.Mode.BOSS if is_boss_round() else Music.Mode.FIGHT)
+	Music.set_mode(Music.Mode.BOSS if is_boss_round() or plan.place == "Molten Core" else Music.Mode.FIGHT)  # (the Smelter gets the boss's score)
 
 
 ## Everyone still fighting.
@@ -781,12 +884,19 @@ func is_boss_round() -> bool:
 ## One of them went down. The purse spills out of the body onto your pile; a boss adds a
 ## notch to every weapon that touched it. When the last is down, the fight is won.
 func _on_enemy_died() -> void:
+	if state != State.COMBAT:
+		return  # (a burn or poison finishing a foe after the hand is gone wins nothing)
 	for e in enemies:
 		if is_instance_valid(e) and e.state == "dead" and not e.has_meta("paid"):
 			e.set_meta("paid", true)
 			save.tally("kills")
 			if e.data.get("boss", false):
 				save.tally("bosses")
+				save.trophies.append([str(e.data.name), prestige])
+			if e.data.get("secret", false):
+				save.discover("guardians", str(e.data.name))  # a relic for the shelf at home
+			if str(e.data.name) == "The Smelter":
+				_core_cleared = true  # the way back up opens in the next shop
 			var at := camera.unproject_position(e.torso.global_position)
 			_spawn_coins(e.data.reward * (2 if hand.has_ring("ring_magpie") else 1), at, 260.0)
 			# every weapon that drew its blood gets a notch
@@ -817,7 +927,7 @@ func _on_enemy_died() -> void:
 	_state_timer = 2.2
 	overlay.clear_zone()
 	_clear_untaken_fixtures()  # whatever you didn't take stays here
-	props.clear()
+	# (the stage's own things stay through the shop: an altar's still there once the foe's down)
 	styles.set_dark(false)
 	_pay_utilities()
 	_crumble_dust()
@@ -854,7 +964,7 @@ func _feed_chute() -> void:
 	if paid and _scrap_bank >= 1.0:
 		var coins := int(_scrap_bank)
 		_scrap_bank -= coins
-		_spawn_coins(coins, CHUTE.pos + Vector2(0, 50), 60.0)
+		_spawn_coins(coins, CHUTE.pos + Vector2(0, CHUTE.radius + 40.0), 0.0)  # (clear of its mouth: it won't swallow its own payout)
 		Sfx.play("ting", -6.0, 1.2)
 
 
@@ -923,22 +1033,46 @@ func _owned_count(pred: Callable) -> int:
 	return n
 
 
-func _has_utility(u: String) -> bool:
-	return _owned_count(func(it: Item) -> bool: return it.def.get("utility", "") == u and it.health_ratio() >= 0.3) > 0
-
-
-## What the pile is worth: hoard utilities count what you own and turn it into stats.
+## What the pile is worth: hoard utilities count what you own and turn it into stats. One
+## pass over everything you own (this runs every second).
 func _refresh_hoard() -> void:
-	var weapons := _owned_count(func(it: Item) -> bool: return _whole(it) and it.def.kind == "weapon")
-	var shields := _owned_count(func(it: Item) -> bool: return _whole(it) and it.def.kind == "shield")
-	var pauldrons := _owned_count(func(it: Item) -> bool: return _whole(it) and it.def.get("id", "") == "pauldron" and it.health_ratio() >= 0.3)
-	var gear := _owned_count(func(it: Item) -> bool: return _whole(it) and it.def.kind in ["weapon", "shield", "utility"])
-	hand.hoard_hp = 4.0 * mini(10, weapons) if _has_utility("rack") else 0.0
-	hoard_wear = 1.0 - 0.08 * mini(5, pauldrons) if _has_utility("pegs") else 1.0
-	hoard_stagger = 1.0 + 0.15 * mini(3, shields) if _has_utility("banner") else 1.0
-	hoard_damage = 1.0 + 0.02 * mini(10, gear) if _has_utility("idol") else 1.0
-	hoard_shirt = _has_utility("hairshirt")
-	var stones := _owned_count(func(it: Item) -> bool: return it.def.get("utility", "") == "sentinel" and it.health_ratio() >= 0.3)
+	var weapons := 0
+	var shields := 0
+	var pauldrons := 0
+	var gear := 0
+	var stones := 0
+	var have := {}  # the utilities you own that are still in one piece
+	for node in get_tree().get_nodes_in_group("items"):
+		var it := node as Item
+		if it == null or not it.owned or it.is_queued_for_deletion():
+			continue
+		var sound := it.health_ratio() >= 0.3
+		var u: String = it.def.get("utility", "")
+		if u != "" and sound:
+			have[u] = true
+			if u == "sentinel":
+				stones += 1
+		if not _whole(it):
+			continue
+		match str(it.def.kind):
+			"weapon":
+				weapons += 1
+				gear += 1
+			"shield":
+				shields += 1
+				gear += 1
+			"utility":
+				gear += 1
+		if it.def.get("id", "") == "pauldron" and sound:
+			pauldrons += 1
+	var old_max := hand.max_hp
+	hand.hoard_hp = 4.0 * mini(10, weapons) if have.has("rack") else 0.0
+	if hand.max_hp < old_max and hand.injury < old_max and hand.injury >= hand.max_hp:
+		hand.injury = hand.max_hp - 1.0  # the rack lost a weapon: that's lost health, not a killing blow
+	hoard_wear = 1.0 - 0.08 * mini(5, pauldrons) if have.has("pegs") else 1.0
+	hoard_stagger = 1.0 + 0.15 * mini(3, shields) if have.has("banner") else 1.0
+	hoard_damage = 1.0 + 0.02 * mini(10, gear) if have.has("idol") else 1.0
+	hoard_shirt = have.has("hairshirt")
 	hoard_ward = 1.0 - pow(1.0 - WARD_PER, mini(WARD_MAX, stones))
 
 
@@ -949,6 +1083,8 @@ func _whole(it: Item) -> bool:
 
 ## The stagger meter filled: the enemy slumps, open to punishment.
 func _on_enemy_broke(who: Enemy = null) -> void:
+	if state != State.COMBAT:
+		return
 	var e: Enemy = who if who else enemy
 	var at := camera.unproject_position(e.torso.global_position)
 	overlay.starburst(at, 220.0, Color(1, 0.85, 0.4))
@@ -959,9 +1095,18 @@ func _on_enemy_broke(who: Enemy = null) -> void:
 
 
 ## Freeze the action for a moment so a big moment lands.
+var _striker: Enemy  # the foe whose blow is reaching the hand right now
+var _hitstops := 0  # hit-stops still running: time comes back when the last one ends, not the first
+
+
 func _hitstop(secs: float) -> void:
 	Engine.time_scale = 0.05
-	get_tree().create_timer(secs, true, false, true).timeout.connect(func() -> void: Engine.time_scale = 1.0)
+	_hitstops += 1
+	get_tree().create_timer(secs, true, false, true).timeout.connect(func() -> void:
+		_hitstops -= 1
+		if _hitstops <= 0:
+			_hitstops = 0
+			Engine.time_scale = 1.0)
 
 
 ## A pauldron broke off: it lands in your play field as a chunk of iron you can use.
@@ -997,14 +1142,14 @@ func _open_shop() -> void:
 	overlay.gong = GONG
 	overlay.dice = DICE
 	overlay.chute = CHUTE
-	overlay.door = DOOR if is_boss_round() else {}
+	overlay.door = DOOR if is_boss_round() or _core_cleared else {}
+	overlay.lift = _core_cleared
+	if _core_cleared:
+		_lift_arrive()
+		# what the Smelter gave you is weighed in too: back up top, the floor doesn't even creak
+		_molten_limit = maxf(_molten_limit, pile_mass() / CRACK_AT + MOLTEN_STEP * (_falls - 1))
 	# the next fight is decided now, so the gong's face can show it
-	var next_round := round_num + 1
-	_next_plan = _plan_fight(next_round, prestige + (1 if next_round % EnemyDefs.STAGES == 0 else 0))
-	_end_scrying()
-	scrying = Scrying.new()
-	overlay.add_child(scrying)
-	scrying.setup(self, _next_plan)
+	_scry_next()
 	rerolls = 0
 	free_rerolls = 0
 	for n in get_tree().get_nodes_in_group("items"):
@@ -1118,7 +1263,9 @@ func _add_shelf(d: Dictionary, x: float, kind: String = "gear") -> void:
 	it.position = Vector2(x, SHELF_Y - it.origin.y - 1.0)
 	items_root.add_child(it)
 	_discover(d)  # seen on a shelf counts as found
-	shelves.append({"rect": rect, "price": ceili(d.cost * (1.3 if hand.has_ring("ring_magpie") else 1.0)), "paid": 0, "item": it, "body": body, "rarity": int(d.get("rarity", 0)), "kind": kind})
+	var price := ceili(d.cost * (1.3 if hand.has_ring("ring_magpie") else 1.0))
+	it.set_meta("price", price)  # (the inspect card shows this)
+	shelves.append({"rect": rect, "price": price, "paid": 0, "item": it, "body": body, "rarity": int(d.get("rarity", 0)), "kind": kind})
 
 
 ## Shelf pips light up for as much of the price as your pile of coins covers.
@@ -1171,14 +1318,28 @@ func _strike_gong() -> void:
 	overlay.ring_gong()
 	Sfx.play("gong", 0.0)
 	_shake += 6.0
-	if state == State.HOME:
-		get_tree().create_timer(0.8).timeout.connect(_start_run)
-	else:
-		get_tree().create_timer(0.8).timeout.connect(_close_shop)
+	var from := state
+	get_tree().create_timer(0.8, false).timeout.connect(func() -> void:
+		if state != from:
+			return  # left by the door in the meantime: the gong's call lapses
+		if from == State.HOME:
+			_start_run()
+		else:
+			_close_shop())
+
+
+## The round the shop's way on leads to. Up from the Molten Core, rather than home, the run
+## starts its next, deeper lap.
+func _round_after() -> int:
+	var r := round_num + 1
+	if _core_cleared:
+		r = int(ceilf(float(r) / EnemyDefs.STAGES)) * EnemyDefs.STAGES
+	return r
 
 
 ## On to the next stage. Past the boss, the run prestiges: everything deeper.
 func _close_shop() -> void:
+	overlay.floor_crack = 0.0
 	# unbought stock, and anything that burned or broke off it, goes back on the shelf
 	_clear_shop()
 	_end_scrying()
@@ -1186,7 +1347,9 @@ func _close_shop() -> void:
 	overlay.dice = {}
 	overlay.chute = {}
 	overlay.door = {}
-	round_num += 1
+	round_num = _round_after()
+	_core_cleared = false
+	overlay.lift = false
 	if round_num % EnemyDefs.STAGES == 0:
 		prestige += 1
 		ItemDefs.run_prestige = prestige
@@ -1243,6 +1406,19 @@ func _unhandled_input(e: InputEvent) -> void:
 
 
 # --- combat --------------------------------------------------------------------
+
+## Where an attack's follow-up will land, shown faintly while the first winds up (none for one
+## that aims at the hand: that isn't decided yet).
+func _follow_up_zone(atk: Dictionary) -> PackedVector2Array:
+	var nxt: Dictionary = EnemyDefs.ATTACKS.get(str(atk.get("next", "")), {})
+	if nxt.is_empty() or nxt.get("track", false) or nxt.has("chase") or nxt.has("turn"):
+		return PackedVector2Array()
+	var out := _zone_px(nxt)
+	var pan: Vector2 = nxt.get("pan", Vector2.ZERO) * Vector2(1280, 720)
+	for i in out.size():
+		out[i] += pan  # (where a sliding one ends up)
+	return out
+
 
 func _zone_px(atk: Dictionary) -> PackedVector2Array:
 	var out := PackedVector2Array()
@@ -1429,7 +1605,9 @@ func _resolve_attack(atk: Dictionary, who: Enemy = null) -> void:
 		enemy.gum_up(1.5)
 	var dmg: float = atk.damage * leak
 	dmg += atk.damage * HAND_CAUGHT * hand_energy  # the hand itself caught in the swing
+	_striker = enemy  # (so Thorns and the Martyr answer this one, not just the first)
 	hand.hurt(dmg)
+	_striker = null
 	if spiked > 0.0:
 		enemy.take_hit(spiked, "torso", false)
 	_grade_block(atk, poly, touched, leak, best_parry, parried_stop, dmg, enemy)
@@ -1543,6 +1721,8 @@ func _preview_cover(lanes: Array, cleave: float) -> Array:
 				if b <= 0.0:
 					continue
 				seen[it] = true
+				if it != hand.held:
+					b += (1.0 - b) * hoard_ward  # (Sentinel Stones, before cleave: as in the blow itself)
 				var unyielding: bool = it.def.get("legend", "") == "unyielding"
 				if unyielding:
 					b = 1.0
@@ -1567,7 +1747,7 @@ func _centroid(poly: PackedVector2Array) -> Vector2:
 func _physics_process(_delta: float) -> void:
 	if state == State.COMBAT:
 		_setting_physics(_delta)
-	if state in [State.COMBAT, State.HOME]:
+	if state in [State.COMBAT, State.VICTORY, State.SHOP, State.HOME] and not _falling:
 		_prop_tick += _delta
 		if _prop_tick >= 0.05:
 			props.feed(items_root.get_children(), _prop_tick)
@@ -1579,7 +1759,7 @@ func _physics_process(_delta: float) -> void:
 				if to.length() > 30.0:
 					it.apply_central_force(to.normalized() * it.mass * 2600.0)
 	if state == State.SHOP or state == State.HOME:
-		if state == State.SHOP:
+		if state == State.SHOP and not _falling:
 			_update_shelves()
 			_feed_chute()
 		else:
@@ -1589,7 +1769,7 @@ func _physics_process(_delta: float) -> void:
 		for it in items_root.get_children():
 			if it is Item and it.swing_time > 0.0 and _over_gong(it):
 				_strike_gong()
-			elif state == State.SHOP and it is Item and it.def.get("id", "") == "gilded_tooth" and _over_gong(it):
+			elif state == State.SHOP and not _falling and it is Item and it.def.get("id", "") == "gilded_tooth" and _over_gong(it):
 				_tooth_to_gong(it)
 			elif state == State.HOME and it is Item and it.swing_time > 0.0 and not it.swing_hit and it.def.kind == "weapon":
 				for pr in props.props:
@@ -1892,27 +2072,12 @@ func _mark_display() -> Array:
 	return out
 
 
-## What a piece carries into an elemental rare effect.
-func _element(it: Item) -> String:
-	if it.heat > 0.4 or it.is_burning():
-		return "fire"
-	if it.cold > 0.3 or it.has_mod("frosty"):
-		return "frost"
-	if it.has_mod("poisoned"):
-		return "venom"
-	if it.has_mod("corrosive"):
-		return "rot"
-	if it.charge > 0.3:
-		return "storm"
-	return ""
-
-
 ## Stormcaller: a parry calls lightning down, and whatever the piece carries rides it.
 ## Hot, it's a firestorm; frosty, a blizzard; venomous, acid rain; corrosive, a rust storm
 ## (each a whirling column that rages on the foe for a few seconds); electrified, the
 ## lightning doubles and strikes every foe.
 func _call_storm(it: Item, enemy: Enemy, stopped: float, at: Vector2) -> void:
-	var el := _element(it)
+	var el: String = (_elements(it) + [""])[0]
 	var armour := 1.0 + float(enemy.data.get("armor", 0.0)) * 1.5
 	var bolt := stopped * 2.0 * armour
 	var foes: Array = [enemy]
@@ -2043,7 +2208,7 @@ func _tick_wisps(delta: float) -> void:
 		var heavy := it.has_mod("heavy")
 		if heavy:
 			it.set_meta("wisp_next", clock + WISP_EVERY * 1.8)  # cannonballs: slower, harder
-		var el := _element(it)
+		var el: String = (_elements(it) + [""])[0]
 		if el == "":
 			el = "fire"
 		_wisps.append({"pos": from, "vel": it.linear_velocity.limit_length(400.0), "target": best, "kind": el,
@@ -2106,7 +2271,7 @@ func _legend_hit(it: Item, legend: String, asc: bool, enemy: Enemy, dmg: float, 
 			overlay.sparks(r.center, 20000.0, Color(0.8, 0.8, 0.85))
 		"echo":
 			for k in (3 if asc else 1):
-				get_tree().create_timer(0.22 * (k + 1)).timeout.connect(_echo_hit.bind(enemy, dmg * 0.6, r.id, r.center))
+				get_tree().create_timer(0.22 * (k + 1), false).timeout.connect(_echo_hit.bind(enemy, dmg * 0.6, r.id, r.center))
 
 
 ## The Paragon's after-strike: the same blow again, a beat later.
@@ -2114,25 +2279,23 @@ func _echo_hit(e: Enemy, dmg: float, region: String, at: Vector2) -> void:
 	if not is_instance_valid(e) or e.state == "dead" or state != State.COMBAT:
 		return
 	e.take_hit(dmg, region, false)
-	overlay.ring(at, 36.0, Color(0.85, 0.75, 1.0), 0.3)
+	overlay.ring(at, 36.0, Color(0.4, 0.85, 1.0), 0.3)
 	Sfx.play("hit", -6.0, 1.6)
 
 
 ## Every blow to the hand passes through here first (Hand.on_hurt). Returns what's left of it.
 func _hand_hurt(amount: float) -> float:
-	var foe: Enemy = living()[0] if state == State.COMBAT and not living().is_empty() else null
-	if hand.has_ring("ring_glass"):
+	var foe: Enemy = _striker if is_instance_valid(_striker) else (living()[0] if state == State.COMBAT and not living().is_empty() else null)
+	if hand.hazard:
+		pass  # (the finishing tick of a hot blade's burn: no rings but the Phoenix answer it)
+	elif hand.has_ring("ring_glass"):
 		amount *= 2.0
 	if hand.self_harm:
 		# a price paid on purpose: the pain-answering rings still answer it (Thorns, the Martyr),
 		# but no coins are spent on it and it can't burn the Phoenix (it never kills)
-		if foe and hand.has_ring("ring_thorns"):
-			foe.take_hit(amount * 2.0, "torso", false)
-			overlay.ring(hand.position, 40.0, Color(0.35, 0.6, 0.2), 0.3)
-		if foe and hand.has_ring("ring_martyr"):
-			foe.add_stagger(amount * 3.0)
+		_pain_rings(foe, amount)
 		return amount
-	if hand.has_ring("ring_midas") and state != State.HOME:
+	if hand.has_ring("ring_midas") and state != State.HOME and amount >= 1.0 and not hand.hazard:  # (not on a burn's trickle)
 		var spend := mini(coin_total(), ceili(amount / 3.0))
 		if spend > 0 and _pay(spend, hand.position + Vector2(0, -30)):
 			amount = maxf(0.0, amount - spend * 3.0)
@@ -2141,11 +2304,8 @@ func _hand_hurt(amount: float) -> float:
 		return 0.0
 	hand.frenzy = 0
 	hand.frenzy_time = 0.0
-	if foe and hand.has_ring("ring_thorns"):
-		foe.take_hit(amount * 2.0, "torso", false)
-		overlay.ring(hand.position, 40.0, Color(0.35, 0.6, 0.2), 0.3)
-	if foe and hand.has_ring("ring_martyr"):
-		foe.add_stagger(amount * 3.0)
+	if not hand.hazard:
+		_pain_rings(foe, amount)
 	if hand.has_ring("ring_phoenix") and hand.injury + amount >= hand.max_hp:
 		hand.remove_ring("ring_phoenix")
 		hand.injury = hand.max_hp * 0.5
@@ -2154,6 +2314,17 @@ func _hand_hurt(amount: float) -> float:
 		Sfx.play("gong", 0.0, 1.3)
 		return 0.0
 	return amount
+
+
+## The rings that answer pain: Thorns hits back double, the Martyr fills the stagger meter.
+func _pain_rings(foe: Enemy, amount: float) -> void:
+	if foe == null:
+		return
+	if hand.has_ring("ring_thorns"):
+		foe.take_hit(amount * 2.0, "torso", false)
+		overlay.ring(hand.position, 40.0, Color(0.35, 0.6, 0.2), 0.3)
+	if hand.has_ring("ring_martyr"):
+		foe.add_stagger(amount * 3.0)
 
 
 ## Healing that comes from somewhere: a green ring where it came from, a streak to the hand.
@@ -2175,7 +2346,7 @@ func _tick_blood(delta: float) -> void:
 			_shirt_t = 0.0
 			hand.wound(1.0)
 	var low := hand.hurt_fraction()
-	if hand.has_ring("ring_second_wind") and not _second_wind_used and low > 0.75:
+	if hand.has_ring("ring_second_wind") and not _second_wind_used and low > CRITICAL_HURT:
 		_second_wind_used = true
 		_heal_hand(SECOND_WIND, hand.position + Vector2(0, -40))
 		overlay.starburst(hand.position, 120.0, Color(0.5, 1.0, 0.6))
@@ -2306,13 +2477,20 @@ func on_brick(at: Vector2) -> void:
 	save.discover("secrets", "brick")
 
 
-## The blood altar takes its price and gives the weapon a rare modifier.
-func on_altar(it: Item, at: Vector2) -> void:
-	var rares := ItemDefs.MODIFIERS.keys().filter(func(k: String) -> bool:
-		return ItemDefs.MODIFIERS[k].get("rare", false) and "weapon" in ItemDefs.MODIFIERS[k].get("kinds", ["weapon"]) and not it.has_mod(k))
-	if rares.is_empty():
-		return
-	var m: String = rares[rng.randi() % rares.size()]
+## Pieces with no rare modifier of their own kind get one of these from the altar instead.
+const ALTAR_GIFTS := ["reinforced", "regenerating", "soothing", "magnetic", "spiked", "tempered"]
+
+
+## The blood altar takes its price and gives the piece a rare modifier: a weapon or a shield
+## one of its own rares, anything else a strong gift. False if it had nothing left to give.
+func on_altar(it: Item, at: Vector2) -> bool:
+	var m := ItemDefs.pick_rare(rng, it.def.kind, it.def.modifiers)
+	if m == "":
+		var gifts: Array = ALTAR_GIFTS.filter(func(k: String) -> bool: return not it.has_mod(k))
+		if gifts.is_empty():
+			Sfx.play("deny")
+			return false
+		m = gifts[rng.randi() % gifts.size()]
 	it.add_mod(m)
 	save.discover("modifiers", m)
 	hand.injury = minf(hand.max_hp - 1.0, hand.injury + hand.max_hp / 3.0)  # it never kills you
@@ -2321,6 +2499,7 @@ func on_altar(it: Item, at: Vector2) -> void:
 	overlay.ring(it.global_position, 60.0, Color(1.0, 0.82, 0.3), 0.6)
 	popups.word(it.global_position + Vector2(0, -50), str(ItemDefs.MODIFIERS[m].get("name", m)).to_upper(), Color(1.0, 0.82, 0.3))
 	Sfx.play("gong", -6.0, 0.7)
+	return true
 
 
 ## The guardian of a secret place. The Errata is a misprint of the last ordinary foe: its
@@ -2333,7 +2512,7 @@ func _guardian(place: String, p: int = -1) -> Dictionary:
 	if id == "Errata":
 		var src: Dictionary = _last_foe_def if not _last_foe_def.is_empty() else EnemyDefs.scaled("Footman", prestige)
 		d.attacks = (src.attacks as Array).duplicate()
-		d.model = str(src.name).to_lower().replace(" ", "_")
+		d.model = str(src.get("model", str(src.name).to_lower().replace(" ", "_")))
 		d.speed = float(src.get("speed", 1.0)) * 1.15
 		d.hp = maxf(float(d.hp), float(src.hp) * 1.4)
 		d.rest = (src.get("rest", [1.0, 1.6]) as Array).duplicate()
@@ -2391,6 +2570,12 @@ func _chute_ate_gold(value: int) -> void:
 
 ## Step two: the tooth touches the gong, and the gong swallows you.
 func _tooth_to_gong(tooth: Item) -> void:
+	if secret_stage != "" or secret_next:
+		var now := Time.get_ticks_msec()
+		if now - int(tooth.get_meta("denied_at", -10000)) > 1500:
+			Sfx.play("deny")  # the way is already open somewhere else: keep the tooth for later
+		tooth.set_meta("denied_at", now)
+		return
 	if tooth.held:
 		hand.release()
 	tooth.queue_free()
@@ -2522,20 +2707,114 @@ func _unlock_secret(place: String) -> void:
 	if secret_stage != "" or secret_next or not Secrets.STAGES.has(place):
 		return
 	secret_stage = place
+	if state == State.SHOP and not _falling:
+		_scry_next()  # the gong's face shows where the way now leads
 	popups.word(Vector2(640, 220), "SOMETHING STIRS...", Color(1.0, 0.82, 0.3))
 	overlay.ring(Vector2(640, 360), 400.0, Color(1.0, 0.82, 0.3), 1.0)
 	Sfx.play("gong", -2.0, 0.45)
 	_shake += 6.0
 
 
+## All you own, weighed.
+func pile_mass() -> float:
+	var m := 0.0
+	for n in get_tree().get_nodes_in_group("items"):
+		var it := n as Item
+		if it and it.owned and not it.is_queued_for_deletion() and it.def.kind != "menu":
+			m += it.mass
+	return m
+
+
+## In the shop, now and then: how the floor is holding up under the hoard. Past CRACK_AT it
+## cracks (more and more, with creaks); at the limit it gives way, if the way is open (no
+## other secret waiting, and the next fight isn't the boss's).
+func _weigh_floor(delta: float) -> void:
+	if _falling:
+		return
+	_weigh_t -= delta
+	if _weigh_t > 0.0:
+		return
+	_weigh_t = 0.5
+	var f := pile_mass() / _molten_limit
+	overlay.floor_crack = clampf((f - CRACK_AT) / (1.0 - CRACK_AT), 0.0, 1.0)
+	if overlay.floor_crack > 0.0 and rng.randf() < 0.3 + overlay.floor_crack:
+		Sfx.play("crack", -14.0 + overlay.floor_crack * 8.0, rng.randf_range(0.4, 0.6))  # the boards complain
+		_shake += 1.5 + 4.0 * overlay.floor_crack  # and the room shudders
+	var next_boss := (round_num + 1) % EnemyDefs.STAGES == EnemyDefs.BOSS_STAGE
+	if f >= 1.0 and secret_stage == "" and not secret_next and not next_boss and not _gong_struck:
+		_fall_through()
+
+
+## The floor gives way: down through soil, rock and the dark to the Molten Core, with
+## everything you own falling with you.
+func _fall_through() -> void:
+	_falling = true
+	_falls += 1
+	_molten_limit = maxf(_molten_limit, pile_mass()) + MOLTEN_STEP * _falls  # (shored up: it takes a much bigger hoard next time)
+	_gong_struck = true  # (nothing else moves the run on while this happens)
+	_unlock_secret("Molten Core")
+	save.discover("places", "Molten Core")
+	overlay.floor_crack = 0.0
+	_clear_shop()
+	_end_scrying()
+	overlay.gong = {}
+	overlay.dice = {}
+	overlay.chute = {}
+	overlay.door = {}
+	Sfx.play("boom", 0.0, 0.6)
+	Sfx.play("crack", 0.0, 0.5)
+	_shake += 30.0
+	# everything falls with you: weightless against you, but the air holds back the light things
+	# more than the heavy ones, so they drift up past you (see FALL_DRAG)
+	var falling: Array = []
+	for n in get_tree().get_nodes_in_group("items"):
+		var it := n as Item
+		if it and it.owned and not it.freeze:
+			it.set_meta("fall_gravity", it.base_gravity)
+			it.base_gravity = 0.0
+			it.apply_central_impulse(Vector2(randf_range(-40, 40), -randf_range(40, 90)) * it.mass)  # the floor drops away under it
+			falling.append(it)
+	var shaft := Backdrop.create_shaft(FALL_DEPTH)
+	world3d.add_child(shaft)
+	var start := camera.position
+	var tw := create_tween()
+	tw.tween_method(func(t: float) -> void:
+		camera.position.y = start.y - FALL_DEPTH * t * t  # gathering speed
+		var dt := get_process_delta_time()
+		for n in get_tree().get_nodes_in_group("items"):
+			var it := n as Item
+			if it and it.has_meta("fall_gravity") and not it.is_queued_for_deletion():
+				# drag goes with size, so the lift per mass is greater the lighter the thing is
+				it.apply_central_impulse(Vector2(0, -FALL_DRAG * it.cells.size() * (0.4 + t) * dt))
+				if it.linear_velocity.y < -FALL_RISE_MAX:
+					it.linear_velocity.y = -FALL_RISE_MAX
+		_shake = maxf(_shake, 6.0 + 10.0 * t)
+		if randf() < 0.6:
+			overlay.sparks(Vector2(randf_range(0, 1280), 720), 3000.0, Color(0.4, 0.28, 0.15) if t < 0.7 else Color(1.0, 0.45, 0.1)),  # earth streaming past, then embers
+		0.0, 1.0, FALL_TIME)
+	tw.tween_callback(func() -> void:
+		for n in get_tree().get_nodes_in_group("items"):
+			var it := n as Item
+			if it and it.has_meta("fall_gravity"):
+				it.base_gravity = float(it.get_meta("fall_gravity", 1.0))  # landed: things fall again
+				it.remove_meta("fall_gravity")
+				it.queue_redraw()
+		shaft.queue_free()
+		camera.position = start
+		_falling = false
+		if state != State.SHOP:
+			return  # (the hand gave out on the way down: no landing)
+		Sfx.play("boom", -2.0, 0.4)
+		_shake += 25.0
+		_close_shop())
+
+
 ## Each secret place's guardian guards something: an infused weapon with a rare modifier
 ## hanging on the wall, and gold.
 func _secret_prize(mods: Array) -> void:
 	var pick: String = ["longsword", "greatsword", "mace", "spear"][rng.randi() % 4]
-	var rares := ItemDefs.MODIFIERS.keys().filter(func(k: String) -> bool:
-		return ItemDefs.MODIFIERS[k].get("rare", false) and "weapon" in ItemDefs.MODIFIERS[k].get("kinds", ["weapon"]))
 	var all: Array = mods.duplicate()
-	all.append(rares[rng.randi() % rares.size()])
+	all.append(ItemDefs.pick_rare(rng, "weapon"))
 	_fixture(ItemDefs.make(pick, "steel", all), Vector2(1100, 200), true)
 	_spawn_coins(20, Vector2(640, 300), 200.0)
 
@@ -2594,7 +2873,7 @@ func _on_punched(at: Vector2) -> void:
 	if state in [State.SHOP, State.HOME] and at.distance_to(_gong().pos) <= _gong().radius + 8.0:
 		_strike_gong()
 		return
-	if state == State.SHOP and at.distance_to(DICE.pos) <= DICE.radius + 10.0:
+	if state == State.SHOP and not _falling and at.distance_to(DICE.pos) <= DICE.radius + 10.0:
 		_reroll()
 		return
 	if state == State.SHOP and not overlay.door.is_empty() and at.distance_to(DOOR.pos) <= DOOR.radius + 10.0:
@@ -2606,7 +2885,7 @@ func _on_punched(at: Vector2) -> void:
 		return
 	if _try_lever(at, 24.0):
 		return
-	if state == State.COMBAT and props.punch(at):
+	if state in [State.COMBAT, State.VICTORY, State.SHOP, State.HOME] and not _falling and props.punch(at):
 		return
 	if state != State.COMBAT or living().is_empty():
 		return
@@ -2654,6 +2933,8 @@ func _on_item_activated(it: Item) -> void:
 ## The furniture at home is the menu: the codex opens the index, the mirror tries on
 ## another gauntlet.
 func _open_menu(it: Item) -> void:
+	if _gong_struck:
+		return  # (the run is about to start: no book now)
 	match it.def.get("menu", ""):
 		"codex":
 			if codex.is_open():
@@ -2768,6 +3049,8 @@ const TRANSMUTE := {"to_prestigium": "prestigium", "to_steel": "steel", "to_iron
 ## One liquid pixel landed on an item. Transmutation changes the cell it hit; coatings
 ## build up and take hold once enough has soaked in.
 func soak(it: Item, at: Vector2, liquid: String) -> void:
+	if not it.owned:
+		return  # shop stock: not yours to change until it's bought
 	var c := it.cell_at_global(at)
 	if not it.cells.has(c):
 		c = it.nearest_cell(at)
@@ -2821,7 +3104,7 @@ func soak(it: Item, at: Vector2, liquid: String) -> void:
 
 ## Homeward Brew: the item is whisked off to your shelf at home, to keep.
 func _send_home(it: Item) -> void:
-	if it.def.kind in ["coin", "debris", "menu"] or it.is_queued_for_deletion():
+	if it.def.kind in ["coin", "debris", "menu"] or it.is_queued_for_deletion() or not it.owned or state == State.HOME:
 		return
 	var e := SaveData.pack(it)
 	e.slot = -1
@@ -2941,7 +3224,7 @@ func _on_ring_used(ring: String, at: Vector2, finger: int) -> void:
 					it.reverse_time = 3.0
 			overlay.ring(at, 120.0, Color(0.4, 1.0, 0.85), 0.5)
 		"ring_alchemy":
-			if target and _alchemize(target):
+			if target and target.owned and _alchemize(target):
 				overlay.sparks(target.global_position, 30000.0, Color(1.0, 0.85, 0.3))
 				Sfx.play("ting", -2.0, 0.9)
 			else:
@@ -2992,6 +3275,7 @@ func _process(delta: float) -> void:
 	overlay.water_y = WATER_Y if state == State.COMBAT and setting() == "Cistern" else -1.0
 	overlay.hearth = HEARTH if state == State.COMBAT and setting() == "Forge" else Rect2()
 	overlay.zones = []
+	overlay.ghost = PackedVector2Array()
 	for e in living():
 		if e.burning_time > 0.0:
 			var a := camera.unproject_position(e.torso.global_position + Vector3(-0.3, -0.25, 0))
@@ -3007,16 +3291,19 @@ func _process(delta: float) -> void:
 				var w := clampf(e.current.damage / 30.0, 0.4, 1.6)
 				var lanes := Lanes.build(zone, d)
 				var cov: Array = e.get_meta("lane_cover", [])
-				if cov.size() != lanes.size() or Engine.get_process_frames() % PREVIEW_EVERY == 0:
+				var moving: bool = e.current.has("pan") or e.current.has("turn") or e.current.has("chase")
+				if cov.size() != lanes.size() or moving or Engine.get_process_frames() % PREVIEW_EVERY == 0:
 					cov = _preview_cover(lanes, float(e.current.get("cleave", 0.0)))
 					e.set_meta("lane_cover", cov)
 				if not shown:
 					overlay.show_zone(zone, e.progress, d, w, e.current.get("trait", ""))
+					overlay.atk = e.current
+					overlay.ghost = _follow_up_zone(e.current)
 					overlay.lanes = lanes
 					overlay.cover = cov
 					shown = true
 				else:
-					overlay.zones.append({"poly": zone, "progress": e.progress, "dir": d, "weight": w, "trait": e.current.get("trait", ""),
+					overlay.zones.append({"poly": zone, "progress": e.progress, "dir": d, "weight": w, "trait": e.current.get("trait", ""), "atk": e.current, "ghost": _follow_up_zone(e.current),
 						"lanes": lanes, "cover": cov})
 			for r in e.regions():
 				if r.id == "weak":
@@ -3039,13 +3326,16 @@ func _process(delta: float) -> void:
 	camera.h_offset = randf_range(-1.0, 1.0) * _shake * 0.004 * Settings.shake
 	camera.v_offset = randf_range(-1.0, 1.0) * _shake * 0.004 * Settings.shake
 	_debris_check -= delta
-	if _debris_check <= 0.0 or get_tree().get_nodes_in_group("items").size() > BODY_CAP:
+	# once a second; sooner when there are too many bodies, but never every frame
+	if not _falling and (_debris_check <= 0.0 or (_debris_check < 0.95 and get_tree().get_nodes_in_group("items").size() > BODY_CAP)):
 		_debris_check = 1.0
 		_merge_coins()
 		_cap_debris()
 		_refresh_hoard()
 	if state == State.COMBAT:
 		_tick_blood(delta)
+	if state == State.SHOP:
+		_weigh_floor(delta)
 	Music.critical = state == State.COMBAT and hand.hurt_fraction() > CRITICAL_HURT
 	if state != State.DEFEAT and state != State.HOME and hand.injury >= hand.max_hp:
 		_defeat()  # in a fight, in the shop or in between: a ruined hand ends the run
@@ -3065,7 +3355,8 @@ func _merge_coins() -> void:
 			continue
 		count += 1
 		var id: String = c.def.get("id", "")
-		if loose.has(id) and not c.held and not c.freeze and c.global_position.y > SCREEN.y * 0.5 and not c.def.get("piece", false):
+		if loose.has(id) and not c.held and not c.freeze and c.global_position.y > SCREEN.y * 0.5 and not c.def.get("piece", false) \
+				and is_equal_approx(float(c.def.get("size", 1.0)), 1.0):  # (a grown or shrunk coin isn't worth its face: it stays loose)
 			loose[id].append(c)
 	var merges := 0
 	for id in ["coin", "coin5"]:
@@ -3093,7 +3384,8 @@ func _cap_debris() -> void:
 	if debris.size() > DEBRIS_CAP:
 		debris.sort_custom(func(a: Item, b: Item) -> bool: return a.age > b.age)
 		for i in debris.size() - DEBRIS_CAP:
-			debris[i].queue_free()
+			if debris[i] != hand.held:
+				debris[i].queue_free()
 	var bodies := get_tree().get_nodes_in_group("items").filter(func(n: Node) -> bool: return not n.is_queued_for_deletion())
 	if bodies.size() > BODY_CAP:
 		bodies = bodies.filter(func(n: Item) -> bool: return n.def.kind != "coin")  # that's money: coins fuse instead

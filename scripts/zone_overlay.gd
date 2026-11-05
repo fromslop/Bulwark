@@ -17,6 +17,8 @@ var racks: Array = []      # home: {pos, kind, item} slots where kept gear hangs
 var tint := Color(1, 0.3, 0.2)  # the telegraph's colour: red steel, green rot, orange fire, blue lightning
 var zones: Array = []  # a second enemy's telegraph, when two are winding up at once: {poly, progress, dir, weight, trait, lanes, cover}
 var lanes: Array = []  # the incoming blow's lanes (Lanes.build), drawn as arrows
+var atk: Dictionary = {}  # the incoming attack itself: its properties are drawn on its field
+var ghost := PackedVector2Array()  # where its follow-up will land (a dashed outline, "2")
 var cover: Array = []  # per lane, how much of the blow your gear would let through right now (0..1)
 var _result_lanes: Array = []  # the last blow's lanes, flashed by how each one ended
 var _result_left: Array = []
@@ -30,7 +32,11 @@ var enemy_fire := Rect2()  # where to draw flames when the enemy is burning
 var water_y := -1.0  # Cistern floodwater surface, when there is any
 var hearth := Rect2()  # Forge hearth heat zone
 var _gong_swing := 0.0
-var gong_tremble := 0.0  # px: a boss waits beyond the shop gong
+var gong_tremble := 0.0
+var lift := false  # the door is a lift (back up from the Molten Core)
+var lift_car := 0.0  # 0 up the shaft (out of sight) .. 1 arrived
+var lift_open := 0.0  # its doors: 0 shut .. 1 open
+var floor_crack := 0.0  # 0..1: the hoard is too heavy for the floor (the Molten Core); cracks spread along it  # px: a boss waits beyond the shop gong
 var _flash_poly := PackedVector2Array()
 var _flash_t := 0.0
 var _flash_leak := 0.0
@@ -62,6 +68,8 @@ func clear_zone() -> void:
 	poly = PackedVector2Array()
 	lanes = []
 	cover = []
+	atk = {}
+	ghost = PackedVector2Array()
 
 
 ## The blow landed: flash each lane by what was left of it at the end.
@@ -142,6 +150,8 @@ func _process(delta: float) -> void:
 
 func _draw() -> void:
 	_draw_shop()
+	if floor_crack > 0.0:
+		_draw_cracks()
 	if hearth.size != Vector2.ZERO:
 		var t := Time.get_ticks_msec() * 0.001
 		for i in 4:
@@ -151,7 +161,7 @@ func _draw() -> void:
 			var x := hearth.position.x + fmod(t * 40.0 + i * 53.0, hearth.size.x)
 			var y := hearth.end.y - fmod(t * 60.0 + i * 37.0, hearth.size.y)
 			draw_line(Vector2(x, y), Vector2(x + sin(t * 4.0 + i) * 4.0, y - 10.0), Color(1, 0.6, 0.2, 0.3), 1.5)
-	var mine := [poly, progress, dir, weight, tint, lanes, cover]
+	var mine := [poly, progress, dir, weight, tint, lanes, cover, atk, ghost]
 	for z in zones:
 		poly = z.poly
 		progress = z.progress
@@ -160,7 +170,11 @@ func _draw() -> void:
 		tint = TRAIT_TINT.get(z.trait, Color(1, 0.3, 0.2))
 		lanes = z.get("lanes", [])
 		cover = z.get("cover", [])
+		atk = z.get("atk", {})
+		ghost = z.get("ghost", PackedVector2Array())
+		_draw_ghost()
 		_draw_zone()
+		_draw_properties()
 		_draw_lanes()
 	poly = mine[0]
 	progress = mine[1]
@@ -169,7 +183,11 @@ func _draw() -> void:
 	tint = mine[4]
 	lanes = mine[5]
 	cover = mine[6]
+	atk = mine[7]
+	ghost = mine[8]
+	_draw_ghost()
 	_draw_zone()
+	_draw_properties()
 	_draw_lanes()
 	_draw_lane_result()
 	for e in exposed:
@@ -308,7 +326,9 @@ func _draw_shop() -> void:
 			var x := p.x - r * 0.6 + k * r * 0.3
 			draw_line(Vector2(x, p.y - r * 0.45), Vector2(x, p.y + r * 0.45), Color(0.4, 0.37, 0.35), 2.0)
 		draw_rect(Rect2(p + Vector2(-r, -r * 0.7), Vector2(r * 2, 4)), Color(0.45, 0.42, 0.4))
-	if not door.is_empty():
+	if not door.is_empty() and lift:
+		_draw_lift()
+	elif not door.is_empty():
 		# an arched door with a lantern over it: the way home, if you're carrying something
 		var p: Vector2 = door.pos
 		var rad: float = door.radius
@@ -343,6 +363,71 @@ func _draw_shop() -> void:
 
 
 ## Where the gong's face is this frame: swinging after a strike, trembling if a boss waits.
+## The lift back up from the Molten Core: an iron cage in a shaft set in the wall, the car
+## coming down into it, brass doors that slide apart, an arrow lamp that lights on arrival.
+func _draw_lift() -> void:
+	var p: Vector2 = door.pos
+	var w := 96.0
+	var h := 130.0
+	var frame := Rect2(p + Vector2(-w * 0.5, -h * 0.55), Vector2(w, h))
+	draw_rect(frame.grow(8.0), Color(0.12, 0.11, 0.11))  # the surround
+	draw_rect(frame, Color(0.03, 0.03, 0.03))  # the empty shaft
+	for k in 6:  # the shaft's iron rails, and its cable
+		draw_line(Vector2(frame.position.x + 6 + k * (w - 12) / 5.0, frame.position.y), Vector2(frame.position.x + 6 + k * (w - 12) / 5.0, frame.end.y), Color(0.16, 0.15, 0.15), 1.0)
+	var car_y := lerpf(-h - 20.0, 0.0, lift_car)  # the car, coming down
+	var car := Rect2(frame.position + Vector2(4, car_y + 4), Vector2(w - 8, h - 8))
+	draw_line(Vector2(p.x, frame.position.y), Vector2(p.x, car.position.y), Color(0.35, 0.33, 0.3), 2.0)  # cable
+	var shown := car.intersection(frame)
+	if shown.size.y > 0.0:
+		draw_rect(shown, Color(0.95, 0.75, 0.4, 0.9))  # lit from inside
+		# the doors: two brass leaves sliding apart
+		var gap := (car.size.x * 0.5) * lift_open
+		var leaf := car.size.x * 0.5 - gap
+		var lt := Rect2(car.position, Vector2(leaf, car.size.y)).intersection(frame)
+		var rt := Rect2(Vector2(car.end.x - leaf, car.position.y), Vector2(leaf, car.size.y)).intersection(frame)
+		for r in [lt, rt]:
+			if r.size.x > 0.5 and r.size.y > 0.5:
+				draw_rect(r, Color(0.62, 0.48, 0.22))
+				draw_rect(r, Color(0.3, 0.22, 0.1), false, 2.0)
+				for k in 4:
+					draw_line(Vector2(r.position.x + 3, r.position.y + 14 + k * 28), Vector2(r.end.x - 3, r.position.y + 14 + k * 28), Color(0.45, 0.34, 0.15), 1.0)
+	draw_rect(frame, Color(0.3, 0.28, 0.27), false, 3.0)
+	# the arrow lamp over it: lights up when the car's here
+	var lamp := p + Vector2(0, -h * 0.55 - 20)
+	var on := lift_car >= 1.0
+	draw_circle(lamp, 11.0, Color(0.1, 0.09, 0.08))
+	draw_colored_polygon(PackedVector2Array([lamp + Vector2(0, -7), lamp + Vector2(7, 4), lamp + Vector2(-7, 4)]), Color(1.0, 0.75, 0.3) if on else Color(0.3, 0.22, 0.12))
+	if on:
+		draw_circle(lamp, 22.0, Color(1.0, 0.75, 0.3, 0.12))
+
+
+## Cracks running out along the floor under the pile, more and wider as the weight grows,
+## and dust shaken loose from them.
+func _draw_cracks() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4242
+	var n := 3 + int(floor_crack * 8.0)
+	for i in n:
+		# from the floor's edge, or climbing a side wall
+		var wall := i % 3 == 2
+		var p := Vector2(8.0 if i % 2 else 1272.0, rng.randf_range(560, 700)) if wall else Vector2(rng.randf_range(60, 1220), 718)
+		var pts := PackedVector2Array([p])
+		var len := 4 + int(floor_crack * 9.0)
+		for k in len:
+			if wall:
+				p += Vector2(rng.randf_range(4, 22) * (1.0 if p.x < 640 else -1.0), -rng.randf_range(10, 30))
+			else:
+				p += Vector2(rng.randf_range(-45, 45), -rng.randf_range(6, 20))
+			pts.append(p)
+			if k == 3 and rng.randf() < 0.6:  # a fork
+				draw_polyline(PackedVector2Array([p, p + Vector2(rng.randf_range(-30, 30), -rng.randf_range(10, 30))]), Color(0, 0, 0, 0.8), 2.0 + floor_crack * 2.0)
+		draw_polyline(pts, Color(0, 0, 0, 0.9), 3.0 + floor_crack * 4.0)
+		if floor_crack > 0.5:
+			draw_polyline(pts, Color(1.0, 0.4, 0.1, minf(1.0, (floor_crack - 0.5) * 2.0)), 1.5)  # the glow from far below
+	if randf() < floor_crack * 0.5:
+		sparks(Vector2(randf_range(80, 1200), 712), 800.0, Color(0.5, 0.42, 0.32))
+
+
 func gong_center() -> Vector2:
 	if gong.is_empty():
 		return Vector2.ZERO
@@ -368,6 +453,134 @@ func _draw_zone() -> void:
 			_draw_brackets()
 		_:
 			_draw_red_zone()
+
+
+## What the blow does besides hurt, written on its field so it can be read at a glance, the
+## same in every telegraph style. A tag for each property along the top of the field, and a
+## texture inside it: cleave, slashes right through (it goes on past what blocks it);
+## corrosive, green drips (what blocks it rusts); burning, flames licking the edge (what
+## blocks it heats up and catches); charged, a crackle round the edge (what blocks it carries
+## the shock); crushing (very hard on gear), a heavy double border. A field still hunting
+## your hand wears brackets; once it commits, a lock ring.
+func _draw_properties() -> void:
+	if poly.size() < 3 or atk.is_empty():
+		return
+	var t := Time.get_ticks_msec() * 0.001
+	var lo := poly[0]
+	var hi := poly[0]
+	for v in poly:
+		lo = lo.min(v)
+		hi = hi.max(v)
+	var a := 0.35 + 0.5 * progress
+	var tags: Array = []
+	if atk.has("cleave"):
+		tags.append(["CLEAVES", Color(1.0, 0.95, 0.85)])
+		var step := 38.0
+		var y := lo.y + fmod(t * 20.0, step)
+		while y < hi.y:
+			var x := lo.x + fmod(y * 0.7, step)
+			while x < hi.x:
+				var p := Vector2(x, y)
+				if Geometry2D.is_point_in_polygon(p, poly):
+					draw_line(p + Vector2(-7, 7), p + Vector2(7, -7), Color(0, 0, 0, a * 0.6), 4.0)
+					draw_line(p + Vector2(-7, 7), p + Vector2(7, -7), Color(1, 0.95, 0.85, a), 2.0)
+				x += step
+			y += step
+	var trait_kind: String = atk.get("trait", "")
+	match trait_kind:
+		"corrosive":
+			tags.append(["CORRODES", TRAIT_TINT.corrosive])
+			for i in 10:
+				var x := lerpf(lo.x, hi.x, (i + 0.5) / 10.0)
+				var p := Vector2(x, hi.y)
+				for k in 12:
+					if Geometry2D.is_point_in_polygon(p - Vector2(0, 4), poly):
+						break
+					p.y -= (hi.y - lo.y) / 12.0
+				var drip := fmod(t * 0.8 + i * 0.37, 1.0)
+				draw_line(p, p + Vector2(0, 6 + drip * 14.0), Color(0.55, 0.95, 0.3, a * (1.0 - drip)), 3.0)
+				draw_circle(p + Vector2(0, 8 + drip * 16.0), 2.5, Color(0.55, 0.95, 0.3, a * (1.0 - drip)))
+		"burning":
+			tags.append(["BURNS", TRAIT_TINT.burning])
+			var edge := _closed(poly)
+			for i in edge.size() - 1:
+				var p0: Vector2 = edge[i]
+				var p1: Vector2 = edge[i + 1]
+				var n := int(p0.distance_to(p1) / 26.0)
+				for k in n:
+					var p := p0.lerp(p1, (k + 0.5) / n)
+					var h := 8.0 + 8.0 * absf(sin(t * 7.0 + k * 1.7 + i))
+					draw_colored_polygon(PackedVector2Array([p + Vector2(-5, 0), p + Vector2(5, 0), p + Vector2(0, -h)]), Color(1.0, 0.5 + 0.3 * sin(t * 9.0 + k), 0.1, a))
+		"charged":
+			tags.append(["CHARGED", TRAIT_TINT.charged])
+			var edge := _closed(poly)
+			for i in edge.size() - 1:
+				var p0: Vector2 = edge[i]
+				var p1: Vector2 = edge[i + 1]
+				var pts := PackedVector2Array()
+				var n := maxi(2, int(p0.distance_to(p1) / 16.0))
+				for k in n + 1:
+					var off := (p1 - p0).orthogonal().normalized() * randf_range(-5.0, 5.0) if k > 0 and k < n else Vector2.ZERO
+					pts.append(p0.lerp(p1, float(k) / n) + off)
+				draw_polyline(pts, Color(0.75, 0.9, 1.0, a), 2.0)
+	if float(atk.get("impact", 1.0)) >= 2.0:
+		tags.append(["CRUSHES GEAR", Color(1.0, 0.75, 0.5)])
+		draw_polyline(_closed(_scaled(poly, 1.06)), Color(0, 0, 0, a * 0.8), 7.0)
+		draw_polyline(_closed(_scaled(poly, 1.06)), Color(1.0, 0.75, 0.5, a), 3.0)
+	if atk.has("chase"):
+		var c := _centre()
+		var hunting: bool = progress < float(atk.chase)
+		if hunting:
+			var r := 26.0 + 6.0 * sin(t * 8.0)
+			for k in 4:
+				var ang := k * PI / 2.0 + PI / 4.0
+				var cn := c + Vector2(cos(ang), sin(ang)) * r
+				var d1 := Vector2(-cos(ang), 0) * 10.0
+				var d2 := Vector2(0, -sin(ang)) * 10.0
+				draw_polyline(PackedVector2Array([cn + d1, cn, cn + d2]), Color(1, 1, 1, 0.85), 3.0)
+			tags.append(["FOLLOWS YOU", Color(1, 1, 1)])
+		else:
+			draw_arc(c, 24.0, 0.0, TAU, 24, Color(0, 0, 0, 0.7), 6.0)
+			draw_arc(c, 24.0, 0.0, TAU, 24, Color(1, 0.35, 0.25, 0.95), 3.0)
+			tags.append(["LOCKED", Color(1, 0.4, 0.3)])
+	var nxt: Dictionary = EnemyDefs.ATTACKS.get(str(atk.get("next", "")), {})
+	if not nxt.is_empty() and nxt.zone == atk.get("base_zone", atk.zone):
+		tags.append(["HITS TWICE", Color(1.0, 0.85, 0.75)])
+	if atk.has("feinted_from") and progress < 0.35:
+		tags.append(["FEINT!", Color(1, 1, 0.6)])
+	# the tags, in a row along the top of the field, kept on screen
+	var x := clampf(lo.x + 6.0, 6.0, 1180.0)
+	var y := clampf(lo.y - 22.0, 4.0, 690.0)
+	for tg in tags:
+		var label: String = tg[0]
+		var w := ThemeDB.fallback_font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x + 14.0
+		if x + w > 1274.0:
+			x = 1274.0 - w
+		draw_rect(Rect2(x, y, w, 18), Color(0, 0, 0, 0.7))
+		draw_rect(Rect2(x, y, w, 18), Color(tg[1], 0.9), false, 1.5)
+		draw_string(ThemeDB.fallback_font, Vector2(x + 7, y + 13), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, tg[1])
+		x += w + 4.0
+
+
+## The follow-up: where the next blow will land, as a dashed outline marked 2.
+func _draw_ghost() -> void:
+	if ghost.size() < 3:
+		return
+	var edge := _closed(ghost)
+	var col := Color(1.0, 0.85, 0.75, 0.55)
+	for i in edge.size() - 1:
+		var p0: Vector2 = edge[i]
+		var p1: Vector2 = edge[i + 1]
+		var n := maxi(1, int(p0.distance_to(p1) / 18.0))
+		for k in n:
+			if k % 2 == 0:
+				draw_line(p0.lerp(p1, float(k) / n), p0.lerp(p1, float(k + 1) / n), col, 2.0)
+	var c := Vector2.ZERO
+	for v in ghost:
+		c += v
+	c /= ghost.size()
+	draw_circle(c, 13.0, Color(0, 0, 0, 0.6))
+	draw_string(ThemeDB.fallback_font, c + Vector2(-13, 6), "2", HORIZONTAL_ALIGNMENT_CENTER, 26, 16, col)
 
 
 ## The lanes of the incoming blow, as arrows the way the blade will travel, each coloured

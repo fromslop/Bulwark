@@ -44,7 +44,7 @@ const DATA := {
 	# Only past the prestige 3 wall. Nearly twice as tough as steel, lighter, keener; it mends
 	# itself and never rusts.
 	"prestigium": {"wear": 0.12, "hp": 26.0, "block": 0.99, "density": 0.8, "behavior": "dent", "spread": Vector2(0.15, 0.15),
-		"sharp": 1.6, "value": 6.0, "conducts": true, "color": Color(0.82, 0.74, 1.0)},
+		"sharp": 1.6, "value": 6.0, "conducts": true, "color": Color(0.22, 0.66, 0.92)},  # (on a piece it runs teal to blue: Item.PRESTIGIUM_FROM/_TO)
 }
 
 

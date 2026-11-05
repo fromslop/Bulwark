@@ -23,13 +23,15 @@ const BLURB := {
 	"Giant's Table": Secrets.STAGES["Giant's Table"].blurb,
 	"Clockwork Orrery": Secrets.STAGES["Clockwork Orrery"].blurb,
 	"Ink Margin": Secrets.STAGES["Ink Margin"].blurb,
+	"Molten Core": Secrets.STAGES["Molten Core"].blurb,
 	"Homestead": "Home. Your racks, your codex, your gong.",
 }
 
 
 ## Which setting a round is fought in: a five-stage run goes early, early, middle, middle,
-## late. Past a prestige, the rare places can take a late slot.
-static func for_round(n: int, rng: RandomNumberGenerator, prestige: int = 0) -> String:
+## late. Past a prestige, the rare places can take a late slot. Never the place you were just
+## in, nor (when there's other choice) the one before it: `recent` is the latest places, newest last.
+static func for_round(n: int, rng: RandomNumberGenerator, prestige: int = 0, recent: Array = []) -> String:
 	var stage := n % 5
 	var pool: Array
 	if stage < 2 and prestige == 0:
@@ -39,6 +41,11 @@ static func for_round(n: int, rng: RandomNumberGenerator, prestige: int = 0) -> 
 	else:
 		pool = TIERS.late
 	pool = pool.filter(func(nm: String) -> bool: return not RARE.has(nm) or int(RARE[nm].prestige) <= prestige)
+	for k in [2, 1]:
+		var fresh := pool.filter(func(nm: String) -> bool: return not recent.slice(-k).has(nm))
+		if not fresh.filter(func(nm: String) -> bool: return not RARE.has(nm)).is_empty():
+			pool = fresh
+			break
 	for nm in RARE:
 		if pool.has(nm) and rng.randf() < float(RARE[nm].chance):
 			return nm
@@ -47,7 +54,7 @@ static func for_round(n: int, rng: RandomNumberGenerator, prestige: int = 0) -> 
 
 # per setting: fog density, fog colour, ambient energy
 const ENV := {
-	"Homestead": {"fog": 0.08, "fog_color": Color(0.04, 0.03, 0.02), "ambient": 0.5},
+	"Homestead": {"fog": 0.1, "fog_color": Color(0.05, 0.03, 0.015), "ambient": 0.36},  # (dimmer: the fire and the lantern light it)
 	"Ossuary": {"fog": 0.2, "fog_color": Color(0.03, 0.03, 0.025), "ambient": 0.32},
 	"Star Chamber": {"fog": 0.05, "fog_color": Color(0.01, 0.01, 0.03), "ambient": 0.3},
 	"Dungeon Cell": {"fog": 0.18, "fog_color": Color(0.02, 0.02, 0.025), "ambient": 0.35},
@@ -61,12 +68,13 @@ const ENV := {
 	"Giant's Table": {"fog": 0.06, "fog_color": Color(0.08, 0.05, 0.03), "ambient": 0.55},
 	"Clockwork Orrery": {"fog": 0.05, "fog_color": Color(0.0, 0.0, 0.02), "ambient": 0.35},
 	"Ink Margin": {"fog": 0.02, "fog_color": Color(0.9, 0.87, 0.8), "ambient": 0.9},
+	"Molten Core": {"fog": 0.05, "fog_color": Color(0.3, 0.07, 0.01), "ambient": 0.35},
 }
 
 # per setting: the world grade's five colour stops (dark to bright) and its texture
 const LOOK := {
-	"Homestead": {"c": [Color(0.05, 0.03, 0.02), Color(0.3, 0.17, 0.08), Color(0.65, 0.42, 0.2), Color(0.95, 0.78, 0.5), Color(1.0, 0.97, 0.88)],
-		"pixel": 2.0, "noise": 0.03, "gamma": 0.9, "contrast": 1.0},
+	"Homestead": {"c": [Color(0.03, 0.025, 0.05), Color(0.17, 0.1, 0.1), Color(0.52, 0.29, 0.13), Color(0.93, 0.63, 0.3), Color(1.0, 0.93, 0.72)],
+		"pixel": 2.0, "noise": 0.03, "gamma": 0.82, "contrast": 1.15},  # (cool shadows under warm firelight: depth)
 	"Ossuary": {"c": [Color(0.03, 0.03, 0.02), Color(0.2, 0.18, 0.12), Color(0.5, 0.45, 0.32), Color(0.85, 0.8, 0.62), Color(1.0, 0.98, 0.9)],
 		"pixel": 2.0, "noise": 0.08, "gamma": 0.85, "contrast": 1.1},
 	"Star Chamber": {"c": [Color(0.0, 0.0, 0.04), Color(0.05, 0.05, 0.25), Color(0.2, 0.25, 0.6), Color(0.6, 0.7, 0.95), Color(0.95, 0.98, 1.0)],
@@ -91,6 +99,8 @@ const LOOK := {
 		"pixel": 2.0, "noise": 0.03, "gamma": 0.9, "contrast": 1.05},
 	"Clockwork Orrery": {"c": [Color(0.0, 0.0, 0.05), Color(0.08, 0.06, 0.25), Color(0.5, 0.35, 0.2), Color(0.95, 0.75, 0.35), Color(1.0, 0.98, 0.85)],
 		"pixel": 2.0, "noise": 0.04, "gamma": 0.85, "contrast": 1.2},
+	"Molten Core": {"c": [Color(0.02, 0.0, 0.0), Color(0.25, 0.03, 0.02), Color(0.75, 0.2, 0.05), Color(1.0, 0.6, 0.15), Color(1.0, 0.95, 0.7)],
+		"pixel": 2.0, "noise": 0.05, "gamma": 0.85, "contrast": 1.2},
 	"Ink Margin": {"c": [Color(0.02, 0.02, 0.03), Color(0.15, 0.15, 0.17), Color(0.55, 0.53, 0.5), Color(0.88, 0.85, 0.77), Color(0.98, 0.96, 0.9)],
 		"pixel": 1.0, "noise": 0.02, "gamma": 1.0, "contrast": 1.6, "keep": 0.0},
 }
@@ -99,6 +109,9 @@ var setting := ""
 var lever: Node3D = null  # late settings sometimes hide one: pull it to find the Hidden Vault
 var lever_pulled := false
 var _flicker: Array = []  # [light, base energy, speed, phase]
+var _flames: Array = []  # [mesh, base scale, speed, phase]: tongues of fire that lick and sway
+var _spinners: Array = []  # [node, radians per second]: rings of crust turning round the Molten Core's whirlpool
+var _risers: Array = []  # [node, speed, bottom, top, drift]: embers and bubbles rising, then starting over
 var _rng := RandomNumberGenerator.new()
 
 
@@ -133,10 +146,138 @@ static func create(name: String, with_lever: bool = false) -> Backdrop:
 			b._orrery()
 		"Ink Margin":
 			b._margin()
+		"Molten Core":
+			b._molten_core()
 		_:
 			b._cell()
 	if with_lever:
 		b._add_lever()
+	return b
+
+
+## The Molten Core: deep under the mantle, a lake of magma turning in a slow whirlpool. Rings
+## of cooling crust wheel round its glowing eye at different speeds, slag bubbles and embers
+## rise through the heat, falls of lava pour from the cavern's ribs, and the mantle's rock
+## arches overhead, lit from below.
+func _molten_core() -> void:
+	var basalt := Color(0.07, 0.05, 0.05)
+	var mantle := Color(0.18, 0.06, 0.04)
+	var lava := Color(1.0, 0.38, 0.06)
+	var hot := Color(1.0, 0.75, 0.25)
+	var centre := Vector3(0, 0.0, -6.0)  # (well back: you look out across the lake to its eye)
+	# the lake: a wide disc of magma, and its eye, white-hot, where it drains away
+	_cyl(9.0, 9.0, 0.06, centre + Vector3(0, -0.04, 1.5), lava, 48, Vector3.ZERO, 2.2)
+	_cyl(0.9, 0.9, 0.07, centre + Vector3(0, -0.02, 0), hot, 32, Vector3.ZERO, 4.0)
+	_cyl(0.4, 0.4, 0.08, centre + Vector3(0, -0.01, 0), Color(1.0, 0.95, 0.7), 24, Vector3.ZERO, 6.0)
+	# rings of crust wheeling round the eye: inner ones fast, outer ones slow
+	for ring in 9:
+		var spin := Node3D.new()
+		spin.position = centre
+		add_child(spin)
+		_spinners.append([spin, (0.75 - ring * 0.07) * (1.0 if ring % 2 == 0 else 0.85)])
+		var r := 1.2 + ring * 0.75
+		var n := 12 + ring * 6
+		for k in n:
+			var a := TAU * k / n + _rng.randf() * 0.2
+			var crust := MeshInstance3D.new()
+			var bm := BoxMesh.new()
+			bm.size = Vector3(_rng.randf_range(0.3, 0.6) + ring * 0.05, 0.05, _rng.randf_range(0.15, 0.3))
+			bm.material = _mat(basalt.lightened(_rng.randf() * 0.1), 1.0, 0.0)
+			crust.mesh = bm
+			crust.position = Vector3(cos(a) * r, 0.02, sin(a) * r)
+			crust.rotation = Vector3(0, -a + PI * 0.5 + _rng.randf_range(-0.3, 0.3), 0)  # (lying along the flow)
+			spin.add_child(crust)
+			if k % 3 == 0:  # a glowing seam where the crust has split
+				var seam := MeshInstance3D.new()
+				var sm := BoxMesh.new()
+				sm.size = Vector3(bm.size.x * 0.8, 0.045, 0.02)
+				sm.material = _mat(hot, 1.0, 3.5)
+				seam.mesh = sm
+				seam.position = crust.position + Vector3(0, 0.005, 0)
+				seam.rotation = crust.rotation
+				spin.add_child(seam)
+	# the cavern: mantle rock rising round the lake and arching overhead in ribs
+	for k in 40:  # the far wall of the cavern: jagged mantle rock, lit from below
+		_box(Vector3(_rng.randf_range(1.0, 2.6), _rng.randf_range(1.2, 3.0), 0.8), Vector3(-9.0 + k * 0.45, _rng.randf_range(0.4, 6.5), -12.5 + _rng.randf_range(-0.6, 0.6)),
+			mantle.lightened(_rng.randf() * 0.12), Vector3(0, 0, _rng.randf_range(-0.4, 0.4)))
+	_box(Vector3(30, 14, 0.5), Vector3(0, 5, -13.5), mantle.darkened(0.4))
+	for k in 14:  # glowing seams in the far wall: magma showing through cracks in the mantle
+		var x := -8.0 + k * 1.2 + _rng.randf_range(-0.3, 0.3)
+		var y := _rng.randf_range(0.5, 6.0)
+		for j in 4:
+			_box(Vector3(0.08, 0.6, 0.05), Vector3(x + j * 0.18, y + j * 0.45, -11.9), lava, Vector3(0, 0, 0.5 * (-1) ** j), 3.0)
+	for side in [-1, 1]:
+		for k in 8:  # the side walls, broken rock running back into the dark
+			_box(Vector3(1.2, _rng.randf_range(3.0, 6.0), 1.6), Vector3(side * _rng.randf_range(3.2, 4.4), 1.8, 1.0 - k * 1.7), mantle.darkened(_rng.randf_range(0.2, 0.5)),
+				Vector3(0, _rng.randf(), side * _rng.randf_range(-0.2, 0.1)))
+	for k in 5:  # the ribs of the cavern, black against the glow, marching away over the lake
+		var z := -10.0 + k * 2.0
+		for side in [-1, 1]:
+			_box(Vector3(0.6, 6.0, 0.6), Vector3(side * (4.2 - k * 0.3), 2.6, z), basalt, Vector3(0, 0, side * -0.3))
+		_box(Vector3(8.0 - k * 0.6, 0.6, 0.6), Vector3(0, 5.2 - k * 0.3, z), basalt)
+	for k in 18:  # stalactites of slag hanging from the vault
+		var x := -2.6 + k * 0.3 + _rng.randf_range(-0.08, 0.08)
+		var h := _rng.randf_range(0.3, 1.1)
+		_cyl(0.0, _rng.randf_range(0.07, 0.16), h, Vector3(x * 1.6, 3.6 - h * 0.5, _rng.randf_range(-8.0, -1.0)), basalt.lightened(0.06), 6)
+	# falls of lava pouring from the ribs into the lake
+	for side in [-1, 1]:
+		for k in 2:
+			var x: float = side * (3.0 + k * 1.2)
+			_box(Vector3(0.3 - k * 0.06, 6.0, 0.1), Vector3(x, 3.0, -8.0 + k * 1.5), lava.lightened(0.1 * k), Vector3.ZERO, 3.0)
+			_cyl(0.5, 0.7, 0.06, Vector3(x, 0.02, -8.0 + k * 1.5), hot, 12, Vector3.ZERO, 3.5)  # where it hits the lake
+	# slag bubbles welling up from the lake, embers lifting off it
+	for k in 40:
+		var ember := MeshInstance3D.new()
+		var em := BoxMesh.new()
+		em.size = Vector3.ONE * _rng.randf_range(0.02, 0.05)
+		em.material = _mat(hot if k % 3 else lava, 1.0, 4.0)
+		ember.mesh = em
+		var a := _rng.randf() * TAU
+		var r := _rng.randf_range(0.3, 6.0)
+		ember.position = centre + Vector3(cos(a) * r, _rng.randf_range(0.0, 3.2), sin(a) * r * 0.6 + 2.5)
+		add_child(ember)
+		_risers.append([ember, _rng.randf_range(0.25, 0.7), 0.0, 3.4, _rng.randf() * TAU])
+	# basalt pillars standing out of the lake at its edge, a few with molten cracks
+	for k in 8:
+		var a := PI + k * PI / 7.0
+		var pos := centre + Vector3(cos(a) * 5.5, 0.0, sin(a) * 2.5 + 1.0)
+		var h := _rng.randf_range(0.6, 1.8)
+		_cyl(0.13, 0.22, h, pos + Vector3(0, h * 0.5, 0), Color(0.11, 0.07, 0.08), 5)
+		if k % 2 == 0:
+			_box(Vector3(0.03, h * 0.7, 0.02), pos + Vector3(0.05, h * 0.5, 0.19), lava, Vector3.ZERO, 3.0)
+	_light(centre + Vector3(0, 1.0, 0), Color(1.0, 0.5, 0.15), 8.0, 12.0)  # the eye lights the cavern from below
+	_light(Vector3(-2.5, 1.5, -3.0), Color(1.0, 0.42, 0.12), 3.0, 6.0)
+	_light(Vector3(2.5, 1.5, -3.0), Color(1.0, 0.42, 0.12), 3.0, 6.0)
+	_light(Vector3(0, 1.2, 0.2), Color(1.0, 0.45, 0.12), 1.6, 3.0)  # the lake's glow on the foe
+
+
+## The way down to the Molten Core, for the fall: a shaft through the earth below the shop,
+## soil and roots, then rock with veins of ore, then deep black stone, then the red glow of
+## the fire coming up from under it all. `depth` metres.
+static func create_shaft(depth: float) -> Backdrop:
+	var b := Backdrop.new()
+	b.setting = "shaft"
+	b._rng.seed = 77
+	var bands := [[0.0, Color(0.5, 0.33, 0.18)], [0.3, Color(0.55, 0.52, 0.48)], [0.6, Color(0.3, 0.28, 0.32)], [0.85, Color(0.55, 0.14, 0.05)]]
+	var y := -0.3
+	while y > -depth:
+		var f := -y / depth
+		var col: Color = bands[0][1]
+		for band in bands:
+			if f >= float(band[0]):
+				col = band[1]
+		var glow := 0.25 if f < 0.85 else 0.25 + (f - 0.85) * 12.0  # (lit a little by itself: the fall reads in the dark)
+		b._box(Vector3(6.0, 1.6, 0.4), Vector3(0, y, -1.7), col.lightened(b._rng.randf() * 0.06), Vector3.ZERO, glow)
+		for side in [-1, 1]:
+			b._box(Vector3(0.6, 1.6, 5.0), Vector3(side * 2.2, y, 0.3), col.darkened(0.25))
+		for k in 5:  # rocks, roots and veins in the walls
+			var x := b._rng.randf_range(-2.2, 2.2)
+			var detail: Color = Color(0.45, 0.3, 0.15) if f < 0.3 else (Color(0.75, 0.6, 0.25) if b._rng.randf() < 0.3 else col.lightened(0.12))
+			b._box(Vector3(b._rng.randf_range(0.1, 0.5), b._rng.randf_range(0.05, 0.3), 0.3), Vector3(x, y + b._rng.randf_range(-0.7, 0.7), -1.45), detail,
+				Vector3(0, 0, b._rng.randf_range(-0.6, 0.6)), 2.0 if f > 0.85 else 0.0)
+		if int(-y) % 3 == 0:
+			b._light(Vector3(0, y, -0.4), Color(1.0, 0.4, 0.1) if f > 0.7 else Color(0.9, 0.75, 0.55), 2.5 if f > 0.7 else 1.8, 5.0, false)
+		y -= 1.6
 	return b
 
 
@@ -346,6 +487,33 @@ func _process(_delta: float) -> void:
 	for f in _flicker:
 		var l: OmniLight3D = f[0]
 		l.light_energy = f[1] * (0.8 + 0.12 * sin(t * f[2] + f[3]) + 0.08 * sin(t * f[2] * 2.7 + f[3] * 3.0))
+	for f in _flames:
+		var m: Node3D = f[0]
+		var base: Vector3 = f[1]
+		var lick := 0.75 + 0.2 * sin(t * f[2] + f[3]) + 0.12 * sin(t * f[2] * 2.3 + f[3] * 1.7)
+		m.scale = Vector3(base.x * (1.1 - 0.2 * lick), base.y * lick, base.z)
+		m.rotation.z = 0.12 * sin(t * f[2] * 0.6 + f[3])
+	var dt := get_process_delta_time()
+	for sp in _spinners:
+		(sp[0] as Node3D).rotation.y += float(sp[1]) * dt
+	for r in _risers:
+		var n: Node3D = r[0]
+		n.position.y += float(r[1]) * dt
+		n.position.x += sin(t * 1.3 + float(r[4])) * 0.1 * dt
+		if n.position.y > float(r[3]):
+			n.position.y = float(r[2])
+
+
+## A tongue of fire: a cone that licks and sways (see _process).
+func _flame(pos: Vector3, h: float, r: float, col: Color, glow: float) -> void:
+	var m := _cyl(0.0, r, h, pos + Vector3(0, h * 0.5, 0), col, 6, Vector3.ZERO, glow)
+	var root := Node3D.new()  # (the cone scales from its foot, not its middle)
+	root.position = pos
+	m.get_parent().remove_child(m)
+	root.add_child(m)
+	m.position = Vector3(0, h * 0.5, 0)
+	add_child(root)
+	_flames.append([root, Vector3.ONE, _rng.randf_range(5.0, 9.0), _rng.randf_range(0.0, TAU)])
 
 
 # --- building blocks --------------------------------------------------------------
@@ -578,7 +746,7 @@ func _cistern() -> void:
 ## Home: a timber-framed room, a hearth with a fire going, a window with the night behind it,
 ## a table with a candle, a bookshelf, a rug. Warm and low. Nothing here hits back.
 func _homestead() -> void:
-	var plaster := Color(0.7, 0.6, 0.45)
+	var plaster := Color(0.6, 0.5, 0.38)
 	var timber := Color(0.32, 0.2, 0.1)
 	_box(Vector3(5.0, 3.2, 0.2), Vector3(0, 1.6, -1.7), plaster)
 	for x in [-1.9, -0.95, 0.0, 0.95, 1.9]:
@@ -591,15 +759,43 @@ func _homestead() -> void:
 	for i in 6:
 		_box(Vector3(0.12, 0.12, 4.0), Vector3(-1.5 + i * 0.6, 3.05, 0.3), timber)  # rafters
 	_box(Vector3(5.0, 0.1, 4.0), Vector3(0, -0.05, 0.3), Color(0.4, 0.26, 0.14))  # floorboards
-	_box(Vector3(2.2, 0.02, 1.4), Vector3(0, 0.01, -0.3), Color(0.5, 0.15, 0.12))  # rug
+	_box(Vector3(2.4, 0.02, 1.6), Vector3(0, 0.01, -0.3), Color(0.62, 0.45, 0.2))  # rug: a border...
+	_box(Vector3(2.1, 0.022, 1.3), Vector3(0, 0.012, -0.3), Color(0.5, 0.15, 0.12))  # ...and its red field
+	_box(Vector3(1.2, 0.024, 0.5), Vector3(0, 0.013, -0.3), Color(0.38, 0.1, 0.1))
+	_box(Vector3(5.0, 0.6, 0.04), Vector3(0, 0.3, -1.57), Color(0.26, 0.16, 0.08))  # a wainscot of dark boards along the wall
+	_box(Vector3(5.0, 0.04, 0.06), Vector3(0, 0.6, -1.56), timber)
+	# an armchair, turned to the fire
+	var seat := Color(0.42, 0.14, 0.1)
+	_box(Vector3(0.5, 0.12, 0.45), Vector3(1.55, 0.35, -0.55), seat, Vector3(0, -0.6, 0))
+	_box(Vector3(0.5, 0.55, 0.1), Vector3(1.7, 0.62, -0.38), seat.darkened(0.15), Vector3(-0.15, -0.6, 0))
+	for arm in [-1, 1]:
+		_box(Vector3(0.08, 0.16, 0.45), Vector3(1.55 + arm * 0.2, 0.47, -0.55 + arm * 0.12), seat.darkened(0.1), Vector3(0, -0.6, 0))
+	_box(Vector3(0.5, 0.3, 0.45), Vector3(1.55, 0.15, -0.55), timber.darkened(0.2), Vector3(0, -0.6, 0))
+	# a lantern hung from the rafters, warm pool of light under it
+	_box(Vector3(0.01, 0.4, 0.01), Vector3(-0.35, 2.85, -0.7), Color(0.15, 0.13, 0.1))
+	_box(Vector3(0.14, 0.18, 0.14), Vector3(-0.35, 2.56, -0.7), Color(0.18, 0.16, 0.14))
+	_box(Vector3(0.1, 0.13, 0.1), Vector3(-0.35, 2.56, -0.7), Color(1.0, 0.75, 0.4), Vector3.ZERO, 3.0)
+	_light(Vector3(-0.35, 2.45, -0.7), Color(1.0, 0.72, 0.4), 1.6, 3.5)
 	# the hearth, right, with a fire in it
 	_block_wall(Vector3(1.2, 0, -1.45), 1.3, 1.5, Color(0.35, 0.3, 0.26), 0.3, 0.15)
-	_box(Vector3(0.9, 0.8, 0.3), Vector3(1.2, 0.5, -1.35), Color(0.03, 0.02, 0.02))
-	for i in 5:
-		_box(Vector3(0.12, 0.08, 0.1), Vector3(0.95 + i * 0.12, 0.12 + (i % 2) * 0.04, -1.3), Color(1.0, 0.5 + (i % 2) * 0.2, 0.1), Vector3(0, i, 0), 4.0)
+	_box(Vector3(1.3, 0.8, 0.5), Vector3(1.2, 0.4, -1.2), Color(0.3, 0.27, 0.24))  # a raised hearthstone
+	_box(Vector3(0.9, 0.6, 0.3), Vector3(1.2, 1.1, -1.35), Color(0.03, 0.02, 0.02))
+	_box(Vector3(0.86, 0.45, 0.02), Vector3(1.2, 1.05, -1.48), Color(0.35, 0.1, 0.03), Vector3.ZERO, 0.6)  # the soot-black back, lit from below
+	# a fire: andirons, logs, a bed of embers and flames that lick and sway
+	for ax in [0.92, 1.48]:
+		_box(Vector3(0.03, 0.16, 0.25), Vector3(ax, 0.85, -1.13), Color(0.12, 0.11, 0.1))
+	for lg in [[Vector3(1.2, 0.85, -1.13), Vector3(0, PI / 2 + 0.15, PI / 2)], [Vector3(1.15, 0.92, -1.15), Vector3(0, PI / 2 - 0.3, PI / 2)], [Vector3(1.28, 0.91, -1.09), Vector3(0, PI / 2 + 0.6, PI / 2)]]:
+		_cyl(0.05, 0.055, 0.62, lg[0], Color(0.22, 0.13, 0.07), 7, lg[1])
+	for i in 9:
+		_box(Vector3(0.07, 0.04, 0.07), Vector3(0.95 + i * 0.065, 0.79, -1.10 + (i % 3) * 0.03), Color(1.0, 0.35 + (i % 3) * 0.12, 0.05), Vector3(0, i, 0), 3.0)
+	for i in 7:
+		var fx := 0.98 + i * 0.075
+		var h := 0.22 + 0.18 * sin(i * 1.3 + 0.4) * sin(i * 0.7) + (0.12 if i in [2, 3, 4] else 0.0)
+		_flame(Vector3(fx, 0.87, -1.12), h, 0.07, Color(1.0, 0.42, 0.08), 3.5)
+		_flame(Vector3(fx + 0.02, 0.87, -1.08), h * 0.6, 0.04, Color(1.0, 0.82, 0.3), 5.0)
 	_box(Vector3(1.4, 0.12, 0.4), Vector3(1.2, 1.55, -1.35), timber)  # mantel
 	_candle(Vector3(0.8, 1.61, -1.35), 0.14)
-	_light(Vector3(1.2, 0.6, -0.9), Color(1.0, 0.6, 0.25), 3.0, 5.0)
+	_light(Vector3(1.2, 1.2, -0.9), Color(1.0, 0.55, 0.22), 4.2, 6.0)  # the fire lights the room
 	# a window, left, with the night sky, a moon and a few stars. The glass sits a little in
 	# front of the wall (sharing the wall's plane, the two flickered: the window would turn
 	# the colour of the plaster), and it's dark with no glow of its own, so the grade always
@@ -634,7 +830,7 @@ func _homestead() -> void:
 	_cyl(0.25, 0.2, 0.3, Vector3(1.95, 0.15, -1.0), Color(0.5, 0.35, 0.18), 10)
 	for k in 5:
 		_cyl(0.04, 0.04, 0.45, Vector3(1.85 + k * 0.05, 0.38, -1.0 + (k % 2) * 0.05), Color(0.35, 0.22, 0.12), 6, Vector3(PI * 0.5, 0, 0.3 * k))
-	_light(Vector3(1.2, 0.4, -0.6), Color(1.0, 0.45, 0.15), 1.2, 3.0)  # the embers' low glow (it flickers)
+	_light(Vector3(1.2, 1.0, -0.7), Color(1.0, 0.45, 0.15), 1.6, 3.0)  # the embers' low glow (it flickers)
 
 
 ## An ossuary: a long hall faced entirely in bone. Stacked femurs, rows of skulls, a few

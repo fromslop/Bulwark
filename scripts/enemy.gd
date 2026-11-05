@@ -32,6 +32,11 @@ const POSES := {
 	"grasp": {"wind": [Vector3(0.45, 1.5, -0.2), Vector3(1.2, 0, -0.5)], "hit": [Vector3(0.25, 1.45, 0.9), Vector3(1.57, 0, 0)], "l": true, "mirror": true},
 	# the shield arm swings across and shoves
 	"bash": {"wind": [Vector3(0.3, 1.3, 0.2), Vector3(0, 0, -0.6)], "hit": [Vector3(-0.4, 1.35, 0.8), Vector3(0, 0, 0.9)], "shield": true},
+	# the off hand's own blade: a cut from the left while the right stays ready ("shield": the left hand moves)
+	"off_high": {"wind": [Vector3(-0.55, 1.85, 0.05), Vector3(0, 0, 0.7)], "hit": [Vector3(0.45, 1.55, 0.45), Vector3(0, 0, -1.4)], "shield": true},
+	"off_low": {"wind": [Vector3(-0.55, 1.1, 0.0), Vector3(0, 0, 1.6)], "hit": [Vector3(0.45, 1.05, 0.45), Vector3(0, 0, -1.6)], "shield": true},
+	# a pole held in both hands, the head swung round low and wide
+	"reap": {"wind": [Vector3(-0.65, 1.2, -0.05), Vector3(0, 0, 1.3)], "hit": [Vector3(0.6, 1.15, 0.45), Vector3(0, 0, -1.3)], "l": true},
 }
 # hit locations: damage multiplier, how armored it is (wear on your weapon), local radius in metres
 const REGIONS := {
@@ -96,6 +101,7 @@ var _strings: Array[MeshInstance3D] = []  # Marionette design
 var _flash := 0.0
 # Character: what it does next besides picking at random. A queued attack is a follow-up
 # (a combo's second half, a riposte after you block clean) that goes before anything else.
+var _feint_at := -1.0  # this wind-up is a feint: at this progress it breaks off into another attack
 var _queued := ""
 var _queued_windup := -1.0
 var clean_blocks := 0  # in a row: the Castellan loses patience with a tidy defence
@@ -301,6 +307,23 @@ static func _collect_meshes(n: Node, out: Array[MeshInstance3D]) -> void:
 
 ## Give the part its own copies of the file's materials, so wounds darken this rig alone:
 ## tint_* takes the character's colour, glow_* lights itself and is left out of the wounds.
+## The outline every modelled foe wears: the mesh drawn again a little fatter, back faces
+## only, in near-black (an inverted hull). Shared by every surface.
+static var _outline: StandardMaterial3D
+const OUTLINE_WIDTH := 0.014  # metres
+
+
+static func _outline_mat() -> StandardMaterial3D:
+	if _outline == null:
+		_outline = StandardMaterial3D.new()
+		_outline.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_outline.albedo_color = Color(0.02, 0.015, 0.01)
+		_outline.cull_mode = BaseMaterial3D.CULL_FRONT
+		_outline.grow = true
+		_outline.grow_amount = OUTLINE_WIDTH
+	return _outline
+
+
 func _adopt_materials(mi: MeshInstance3D) -> void:
 	var col: Color = data.color
 	for i in mi.mesh.get_surface_count():
@@ -311,6 +334,7 @@ func _adopt_materials(mi: MeshInstance3D) -> void:
 		var mname := src.resource_name
 		m.roughness = 1.0
 		m.metallic = 0.0
+		m.next_pass = _outline_mat()  # a dark outline: the figure reads against the room without lighting it up
 		m.emission_enabled = true
 		if mname.begins_with("glow"):
 			m.emission = m.albedo_color
@@ -374,6 +398,26 @@ func _weapon(blade: Color, guard: Color, glow: bool = false) -> void:
 			_box(right_hand, Vector3(0.14, 0.18, 0.14), Vector3(0, 1.15, 0), Color(0.2, 0.2, 0.22))  # the lantern's cage
 			_glow(right_hand, Vector3(0.1, 0.14, 0.1), Vector3(0, 1.15, 0), blade)  # and its light
 			_mesh(right_hand, _cyl(0.0, 0.08, 0.06, 6), Vector3(0, 1.27, 0), Color(0.2, 0.2, 0.22))
+		"halberd":
+			_box(right_hand, Vector3(0.045, 1.8, 0.045), Vector3(0, 0.55, 0), Color(0.32, 0.22, 0.12))  # the pole, both hands on it
+			draw_blade.call(right_hand, Vector3(0.24, 0.2, 0.025), Vector3(0.12, 1.32, 0), blade)  # the axe blade
+			_box(right_hand, Vector3(0.12, 0.08, 0.025), Vector3(-0.1, 1.36, 0), blade.darkened(0.2))  # the hook behind it
+			draw_blade.call(right_hand, Vector3(0.035, 0.3, 0.02), Vector3(0, 1.58, 0), blade.lightened(0.1))  # the spike
+		"twin":
+			for hand in [right_hand, left_hand]:
+				draw_blade.call(hand, Vector3(0.045, 0.75, 0.015), Vector3(0, 0.48, 0), blade)  # a sabre in each hand
+				_box(hand, Vector3(0.16, 0.03, 0.05), Vector3(0, 0.09, 0), guard)
+		"bell":
+			_box(right_hand, Vector3(0.05, 1.0, 0.05), Vector3(0, 0.45, 0), Color(0.3, 0.22, 0.14))  # the bell's pole
+			_mesh(right_hand, _cyl(0.1, 0.22, 0.32, 10), Vector3(0, 0.95, 0), Color(0.35, 0.55, 0.45))  # the bell, verdigris bronze
+			_box(left_hand, Vector3(0.04, 0.85, 0.04), Vector3(0, 0.35, 0), Color(0.32, 0.24, 0.14))  # the spade's haft
+			_box(left_hand, Vector3(0.2, 0.24, 0.02), Vector3(0, 0.85, 0), Color(0.4, 0.4, 0.42))  # and its blade
+		"mace":
+			_box(right_hand, Vector3(0.05, 0.65, 0.05), Vector3(0, 0.33, 0), Color(0.3, 0.22, 0.14))
+			_mesh(right_hand, _sphere(0.11, 8), Vector3(0, 0.7, 0), blade.darkened(0.2))
+			for k in 6:
+				var flange := _box(right_hand, Vector3(0.03, 0.2, 0.09), Vector3(0, 0.7, 0), blade)
+				flange.rotation = Vector3(0, k * PI / 6.0, 0)
 		"shield":
 			draw_blade.call(right_hand, Vector3(0.05, 0.85, 0.02), Vector3(0, 0.52, 0), blade)
 			_box(right_hand, Vector3(0.22, 0.035, 0.05), Vector3(0, 0.09, 0), guard)
@@ -409,9 +453,6 @@ func _dress_character(col: Color) -> void:
 			_dress_great_helm(col)
 		"Wraith":
 			_dress_wraith(col)
-		"Hollow King":
-			_dress_wraith(col)
-			_weapon(Color(0.5, 0.7, 1.0), Color(0.15, 0.15, 0.18), true)
 		"Footman":
 			_dress_footman(col)
 		"Brute":
@@ -823,7 +864,10 @@ func _process(delta: float) -> void:
 				_begin_attack()
 		"windup":
 			progress = clampf(1.0 - _timer / _windup_total, 0.0, 1.0)
-			if _timer <= 0.0:
+			_shape_zone()
+			if _feint_at >= 0.0 and progress >= _feint_at:
+				_feint()
+			elif _timer <= 0.0:
 				_strike()
 		"broken":
 			broken_time -= dt
@@ -932,6 +976,8 @@ func _break() -> void:
 	broken_time = BROKEN_TIME
 	stagger_meter = 0.0
 	current = {}
+	_queued = ""  # broken: the follow-up it had coming is lost
+	_queued_windup = -1.0
 	progress = 0.0
 	weak_spot.position = Vector3(rng.randf_range(-0.15, 0.15), rng.randf_range(-0.1, 0.12), 0.17)
 	weak_spot.visible = true
@@ -1016,6 +1062,8 @@ func on_blocked(clean: bool) -> void:
 		clean_blocks = 0
 		return
 	clean_blocks += 1
+	if _queued != "":
+		return  # a follow-up's already promised (and shown): it comes first; the bash keeps
 	if data.has("riposte"):
 		queue_attack(data.riposte, 0.45)
 	if data.has("bash_after") and clean_blocks >= int(data.bash_after):
@@ -1029,7 +1077,7 @@ func gum_up(secs: float) -> void:
 
 
 func queue_attack(id: String, windup: float = -1.0) -> void:
-	if state == "dead" or not EnemyDefs.ATTACKS.has(id):
+	if state == "dead" or state == "broken" or not EnemyDefs.ATTACKS.has(id):
 		return
 	_queued = id
 	_queued_windup = windup
@@ -1055,6 +1103,17 @@ func _begin_attack(forced: String = "", windup: float = -1.0) -> void:
 	current.damage *= data.get("power", 1.0)
 	if current.get("track", false):
 		current.zone = _tracked_zone(current.zone)
+	current.base_zone = (current.zone as Array).duplicate()
+	current.base_dir = current.dir
+	# a combo: some foes follow a particular attack with another (shown ahead, faintly)
+	var combos: Dictionary = data.get("combos", {})
+	if combos.has(id) and windup < 0.0 and not current.has("next") and rng.randf() < float(data.get("combo_chance", 0.5)):
+		current.next = combos[id]
+		current.next_windup = float(data.get("combo_windup", 0.55))
+	# a feint: only an attack it chose itself (never a follow-up, never a feint's answer)
+	_feint_at = -1.0
+	if forced == "" and windup < 0.0 and data.has("feint") and rng.randf() < float(data.feint.chance):
+		_feint_at = float(data.feint.at)
 	var w: float = current.windup if windup < 0.0 else windup
 	if gummed > 0.0:
 		w *= 1.4
@@ -1066,9 +1125,66 @@ func _begin_attack(forced: String = "", windup: float = -1.0) -> void:
 	var pose: Dictionary = POSES[current.pose]
 	_move(pose, "wind", _windup_total * 0.85, Tween.EASE_OUT)
 	Sfx.play("windup", -14.0, 0.7 * (1.2 if is_enraged() else 1.0))
+	if current.has("pan"):
+		Sfx.play("scrape", -16.0, randf_range(0.85, 1.1))  # (a weapon dragged across: you hear it travel)
+	_shape_zone()  # (a chasing or sliding field starts where it should, not at its raw spot)
 
 
 ## Shift a zone so its centre sits on the player's hand, kept on screen.
+## A field that moves while it winds up, the way the weapon does. pan: it slides this far
+## (screen fractions) by the time it lands, a polearm's head dragged across or a blade drawn
+## along the floor; turn: it swings round its middle this far (radians), a flail's chain;
+## chase: until this much of the wind-up it follows the player's hand (along chase_axis, both
+## ways if none), then commits where it is. The blow lands where the field ends up.
+func _shape_zone() -> void:
+	var a := current
+	if not (a.has("pan") or a.has("turn") or a.has("chase")):
+		return
+	var t := progress * progress * (3.0 - 2.0 * progress)
+	var zone: Array = (a.base_zone as Array).duplicate()
+	var dir: Vector2 = a.base_dir
+	if a.has("chase"):
+		if progress >= float(a.chase) and not a.has("locked_sound"):
+			a.locked_sound = true
+			Sfx.play("lock", -10.0, 1.0)  # the field stops following and commits: hear the moment
+		if progress < float(a.chase):
+			var axis: Vector2 = a.get("chase_axis", Vector2.ONE)
+			var shift: Vector2 = ((_tracked_zone(zone)[0] as Vector2) - (zone[0] as Vector2)) * axis
+			for i in zone.size():
+				zone[i] = (zone[i] as Vector2) + shift
+			a.locked = zone.duplicate()
+		elif a.has("locked"):
+			zone = (a.locked as Array).duplicate()
+	if a.has("pan"):
+		for i in zone.size():
+			zone[i] = (zone[i] as Vector2) + (a.pan as Vector2) * t
+	if a.has("turn"):
+		var c := Vector2.ZERO
+		for p in zone:
+			c += p
+		c /= zone.size()
+		var ang: float = float(a.turn) * t
+		var aspect := Vector2(16.0 / 9.0, 1.0)  # turn on the screen, not in stretched fractions
+		for i in zone.size():
+			zone[i] = c + (((zone[i] as Vector2) - c) * aspect).rotated(ang) / aspect
+		dir = (dir * aspect).rotated(ang) / aspect
+	a.zone = zone
+	a.dir = dir
+
+
+## A feint: the wind-up breaks off and a different attack comes instead, quicker. The
+## telegraph moves with it: read the new one, not the old.
+func _feint() -> void:
+	var from: String = current.id
+	var pool: Array = (data.attacks as Array).filter(func(x: String) -> bool: return x != from and not EnemyDefs.ATTACKS[x].get("track", false))
+	if pool.is_empty():
+		_feint_at = -1.0
+		return
+	_begin_attack(pool[rng.randi() % pool.size()], float(data.feint.windup))
+	current.feinted_from = from
+	Sfx.play("feint", -8.0, 1.0)
+
+
 func _tracked_zone(zone: Array) -> Array:
 	var c := Vector2.ZERO
 	for p in zone:
@@ -1095,11 +1211,23 @@ func _strike() -> void:
 	get_tree().create_timer(0.2).timeout.connect(_settle)
 	if atk.has("next"):
 		queue_attack(atk.next, float(atk.get("next_windup", 0.6)))
+	if atk.has("sound"):
+		Sfx.play(str(atk.sound[0]), float(atk.sound[1]), float(atk.sound[2]))  # a weapon with a voice of its own (the Sexton's bell)
+	else:
+		match str(atk.get("trait", "")):  # what the blow carries, heard as it lands
+			"charged":
+				Sfx.play("zap", -8.0, 0.8)
+			"burning":
+				Sfx.play("crack", -8.0, 0.6)
+			"corrosive":
+				Sfx.play("soft", -6.0, 0.5)
+		if float(atk.get("impact", 1.0)) >= 2.4:
+			Sfx.play("thud", -6.0, 0.6)  # a crushing blow lands heavy
 	strike.emit(atk)
 
 
 func _settle() -> void:
-	if state == "dead" or state == "windup":
+	if state == "dead" or state == "windup" or state == "broken":
 		return
 	_move({"rest": REST_R}, "rest", 0.35, Tween.EASE_IN_OUT)
 
@@ -1212,6 +1340,8 @@ func stagger() -> void:
 		return
 	state = "stagger"
 	current = {}
+	_queued = ""  # staggered: whatever it meant to follow with is lost
+	_queued_windup = -1.0
 	progress = 0.0
 	_timer = float(data.get("stagger_time", 0.9))
 	_move({"s": [Vector3(0.45, 1.5, -0.1), Vector3(0.6, 0, -0.8)]}, "s", 0.15, Tween.EASE_OUT)

@@ -27,6 +27,9 @@ const DEFS := {
 	"tower_shield": {"title": "Tower Shield", "kind": "shield", "shape": "tower", "price": 8,
 		"materials": ["wood", "iron", "steel"]},
 	"rock": {"title": "Rock", "kind": "junk", "shape": "rock", "price": 1, "materials": ["stone"]},
+	# A key to nothing yet: somewhere there's a lock for it. (Not junk: the hearth won't take it.)
+	"key": {"title": "Mysterious Key", "kind": "curio", "shape": "key", "price": 6, "materials": ["copper"],
+		"effect": "Old, heavy, and warm to the touch. It fits nothing you've found. Yet."},
 	"glue_pot": {"title": "Glue Pot", "kind": "consumable", "shape": "pot", "price": 3, "materials": ["wood"],
 		"applies": "sticky", "uses": 1},
 	"coin_purse": {"title": "Coin Purse", "kind": "utility", "utility": "purse", "shape": "purse", "price": 6,
@@ -67,7 +70,7 @@ const DEFS := {
 		"applies": "weightless", "uses": 1},
 	"spike_kit": {"title": "Spike Kit", "kind": "consumable", "shape": "spikes", "price": 5, "materials": ["iron"],
 		"applies": "spiked", "uses": 1},
-	"potion_prestigium": {"title": "Ascendant Draught", "kind": "potion", "liquid": "to_prestigium", "liquid_color": Color(0.85, 0.75, 1.0), "shape": "flask",
+	"potion_prestigium": {"title": "Ascendant Draught", "kind": "potion", "liquid": "to_prestigium", "liquid_color": Color(0.3, 0.75, 0.95), "shape": "flask",
 		"price": 20, "materials": ["glass"], "effect": "Turns what it soaks to prestigium. Pour it over a legendary to ascend it."},
 	"potion_steel": {"title": "Steelwater", "kind": "potion", "liquid": "to_steel", "liquid_color": Color(0.75, 0.8, 0.9), "shape": "flask",
 		"price": 9, "materials": ["glass"], "effect": "Shatters into liquid that turns whatever it touches to steel."},
@@ -231,7 +234,7 @@ const MODIFIERS := {
 	"sticky": {"desc": "has a patch of wet glue (the glossy amber pixels). Press that patch against something, one of them in your hand, and they fuse into one thing: each part still works as what it was (a buckler glued to a sword blocks like a buckler), and their modifiers pool. A blade that meets the glue is gummed up", "price": 1.2, "rolls": false},  # only from glue: the Glue Pot, Pitch
 	"poisoned": {"desc": "coated in venom: weapon hits poison the enemy", "price": 1.5},
 	"oiled": {"desc": "soaked in oil: catches fire easily, even metal", "price": 0.9},
-	"tempered": {"desc": "quenched while red-hot: 30% tougher", "price": 1.4},
+	"tempered": {"desc": "quenched while red-hot: 30% tougher", "price": 1.4, "hp": 1.3},  # (hp: so a rolled or reloaded one is tougher too)
 	"magnetic": {"desc": "draws coins, scraps and pauldrons to it; the enemy's blade is drawn to it too (blocks a little wider)", "price": 1.5},
 	"corrosive": {"desc": "rusts any metal it touches (rust it gives stays put: it doesn't spread on). On a weapon it eats a foe's armour: about three hits rust a pauldron off, exposing the flesh under it (x1.6) long before force would", "price": 1.2},
 	"volatile": {"desc": "explodes when heated, shocked or struck hard", "price": 0.8},
@@ -241,7 +244,7 @@ const MODIFIERS := {
 	"large": {"desc": "half again as big", "price": 1.4, "size": 1.5, "group": "size"},
 	"huge": {"desc": "twice the size", "price": 1.9, "size": 2.0, "group": "size"},
 	# --- rare, weapons only: conditional. Meet the condition and the payout is big ---------
-	"wispfire": {"name": "Wisp Cannon", "desc": "swung fast, it spits wisps at the foe. They carry its element: fire scorches, frost slows, lightning can lock up a swing, venom poisons, rot corrodes. Heavy, they're cannonballs; bigger, bigger wisps", "price": 2.2, "rare": true},
+	"wispfire": {"name": "Wisp Cannon", "desc": "swung fast, it spits wisps at the foe. They carry its element: fire scorches, frost slows, lightning can lock up a swing, venom poisons, rot corrodes. Heavy, they're cannonballs; bigger, bigger wisps", "price": 2.2, "rare": true, "epic": true},
 	"headhunter": {"name": "Headhunter", "desc": "hits to the head do triple", "price": 1.9, "rare": true},
 	"desperate": {"name": "Desperate", "desc": "does double while your hand is below a third of its health", "price": 1.8, "rare": true},
 	"lone": {"name": "Lone Blade", "desc": "does double while it's the only weapon you have", "price": 1.9, "rare": true},
@@ -249,21 +252,21 @@ const MODIFIERS := {
 	"guardbreaker": {"name": "Guardbreaker", "desc": "hits on a foe that's winding up do double and fill its stagger meter five times over", "price": 2.0, "rare": true},
 	"merciless": {"name": "Merciless", "desc": "triple damage on a foe below a third of its health", "price": 1.9, "rare": true},
 	"avenging": {"name": "Avenging", "desc": "after it parries a blow, its next hit within 3s does triple", "price": 2.0, "rare": true},
-	"stormcaller": {"name": "Stormcaller", "desc": "a parry with it calls lightning on the foe: double what it stopped, through armour. Hot, it's a firestorm; frosty, a blizzard; venomous, acid rain; corrosive, a rust storm; electrified, it strikes every foe twice as hard", "price": 2.1, "rare": true},
+	"stormcaller": {"name": "Stormcaller", "desc": "a parry with it calls lightning on the foe: double what it stopped, through armour. Hot, it's a firestorm; frosty, a blizzard; venomous, acid rain; corrosive, a rust storm; electrified, it strikes every foe twice as hard", "price": 2.1, "rare": true, "epic": true},
 	# juggling: swap gear round, throw it, hand off between weapons
 	"rested": {"name": "Rested", "desc": "+50% for every second it spent out of your hand (up to x4), spent on its first hit", "price": 1.9, "rare": true},
 	"baton": {"name": "Baton", "desc": "its hit marks the foe: the next hit with a different weapon within 4s does x2.5", "price": 1.9, "rare": true},
 	"javelin": {"name": "Javelin", "desc": "let go of it mid-swing and it flies at the foe: a thrown hit does x4", "price": 2.0, "rare": true},
 	"mimic": {"name": "Mimic", "desc": "picked up, it takes on the rare modifiers of the last weapon you held", "price": 2.2, "rare": true},
 	# builds: lean the whole pile one way
-	"lightning_rod": {"name": "Lightning Rod", "desc": "its hit draws the charge out of every charged piece you own: +10 each, through armour", "price": 2.0, "rare": true},
+	"lightning_rod": {"name": "Lightning Rod", "desc": "its hit draws the charge out of every charged piece you own: +10 each, through armour", "price": 2.0, "rare": true, "epic": true},
 	"kindred": {"name": "Kindred", "desc": "+20% for every other piece you own of its metal (up to x3)", "price": 1.9, "rare": true},
 	"reckless": {"name": "Reckless", "desc": "hits do x2.5, but each one chews its own edge", "price": 1.7, "rare": true},
 	# blood: heal from the fight, or pay into it
 	"sanguine": {"name": "Sanguine", "desc": "its hits heal your hand by 15% of the damage they do", "price": 2.0, "rare": true},
 	"bloodprice": {"name": "Blood Price", "desc": "every hit cuts your own hand for 4 (never the last point), and does x2.5", "price": 1.8, "rare": true},
 	"bloodthirsty": {"name": "Bloodthirsty", "desc": "the more your hand is hurt, the harder it hits: up to x3 at death's door", "price": 1.9, "rare": true},
-	"kindling": {"name": "Kindling", "desc": "a hit while it's hot sets every other weapon you own red-hot too", "price": 1.8, "rare": true},
+	"kindling": {"name": "Kindling", "desc": "a hit while it's hot sets every other weapon you own red-hot too", "price": 1.8, "rare": true, "epic": true},
 	# shields
 	"counter": {"name": "Riposte Guard", "desc": "what it stops is banked (up to 80): your next weapon hit adds it all", "price": 2.0, "rare": true, "kinds": ["shield"]},
 	"hallowed": {"name": "Hallowed", "desc": "a parry with it heals your hand 8; a clean block, 3", "price": 1.9, "rare": true, "kinds": ["shield"]},
@@ -364,7 +367,7 @@ const RARITY := {
 	"club": 0, "shortsword": 0, "dagger": 0, "buckler": 0, "round_shield": 0, "crate": 0, "rock": 0, "bandage": 0,
 	"glue_pot": 0, "resin": 0, "potion_oil": 0, "potion_wood": 0, "coin_purse": 0, "whetstone": 0, "scales": 0, "sentinel_stone": 0,
 	"tower_shield": 2, "greatsword": 2, "warhammer": 2, "reliquary": 2, "anvil": 2, "lantern": 2, "potion_iron": 2, "potion_levitation": 2,
-	"packrat_idol": 2, "crucible": 2, "wisp_jar": 2,
+	"packrat_idol": 2, "crucible": 2, "wisp_jar": 2, "key": 2,
 	"potion_steel": 3, "potion_gold": 3, "potion_homeward": 3, "paragon": 3, "bastion": 3, "potion_prestigium": 3, "stormbrand": 3, "aegis": 3, "hearthblade": 3, "venom_fang": 3, "mirror_shield": 3, "sunderer": 3,
 }
 # Potions are a novelty, not the stock: they roll at a fraction of the weight of other gear,
@@ -378,8 +381,8 @@ const RARITY_COLORS := [Color(0.7, 0.68, 0.62), Color(0.45, 0.85, 0.4), Color(0.
 const SHOP_ODDS := [
 	[1, [85, 15, 0, 0], 0, 0.12],
 	[3, [47, 40, 13, 0], 1, 0.3],
-	[5, [25, 42, 32, 1], 2, 0.45],
-	[999, [15, 42, 40, 3], 2, 0.55],
+	[5, [25, 42, 32, 0.3], 2, 0.45],
+	[999, [15, 42, 40, 0.8], 2, 0.55],
 ]
 
 # More than one modifier is rare, and more than two exceptional. Once a thing has its first,
@@ -392,6 +395,9 @@ const EXTRA_MOD_FALLOFF := 0.25
 const MAX_MODS := 5
 # Rare conditional modifiers (weapons only) roll on their own, on top of the rest.
 const RARE_MOD := 0.035
+# Epic: the rares that bend to the piece's element (marked "epic", and "rare" too, so everything
+# that deals in rares still does). Only this share of rare rolls lands on one.
+const EPIC_SHARE := 0.1
 const RARE_MOD_PER_RARITY := 0.02
 const RARE_MOD_PER_PRESTIGE := 0.03
 
@@ -471,10 +477,10 @@ const LOOT := {
 	2: {"rolls": [2, 2], "mod_chance": 0.3, "table": [
 		[4, "coins", [5, 10]], [2, "bandage", "cloth"], [2, "shortsword", "iron"], [2, "shortsword", "copper"],
 		[2, "buckler", "iron"], [1, "round_shield", "iron"], [1, "mace", "copper"], [1, "upgrade", ""], [1, "ring", ""],
-		[1, "potion_poison", "glass"], [1, "potion_lightning", "glass"], [1, "potion_levitation", "glass"]]},
+		[1, "potion_poison", "glass"], [1, "potion_lightning", "glass"], [1, "potion_levitation", "glass"], [1, "key", "copper"]]},
 	3: {"rolls": [3, 3], "mod_chance": 0.5, "table": [
 		[3, "coins", [10, 20]], [2, "longsword", "steel"], [2, "mace", "iron"], [2, "kite_shield", "steel"],
-		[1, "spear", "steel"], [2, "upgrade", ""], [2, "ring", ""], [1, "potion_iron", "glass"], [1, "potion_steel", "glass"]]},
+		[1, "spear", "steel"], [2, "upgrade", ""], [2, "ring", ""], [1, "potion_iron", "glass"], [1, "potion_steel", "glass"], [1, "key", "copper"]]},
 }
 
 
@@ -625,15 +631,26 @@ static func ascend(d: Dictionary) -> void:
 		d.name = "Prestigium " + str(d.title)
 
 
+## A rare modifier for a weapon or shield (`kind`): now and then (EPIC_SHARE) an epic one.
+## `epic` forces one; `skip` are ones it mustn't be. "" if there's none left to give.
+static func pick_rare(rng: RandomNumberGenerator, kind: String, skip: Array = [], epic: bool = false) -> String:
+	var fits := MODIFIERS.keys().filter(func(k: String) -> bool:
+		return MODIFIERS[k].get("rare", false) and kind in MODIFIERS[k].get("kinds", ["weapon"]) and not skip.has(k))
+	var epics := fits.filter(func(k: String) -> bool: return MODIFIERS[k].get("epic", false))
+	var rares := fits.filter(func(k: String) -> bool: return not MODIFIERS[k].get("epic", false))
+	var pool: Array = epics if (epic or rng.randf() < EPIC_SHARE) and not epics.is_empty() else rares
+	if pool.is_empty():
+		pool = fits
+	return "" if pool.is_empty() else str(pool[rng.randi() % pool.size()])
+
+
 ## Modifiers for a new thing: `first` is the chance of having any at all; past the first,
 ## see EXTRA_MOD. Clashing modifiers (same group) are rerolled, not stacked.
 static func roll_mods(rng: RandomNumberGenerator, first: float, rarity: int = 0, id: String = "") -> Array:
 	var mods: Array = []
 	var kind: String = DEFS[id].kind if DEFS.has(id) else ""
 	if kind in ["weapon", "shield"] and not DEFS[id].has("fixed_mods") 			and rng.randf() < RARE_MOD + RARE_MOD_PER_RARITY * rarity + RARE_MOD_PER_PRESTIGE * run_prestige:
-		var rares := MODIFIERS.keys().filter(func(k: String) -> bool:
-			return MODIFIERS[k].get("rare", false) and kind in MODIFIERS[k].get("kinds", ["weapon"]))
-		mods.append(rares[rng.randi() % rares.size()])
+		mods.append(pick_rare(rng, kind))
 	if rng.randf() >= first:
 		return mods
 	var ids := MODIFIERS.keys().filter(func(k: String) -> bool: return not MODIFIERS[k].get("rare", false) and MODIFIERS[k].get("rolls", true))
@@ -738,6 +755,8 @@ static func shape_mask(shape: String) -> PackedStringArray:
 			return PackedStringArray(["....w", "M..wM", "MMMMM", ".MMM.", ".MMM."])
 		"shirt":
 			return PackedStringArray(["MM.MM", "MMMMM", ".MMM.", ".MMM.", ".MMM."])
+		"key":
+			return PackedStringArray([".MMM.......", "M...MMMMMMM", "M...M...M.M", ".MMM....MM."])
 		"sentinel":
 			return PackedStringArray(["..M..", ".MMM.", ".MgM.", ".MMM.", "MMMMM", "MMMMM"])
 		"wisp":

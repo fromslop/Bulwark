@@ -69,7 +69,8 @@ var _crit_fx: Array = []  # [low pass, high pass] on the Music bus
 var mode := Mode.AMBIENT
 var _mode_set := false  # has anyone asked for a mode yet
 var _amb_now: Array = []  # the ambience AMBIENT mode is playing
-var trace: Array = []  # [clock, what] for tests
+var trace: Array = []  # [clock, what] for tests (the last TRACE_MAX)
+const TRACE_MAX := 400
 
 var _players := {}  # layer -> AudioStreamPlayer
 var _gain := {}  # layer -> current linear gain
@@ -164,6 +165,12 @@ static func critical_amount() -> float:
 
 
 func _exit_tree() -> void:
+	var bus := AudioServer.get_bus_index("Music")
+	if bus >= 0:
+		for i in range(AudioServer.get_bus_effect_count(bus) - 1, -1, -1):
+			if AudioServer.get_bus_effect(bus, i) in _crit_fx:
+				AudioServer.remove_bus_effect(bus, i)
+	_crit_fx.clear()
 	for p in get_children():
 		if p is AudioStreamPlayer:
 			p.stop()
@@ -427,6 +434,8 @@ func _play_lead() -> void:
 		p.volume_db = LEVEL.lead
 		p.play(maxf(_clock - (_lead_at - PRE_ROLL), 0.0))
 	trace.append([_lead_at, "lead " + _step_lead])
+	if trace.size() > TRACE_MAX:
+		trace = trace.slice(trace.size() - TRACE_MAX)
 	_lead_at += bars * BAR
 	_step_left -= bars
 

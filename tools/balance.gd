@@ -54,7 +54,7 @@ func _next_fight() -> void:
 		shield = main._spawn(ItemDefs.make("kite_shield", "iron"), Vector2(300, 600))
 		sword = main._spawn(ItemDefs.make("longsword", "iron"), Vector2(1000, 600))
 	var id: String = queue.pop_front()
-	var d: Dictionary = EnemyDefs.WARDEN.duplicate(true) if id == "WARDEN" else EnemyDefs.scaled(id, prestige)
+	var d: Dictionary = EnemyDefs.scale_def(EnemyDefs.WARDEN.duplicate(true), prestige) if id == "WARDEN" else EnemyDefs.scaled(id, prestige)
 	if id == "WARDEN":
 		d.prestige = prestige
 	foe = Enemy.new()

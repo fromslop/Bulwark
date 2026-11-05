@@ -51,6 +51,17 @@ func _process(_d: float) -> bool:
 		270:
 			_test_return_home()
 		280:
+			# Reset save: the file goes, and nothing writes it back until a fresh load
+			main.save.write()
+			_check(FileAccess.file_exists(SaveData.PATH), "there should be a save to reset")
+			SaveData.wipe()
+			main.save.write()
+			main._save_home()
+			_check(not FileAccess.file_exists(SaveData.PATH), "after a reset nothing should write the old save back")
+			var fresh := SaveData.load_file()
+			_check(fresh.home.is_empty() and fresh.stats.runs == 0 and fresh.trophies.is_empty(), "a reset save should load empty")
+			fresh.write()
+			_check(FileAccess.file_exists(SaveData.PATH), "after a fresh load the save should write again")
 			print("home test: %d failures" % fails.size())
 			for f in fails:
 				print("  FAIL ", f)
@@ -91,6 +102,9 @@ func _test_home_opens() -> void:
 	main.codex.open_tab(0)
 	_check(main.codex.listed().all(func(e: Array) -> bool: return e[4] == "ring"), "the Rings bookmark should show only rings")
 	main.codex.shelf = "all"
+	_check(Codex.foe_where(EnemyDefs.ENEMIES.Rusted).begins_with("Stage") and Codex.foe_where(EnemyDefs.ENEMIES.Zealot).begins_with("Stage"),
+		"the bestiary should file the Rusted and the Zealot on the way down (%s)" % Codex.foe_where(EnemyDefs.ENEMIES.Rusted))
+	_check(Codex.foe_where(EnemyDefs.ENEMIES.Sexton).begins_with("Boss"), "the Sexton should be filed as a boss")
 	main.codex.toggle()
 	main.hand.pinned = Vector2.INF
 
@@ -116,8 +130,16 @@ func _test_racks_and_names() -> void:
 
 
 func _test_save_roundtrip() -> void:
+	main.save.trophies.append(["Castellan", 1])
 	main._save_home()
 	var loaded := SaveData.load_file()
+	_check(loaded.trophies.has(["Castellan", 1]), "the save should keep every boss felled, and how deep (%s)" % [loaded.trophies])
+	_check(loaded.trophies.size() >= int(loaded.stats.bosses), "every boss felled should have a cup on the shelf")
+	var key := Item.create(ItemDefs.make("key", "copper"))
+	_check(key.cells.size() > 10 and key.def.kind == "curio", "the Mysterious Key should be a real thing to pick up")
+	key.free()
+	var warden: Dictionary = EnemyDefs.scale_def(EnemyDefs.WARDEN.duplicate(true), 2)
+	_check(float(warden.hp) > float(EnemyDefs.WARDEN.hp) * 2.0, "the Vault Warden should grow with prestige like any foe")
 	_check(loaded.home.size() == 2, "the save should hold both kept items (got %d)" % loaded.home.size())
 	var e: Dictionary = {}
 	for x in loaded.home:
@@ -192,6 +214,20 @@ func _test_potions() -> void:
 	_check(shield.cells.size() > cells0 * 2 and shield.def.size == 1.5, "Giant's Brew should grow an item (%d -> %d cells)" % [cells0, shield.cells.size()])
 	shield.rescale(0.65 / 1.5)
 	_check(shield.cells.size() < cells0, "Pixie Dust should shrink it back")
+	# a broken blade's stub grows into a bigger stub, not back into a whole sword
+	var stub: Item = main._spawn(ItemDefs.make("longsword", "iron"), Vector2(400, 400))
+	stub.freeze = true
+	var whole := stub.cells.size()
+	var keys: Array = stub.cells.keys()
+	keys.sort_custom(func(a: Vector2i, b: Vector2i) -> bool: return a.y < b.y)
+	for i in int(keys.size() * 0.7):
+		stub.cells.erase(keys[i])
+	var left := stub.cells.size()
+	var hr := stub.health_ratio()
+	stub.rescale(1.5)
+	_check(stub.cells.size() < whole * 1.2 and stub.cells.size() > left * 1.8, "Giant's Brew should grow a stub, not mend it (%d of %d cells -> %d)" % [left, whole, stub.cells.size()])
+	_check(absf(stub.health_ratio() - hr) < 0.02, "and leave it as worn as it was (%.2f -> %.2f)" % [hr, stub.health_ratio()])
+	stub.queue_free()
 	var m0 := shield.mass
 	shield.add_mod("heavy")
 	_check(shield.mass > m0 * 1.5, "a Leaden Draught should weigh it down")

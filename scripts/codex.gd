@@ -241,8 +241,20 @@ func _process(delta: float) -> void:
 		_swing_t += delta
 		var wind: float = _replay.windup
 		var atk: Dictionary = _foe.current
+		if _swing_t < wind and (_foe.current.has("pan") or _foe.current.has("turn") or _foe.current.has("chase")):
+			# a field that moves: shape it as the wind-up goes, as in a fight
+			_foe.progress = _swing_t / wind
+			_foe._shape_zone()
+			var z := PackedVector2Array()
+			for v in _foe.current.zone:
+				z.append((v as Vector2) * Vector2(1280, 720))
+			_replay.zone = z
+			_replay.dir = (_foe.current.dir as Vector2).normalized()
+			_replay.lanes = Lanes.build(z, _replay.dir)
+			_replay.open = (_replay.lanes as Array).map(func(_l): return 1.0)
 		if _swing_t < wind:
 			# winding up: the zone fills and the lanes march, as in a fight
+			_telegraph.atk = _foe.current
 			_telegraph.show_zone(_replay.zone, _swing_t / wind, _replay.dir, clampf(float(atk.get("damage", 30.0)) / 30.0, 0.4, 1.6), str(atk.get("trait", "")))
 			_telegraph.lanes = _replay.lanes
 			_telegraph.cover = _replay.open
@@ -263,8 +275,20 @@ func _process(delta: float) -> void:
 
 # --- what each book holds ---------------------------------------------------------------
 
+var _cache := {}  # [tab, frame] -> entries: one build per book per frame
+
+
 ## Everything a book lists: [id, known, title, text, kind, def-or-null]
 func entries() -> Array:
+	var key := "%d:%d" % [tab, Engine.get_process_frames()]
+	if not _cache.has(key):
+		if _cache.size() > 8:
+			_cache.clear()
+		_cache[key] = _build_entries()
+	return _cache[key]
+
+
+func _build_entries() -> Array:
 	var save: SaveData = _game.save
 	var out: Array = []
 	match TABS[tab]:
@@ -327,14 +351,18 @@ func listed() -> Array:
 			if shelf != "all":
 				es = es.filter(func(e: Array) -> bool: return _shelf_of(e) == shelf)
 		"FOES":
-			es.sort_custom(func(a: Array, b: Array) -> bool: return _foe_order(a[5]) < _foe_order(b[5]))
+			es = es.duplicate()  # (entries() is cached: sort a copy, by tier then name, the same every time)
+			es.sort_custom(func(a: Array, b: Array) -> bool:
+				var oa := _foe_order(a[5])
+				var ob := _foe_order(b[5])
+				return oa < ob if oa != ob else str(a[2]) < str(b[2]))
 		"MODIFIERS":
 			# the runes' list: elemental, then common, then rare (reactions are on the circle)
 			es = es.filter(func(e: Array) -> bool: return e[4] == "mod")
 			var rank := func(e: Array) -> int:
 				if ELEMENT_OF.has(e[0]):
 					return ELEMENTS.find(ELEMENT_OF[e[0]])
-				return 20 if e[5].get("rare", false) else 10
+				return 30 if e[5].get("epic", false) else (20 if e[5].get("rare", false) else 10)
 			es.sort_custom(func(a: Array, b: Array) -> bool: return rank.call(a) < rank.call(b))
 	return es
 
@@ -353,12 +381,12 @@ static func _shelf_of(e: Array) -> String:
 static func _foe_order(d: Dictionary) -> int:
 	var nm: String = d.name
 	for i in EnemyDefs.TIERS.size():
-		if (EnemyDefs.TIERS[i] as Array).has(nm):
+		if Codex._names(EnemyDefs.TIERS[i]).has(nm):
 			return i * 10
 	if d.has("prestige"):
 		return 50 + int(d.get("tier", 0))
 	for i in EnemyDefs.BOSSES.size():
-		if (EnemyDefs.BOSSES[i] as Array).has(nm):
+		if Codex._names(EnemyDefs.BOSSES[i]).has(nm):
 			return 60 + i
 	if d.get("secret", false):
 		return 70
@@ -368,13 +396,13 @@ static func _foe_order(d: Dictionary) -> int:
 static func foe_where(d: Dictionary) -> String:
 	var nm: String = d.name
 	for i in EnemyDefs.TIERS.size():
-		if (EnemyDefs.TIERS[i] as Array).has(nm):
+		if Codex._names(EnemyDefs.TIERS[i]).has(nm):
 			return "Stage %d of the way down" % (i + 1)
 	if d.has("prestige"):
 		return "Deeper runs: prestige %d and on, from stage %d" % [int(d.prestige), int(d.get("tier", 0)) + 1]
 	for i in EnemyDefs.BOSSES.size():
-		if (EnemyDefs.BOSSES[i] as Array).has(nm):
-			return "Boss of the fifth stage" + (" (prestige 1 and on)" if i > 0 and not (EnemyDefs.BOSSES[0] as Array).has(nm) else "")
+		if Codex._names(EnemyDefs.BOSSES[i]).has(nm):
+			return "Boss of the fifth stage" + (" (prestige 1 and on)" if i > 0 and not Codex._names(EnemyDefs.BOSSES[0]).has(nm) else "")
 	for st in Secrets.STAGES:
 		if Secrets.STAGES[st].foe == nm:
 			return "Guards the " + str(st)
@@ -446,6 +474,9 @@ func entry(id: String) -> Array:
 		if e[0] == id:
 			return e
 	return []
+
+
+static var _lane_counts := {}  # attack id -> lanes (they never change)
 
 
 # --- the picture window -----------------------------------------------------------------
@@ -606,7 +637,7 @@ func _show_foe(d: Dictionary) -> void:
 	screen.add_child(_telegraph)
 	if attack_pick < 0:
 		attack_pick = 0
-	play_attack(str((d.attacks as Array)[attack_pick]))
+	play_attack(str(attack_ids(d)[attack_pick]))
 
 
 ## A place, as you'd see it standing in it.
@@ -639,8 +670,29 @@ func play_attack(id: String) -> void:
 	_swing_t = 0.0
 
 
+## The names foes go by (as the save and the codex know them) for a list of their keys.
+static func _names(keys: Array) -> Array:
+	return keys.map(func(k: String) -> String: return str(EnemyDefs.ENEMIES[k].name) if EnemyDefs.ENEMIES.has(k) else k)
+
+
+## A foe's attacks, each once (a pool repeats an attack to make it more likely).
+static func attack_ids(d: Dictionary) -> Array:
+	var out: Array = []
+	for id in d.attacks:
+		if not out.has(id):
+			out.append(id)
+	return out
+
+
 ## How many lanes an attack comes down (the arrows its telegraph shows).
 static func lane_count(id: String) -> int:
+	if _lane_counts.has(id):
+		return _lane_counts[id]
+	_lane_counts[id] = _count_lanes(id)
+	return _lane_counts[id]
+
+
+static func _count_lanes(id: String) -> int:
 	var a: Dictionary = EnemyDefs.ATTACKS[id]
 	var zone := PackedVector2Array()
 	for v in a.zone:
@@ -736,7 +788,7 @@ class Page:
 			"attack":
 				codex.attack_pick = int(arg)
 				var d: Dictionary = codex.entry(codex.selected[codex.tab])[5]
-				codex.play_attack(str((d.attacks as Array)[int(arg)]))
+				codex.play_attack(str(Codex.attack_ids(d)[int(arg)]))
 			"bar":
 				var r := arg as Rect2
 				var f := clampf((at.y - r.position.y) / r.size.y, 0.0, 1.0)
@@ -958,6 +1010,10 @@ class Page:
 				_hit(r, "mat", m)
 				mx += mw + 4
 			y += 30
+		var mdesc: String = Materials.DESC.get(codex._gear_material(e), "")
+		if mdesc != "" and not e[4] in ["ring", "upgrade"]:
+			draw_string(font, Vector2(x, y + 8), "%s: %s" % [codex._gear_material(e).capitalize(), mdesc], HORIZONTAL_ALIGNMENT_LEFT, w, 11, _b.dim)
+			y += 18
 		# numbers
 		var rows: Array = []
 		if d.has("swing_damage"):
@@ -1016,6 +1072,8 @@ class Page:
 					continue
 				var m: String = mat if ch == "M" else ItemDefs.MASK_MATS.get(ch, mat)
 				var col: Color = d.gem if ch == "g" and d.has("gem") else Materials.get_mat(m).color
+				if m == "glass" and d.has("liquid_color"):
+					col = (d.liquid_color as Color).lerp(Color(1, 1, 1), 0.2)  # a potion shows what's in it
 				if dark:
 					col = Color(0.12, 0.09, 0.07, 0.75)
 				draw_rect(Rect2(org + Vector2(xx, yy) * px, Vector2(px, px)), col)
@@ -1066,13 +1124,14 @@ class Page:
 		_sel_rect = Rect2()
 		for e in es:
 			var md: Dictionary = e[5]
-			var g := "elemental" if Codex.ELEMENT_OF.has(e[0]) else ("rare" if md.get("rare", false) else "common")
+			var g := "elemental" if Codex.ELEMENT_OF.has(e[0]) else ("epic" if md.get("epic", false) else ("rare" if md.get("rare", false) else "common"))
 			if g != group:
 				group = g
 				if y >= _list_rect.position.y and y + 30 <= _list_rect.end.y:
 					var head: String = {"elemental": "ELEMENTAL RUNES  ·  each marks a foe; two marks react (the circle, over the page)",
-						"common": "COMMON RUNES  ·  on any gear", "rare": "RARE RUNES  ·  conditional: meet the condition and they pay out big"}[g]
-					draw_string(font, Vector2(_list_rect.position.x + 4, y + 22), head, HORIZONTAL_ALIGNMENT_LEFT, _list_rect.size.x - 8, 12, Color(1.0, 0.8, 0.35) if g == "rare" else _b.accent)
+						"common": "COMMON RUNES  ·  on any gear", "rare": "RARE RUNES  ·  conditional: meet the condition and they pay out big",
+						"epic": "EPIC RUNES  ·  the rarest: they bend to whatever element the piece carries"}[g]
+					draw_string(font, Vector2(_list_rect.position.x + 4, y + 22), head, HORIZONTAL_ALIGNMENT_LEFT, _list_rect.size.x - 8, 12, Tooltip.EPIC if g == "epic" else (Color(1.0, 0.8, 0.35) if g == "rare" else _b.accent))
 				y += 32
 			var r := Rect2(_list_rect.position.x, y, _list_rect.size.x, 38)
 			var sel: bool = e[0] == codex.selected[1]
@@ -1199,7 +1258,7 @@ class Page:
 		var md: Dictionary = e[5]
 		_title(Vector2(x, RIGHT.position.y + 30), e[2] if e[1] else "An unread rune")
 		var kinds: Array = md.get("kinds", ["weapon"])
-		var line := ("Rare, on %s" % " and ".join(PackedStringArray(kinds.map(func(k): return str(k) + "s")))) if md.get("rare", false) else "Common, on any gear"
+		var line := (("Epic" if md.get("epic", false) else "Rare") + ", on %s" % " and ".join(PackedStringArray(kinds.map(func(k): return str(k) + "s")))) if md.get("rare", false) else "Common, on any gear"
 		if not md.get("rolls", true):
 			line = "Only from glue: never on gear from a shop or a crate"
 		if Codex.ELEMENT_OF.has(e[0]):
@@ -1265,6 +1324,8 @@ class Page:
 	func _rune_color(m: String, md: Dictionary) -> Color:
 		if Codex.ELEMENT_OF.has(m):
 			return Main.ELEMENT_COLORS[Codex.ELEMENT_OF[m]]
+		if md.get("epic", false):
+			return Tooltip.EPIC
 		if md.get("rare", false):
 			return Color(1.0, 0.8, 0.3)
 		if Item.MOD_LOOKS.has(m):
@@ -1324,7 +1385,7 @@ class Page:
 				draw_string(font, r.position + Vector2(62, 21), e[2] if e[1] else "???", HORIZONTAL_ALIGNMENT_LEFT, 220, 15, ink if e[1] else Color(ink, 0.35))
 				draw_string(font, r.position + Vector2(62, 38), Codex.foe_where(d), HORIZONTAL_ALIGNMENT_LEFT, 300, 10, _b.dim)
 				if e[1]:
-					draw_string(font, r.position + Vector2(r.size.x - 150, 21), "%d attacks" % (d.attacks as Array).size(), HORIZONTAL_ALIGNMENT_RIGHT, 140, 11, _b.dim)
+					draw_string(font, r.position + Vector2(r.size.x - 150, 21), "%d attacks" % Codex.attack_ids(d).size(), HORIZONTAL_ALIGNMENT_RIGHT, 140, 11, _b.dim)
 				if _list_rect.has_point(mouse):
 					_hit(r, "pick", e[0])
 			y += 54
@@ -1370,7 +1431,7 @@ class Page:
 		# every attack: click one to see it swung
 		draw_string(font, Vector2(x, y + 12), "ATTACKS  ·  click one to see it", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, _b.accent)
 		y += 18
-		var atks: Array = d.attacks
+		var atks: Array = Codex.attack_ids(d)
 		var row_h := clampf((RIGHT.end.y - y - 6) / maxf(1.0, atks.size()), 26.0, 44.0)
 		var mouse := get_local_mouse_position()
 		for i in atks.size():
@@ -1389,13 +1450,21 @@ class Page:
 			draw_string(font, Vector2(tx, r.position.y + r.size.y * 0.5 - 2), str(Codex.ATTACK_NAMES.get(id, id.replace("_", " ").capitalize())), HORIZONTAL_ALIGNMENT_LEFT, w - (tx - x) - 4, 12, _b.ink)
 			var lanes_n := Codex.lane_count(id)
 			var notes: Array = ["%d damage" % roundi(float(a.damage) * float(d.get("power", 1.0))), "%.1fs wind-up" % (float(a.windup) / maxf(0.1, float(d.speed))),
-				("a thrust: %d point%s" % [lanes_n, "s" if lanes_n > 1 else ""]) if (a.dir as Vector2) == Vector2.ZERO else "%d lanes" % lanes_n]
+				("a thrust: %d point%s" % [lanes_n, "s" if lanes_n > 1 else ""]) if (a.dir as Vector2) == Vector2.ZERO else ("%d lane%s" % [lanes_n, "s" if lanes_n > 1 else ""])]
 			if float(a.get("impact", 1.0)) >= 2.0:
 				notes.append("hard on gear")
 			if a.has("cleave"):
 				notes.append("cuts through %d%%" % roundi(float(a.cleave) * 100.0))
 			if a.get("track", false):
 				notes.append("aims at your hand")
+			if a.has("chase"):
+				notes.append("follows your hand, then commits")
+			if a.has("pan"):
+				notes.append("slides as it comes")
+			if a.has("turn"):
+				notes.append("swings round as it comes")
+			if a.has("next"):
+				notes.append("then a second blow")
 			if a.has("trait"):
 				notes.append(str(a.trait))
 			draw_string(font, Vector2(tx, r.position.y + r.size.y * 0.5 + 11), "  ·  ".join(PackedStringArray(notes)), HORIZONTAL_ALIGNMENT_LEFT, w - (tx - x) - 4, 10, _b.dim)
@@ -1457,7 +1526,8 @@ class Page:
 		"Cistern": Vector2(0.3, 0.44), "Catacombs": Vector2(0.7, 0.44),
 		"Crypt Chapel": Vector2(0.22, 0.64), "Forge": Vector2(0.5, 0.66), "Ossuary": Vector2(0.78, 0.64), "Star Chamber": Vector2(0.5, 0.84),
 		"Hidden Vault": Vector2(0.9, 0.34),
-		"Gilded Gullet": Vector2(0.09, 0.9), "Giant's Table": Vector2(0.91, 0.9), "Clockwork Orrery": Vector2(0.09, 0.12), "Ink Margin": Vector2(0.91, 0.12)}
+		"Gilded Gullet": Vector2(0.09, 0.9), "Giant's Table": Vector2(0.91, 0.9), "Clockwork Orrery": Vector2(0.09, 0.12), "Ink Margin": Vector2(0.91, 0.12),
+		"Molten Core": Vector2(0.72, 0.9)}
 
 	func _map() -> void:
 		var ink: Color = _b.ink
@@ -1576,13 +1646,15 @@ class Page:
 		elif nm == "Hidden Vault":
 			names = [EnemyDefs.WARDEN.name]
 		elif (Backdrop.TIERS.early as Array).has(nm):
-			names = EnemyDefs.TIERS[0] + EnemyDefs.TIERS[1]
+			names = Codex._names(EnemyDefs.TIERS[0] + EnemyDefs.TIERS[1])
 		elif (Backdrop.TIERS.middle as Array).has(nm):
-			names = EnemyDefs.TIERS[2] + EnemyDefs.TIERS[3]
+			names = Codex._names(EnemyDefs.TIERS[2] + EnemyDefs.TIERS[3])
 		else:
-			names = EnemyDefs.BOSSES[0] + EnemyDefs.BOSSES[1]
+			names = Codex._names(EnemyDefs.BOSSES[0] + EnemyDefs.BOSSES[1])
 		var out: Array = []
+		var seen := {}
 		for n in names:
-			if not out.has(n):
+			if not seen.has(n):
+				seen[n] = true
 				out.append(n if save.knows("foes", n) else "???")
 		return ", ".join(PackedStringArray(out))

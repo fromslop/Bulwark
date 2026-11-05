@@ -4,6 +4,7 @@ extends RefCounted
 ## codex has seen, and how deep a run has ever gone. One text file in user://.
 
 static var PATH := "user://hoardsman_save.txt"  # tests point this elsewhere
+static var wiping := false  # the save was just erased: nothing writes it back until a fresh load
 const OLD_NAME := "Bulwark"  # what the game was called: its save and settings lived under that
 
 
@@ -13,6 +14,8 @@ static func carry_over() -> void:
 	var here := OS.get_user_data_dir()
 	var old := here.get_base_dir().path_join(OLD_NAME)
 	for pair in [["bulwark_save.txt", "hoardsman_save.txt"], ["settings.cfg", "settings.cfg"], ["looks.cfg", "looks.cfg"], ["style.cfg", "style.cfg"]]:
+		if wiping and pair[1] == "hoardsman_save.txt":
+			continue  # (just reset: don't bring the old one back)
 		var src: String = old.path_join(pair[0])
 		var dst: String = here.path_join(pair[1])
 		if FileAccess.file_exists(src) and not FileAccess.file_exists(dst):
@@ -20,20 +23,29 @@ static func carry_over() -> void:
 			DirAccess.copy_absolute(src, dst)
 
 var home: Array = []  # packed items: see pack()
-var found := {"items": [], "modifiers": [], "foes": [], "places": [], "reactions": [], "secrets": []}
+var found := {"items": [], "modifiers": [], "foes": [], "places": [], "reactions": [], "secrets": [], "guardians": []}  # guardians: secret places' foes beaten (the relic shelf at home)
 var prestige_best := 0
-## Lifetime tallies, shown on the trophy board at home.
+## Lifetime tallies, shown around the home (the tally on the wall, the trophy shelf...).
 var stats := {"runs": 0, "deaths": 0, "bosses": 0, "kills": 0, "best_hit": 0, "smelt": 0.0}
+var trophies: Array = []  # every boss felled: [name, prestige]: a cup each on the shelf at home
 
 
 static func load_file() -> SaveData:
+	wiping = false
 	var s := SaveData.new()
+	if not FileAccess.file_exists(PATH) and FileAccess.file_exists(PATH + ".tmp"):
+		# (the last write didn't get as far as its rename: its temp file is the save)
+		DirAccess.rename_absolute(ProjectSettings.globalize_path(PATH + ".tmp"), ProjectSettings.globalize_path(PATH))
 	if not FileAccess.file_exists(PATH):
 		return s
 	var f := FileAccess.open(PATH, FileAccess.READ)
 	if f == null:
 		return s
 	var data = str_to_var(f.get_as_text())
+	f.close()
+	if not (data is Dictionary):
+		# unreadable: put it aside rather than let the next save write over it
+		DirAccess.copy_absolute(ProjectSettings.globalize_path(PATH), ProjectSettings.globalize_path(PATH + ".damaged"))
 	if data is Dictionary:
 		s.home = data.get("home", [])
 		s.prestige_best = int(data.get("prestige_best", 0))
@@ -43,13 +55,31 @@ static func load_file() -> SaveData:
 		var st: Dictionary = data.get("stats", {})
 		for k in s.stats:
 			s.stats[k] = float(st.get(k, 0.0)) if k == "smelt" else int(st.get(k, 0))
+		s.trophies = data.get("trophies", [])
+		while s.trophies.size() < int(s.stats.bosses):
+			s.trophies.append(["", 0])  # (bosses felled before the shelf was kept: plain cups)
 	return s
 
 
+## Erase the save for good (the pause menu's Reset save). Until the next load_file(), nothing
+## writes it back (the scene being left behind would otherwise save its home on the way out).
+static func wipe() -> void:
+	wiping = true
+	for p in [PATH, PATH + ".tmp"]:
+		if FileAccess.file_exists(p):
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(p))
+
+
 func write() -> void:
-	var f := FileAccess.open(PATH, FileAccess.WRITE)
-	if f:
-		f.store_string(var_to_str({"home": home, "found": found, "prestige_best": prestige_best, "stats": stats}))
+	if wiping:
+		return
+	var tmp := PATH + ".tmp"
+	var f := FileAccess.open(tmp, FileAccess.WRITE)
+	if f == null:
+		return
+	f.store_string(var_to_str({"home": home, "found": found, "prestige_best": prestige_best, "stats": stats, "trophies": trophies}))
+	f.close()
+	DirAccess.rename_absolute(ProjectSettings.globalize_path(tmp), ProjectSettings.globalize_path(PATH))  # (whole or not at all)
 
 
 func discover(category: String, id: String) -> void:
@@ -100,8 +130,11 @@ static func unpack(e: Dictionary) -> Dictionary:
 	else:
 		if not ItemDefs.DEFS.has(e.get("id", "")):
 			return {}
-		var mods: Array = e.get("modifiers", [])
+		var mods: Array = ItemDefs.current_mods(e.get("modifiers", []))  # (renamed modifiers mapped first)
 		d = ItemDefs.make(e.id, e.get("material", "wood"), mods.duplicate())
+		for m in mods:
+			if not d.modifiers.has(m):
+				d.modifiers.append(m)  # a fixed-modifier piece keeps what it gained on top (an altar, a glue pot...)
 		if e.get("shape", "") != "":
 			d.shape = e.shape
 		d.size = float(e.get("size", 1.0))

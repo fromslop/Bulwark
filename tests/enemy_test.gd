@@ -126,15 +126,53 @@ func _test_models() -> void:
 	_check(not c.guard_up(), "a reeling Castellan should drop its guard")
 
 
+static func _mid(zone: Array) -> Vector2:
+	var c := Vector2.ZERO
+	for p in zone:
+		c += p
+	return c / zone.size()
+
+
+## Fields that move: a tracked one centres on the hand; a chasing one follows it, then
+## commits; a panning one slides across; a feint breaks off into another attack.
 func _test_tracking() -> void:
+	var b := _become("Bonebreaker")
+	b.look_target = Vector2(0.2, 0.8)
+	b._begin_attack("pommel")
+	_check(_mid(b.current.zone).distance_to(Vector2(0.2, 0.8)) < 0.02, "a tracking attack should centre on the hand (%s)" % _mid(b.current.zone))
 	var w := _become("Wraith")
 	w.look_target = Vector2(0.2, 0.8)
 	w._begin_attack("grasp")
-	var c := Vector2.ZERO
-	for p in w.current.zone:
-		c += p
-	c /= w.current.zone.size()
-	_check(c.distance_to(Vector2(0.2, 0.8)) < 0.02, "a tracking attack should centre on the hand (%s)" % c)
+	w.progress = 0.3
+	w._shape_zone()
+	_check(_mid(w.current.zone).distance_to(Vector2(0.2, 0.8)) < 0.02, "the Wraith's grasp should follow the hand (%s)" % _mid(w.current.zone))
+	w.look_target = Vector2(0.7, 0.3)
+	w._shape_zone()
+	_check(_mid(w.current.zone).distance_to(Vector2(0.7, 0.3)) < 0.02, "and keep following it while it winds up")
+	w.progress = 0.9
+	w.look_target = Vector2(0.1, 0.1)
+	w._shape_zone()
+	_check(_mid(w.current.zone).distance_to(Vector2(0.7, 0.3)) < 0.02, "then commit: late in the wind-up it stops following (%s)" % _mid(w.current.zone))
+	var h := _become("Halberdier")
+	h._begin_attack("reap")
+	var x0: float = (h.current.zone[0] as Vector2).x
+	h.progress = 1.0
+	h._shape_zone()
+	_check(absf((h.current.zone[0] as Vector2).x - x0 - 0.72) < 0.01, "the Halberdier's reap should walk across the screen")
+	var d := _become("Duelist")
+	d.data = d.data.duplicate(true)
+	d.data.feint = {"chance": 1.0, "at": 0.5, "windup": 0.4}
+	d._begin_attack()
+	var first: String = d.current.id
+	_check(d._feint_at == 0.5, "a Duelist's wind-up can be a feint")
+	d._feint()
+	_check(d.current.id != first and d.current.get("feinted_from", "") == first, "a feint should break off into a different attack")
+	_check(d._feint_at < 0.0, "a feint's answer is never itself a feint")
+	var k := _become("Knight")
+	k.data = k.data.duplicate(true)
+	k.data.combo_chance = 1.0
+	k._begin_attack("overhead_l")
+	_check(k.current.get("next", "") == "thrust", "the Knight's overhead should run into a thrust")
 	w.look_target = Vector2(0.0, 0.0)
 	w._begin_attack("grasp")
 	var lo := Vector2(1, 1)
@@ -192,9 +230,9 @@ func _test_traits() -> void:
 	var r := _become("Rusted")
 	for n in main.items_root.get_children():
 		n.queue_free()
-	var shield: Item = main._spawn(ItemDefs.make("round_shield", "iron"), Vector2(640, 0.81 * 720))
+	var shield: Item = main._spawn(ItemDefs.make("round_shield", "iron"), Vector2(280, 0.81 * 720))
 	shield.freeze = true
-	shield.teleport(Vector2(640, 0.81 * 720))
+	shield.teleport(Vector2(280, 0.81 * 720))  # (where the drag starts: it walks right from there)
 	var wood: Item = main._spawn(ItemDefs.make("round_shield", "wood"), Vector2(640, 0.5 * 720))
 	wood.freeze = true
 	wood.teleport(Vector2(640, 0.5 * 720))
@@ -295,7 +333,7 @@ func _test_run_structure() -> void:
 		deep[EnemyDefs.for_round(3, 3, rng).name] = true
 		deep[EnemyDefs.for_round(4, 3, rng).name] = true
 	_check(deep.has("Headsman") and deep.has("Lamplighter"), "deep runs should meet the rare enemies (%s)" % [deep.keys()])
-	_check(deep.has("Hollow King"), "deep runs should meet the second boss")
+	_check(deep.has("The Sexton"), "deep runs should meet the second boss")
 	var p0 := EnemyDefs.scaled("Knight", 0)
 	var p2 := EnemyDefs.scaled("Knight", 2)
 	_check(p2.hp > p0.hp * 1.5 and p2.power > p0.power, "prestige should scale enemies up")
@@ -307,6 +345,18 @@ func _test_run_structure() -> void:
 	for i in 200:
 		places[Backdrop.for_round(4, rng, 3)] = true
 	_check(places.has("Ossuary") and places.has("Star Chamber"), "deep runs should find the rare places (%s)" % [places.keys()])
+	# and never the same place twice running, at any prestige (laps of a long run included)
+	for pr in [0, 1, 2, 3]:
+		var recent: Array = []
+		var repeats := 0
+		for n in 60:
+			var pl := Backdrop.for_round(n, rng, pr, recent)
+			if not recent.is_empty() and recent[-1] == pl:
+				repeats += 1
+			recent.append(pl)
+			if recent.size() > 3:
+				recent.pop_front()
+		_check(repeats == 0, "the same place shouldn't come up twice running (prestige %d: %d repeats)" % [pr, repeats])
 	# gated gear
 	ItemDefs.run_prestige = 0
 	var early := {}

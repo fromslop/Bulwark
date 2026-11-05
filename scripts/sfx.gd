@@ -92,6 +92,9 @@ func _build() -> void:
 	_streams.zap = _buzz(0.2)
 	_streams.buy = _mix([_tone([2400.0, 3600.0], [1.0, 0.4], 0.3, 10.0), _delay(_tone([3200.0, 4800.0], [1.0, 0.4], 0.3, 10.0), 0.08)], [0.6, 0.6])
 	_streams.deny = _tone([160.0, 170.0], [1.0, 1.0], 0.2, 12.0)
+	_streams.scrape = _mix([_crackle(0.9), _noise(0.9, 0.15, 1.5)], [0.4, 0.35])  # a blade dragged along stone
+	_streams.feint = _mix([_whoosh(0.12, 0.4), _tone([1800.0, 2700.0], [1.0, 0.5], 0.1, 40.0)], [0.8, 0.3])  # a flick: broken off
+	_streams.lock = _mix([_tone([900.0, 1350.0], [1.0, 0.6], 0.06, 60.0), _noise(0.03, 0.5, 120.0)], [0.6, 0.5])  # a click: committed
 	_streams.pain = _peak(_pain(0.7), 0.9)
 	_streams.reward = _peak(_reward(0.45), 0.9)
 	for k in _streams.keys():

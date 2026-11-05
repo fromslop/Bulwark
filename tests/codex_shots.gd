@@ -17,7 +17,7 @@ func _initialize() -> void:
 
 func _know_all() -> void:
 	var s: SaveData = main.save
-	var skip := ["paragon", "mimic", "Hollow King", "Ink Margin", "frost+rot", "rot+venom"]
+	var skip := ["paragon", "mimic", "Errata", "Ink Margin", "frost+rot", "rot+venom"]
 	for id in ItemDefs.DEFS:
 		if not id in skip:
 			s.discover("items", id)
@@ -27,8 +27,8 @@ func _know_all() -> void:
 		if not m in skip:
 			s.discover("modifiers", m)
 	for id in EnemyDefs.ENEMIES:
-		if not id in skip:
-			s.discover("foes", id)
+		if not EnemyDefs.ENEMIES[id].name in skip:
+			s.discover("foes", EnemyDefs.ENEMIES[id].name)  # (foes are known by name)
 	s.discover("foes", EnemyDefs.WARDEN.name)
 	for nm in Codex._place_names():
 		if not nm in skip:
@@ -45,7 +45,7 @@ func _process(_d: float) -> bool:
 		10:
 			_know_all()
 			main.hand.pinned = Vector2(1260, 700)
-			c.selected = ["warhammer", "superheated", "Castellan", "Forge"]
+			c.selected = ["warhammer", "superheated", "The Sexton", "Molten Core"]
 			c.open_tab(0)
 		40:
 			_shot("gear")
@@ -59,8 +59,8 @@ func _process(_d: float) -> bool:
 			c.tablet_face = 0
 			c.open_tab(2)
 		120:
-			c.attack_pick = 1
-			c.play_attack(str((EnemyDefs.ENEMIES["Castellan"].attacks as Array)[1]))
+			c.attack_pick = 0
+			c.play_attack("dig")  # (a field that walks across the screen)
 		170:
 			_shot("foes")
 			c.open_tab(3)

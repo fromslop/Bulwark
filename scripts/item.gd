@@ -38,10 +38,22 @@ const BLAST_LOCK := 1.5  # an explosion right next to a crate blows its lock (an
 const WHETSTONE_WEAR := 0.1  # of the condition a whetstone puts back, what it loses itself
 const ANVIL_WEAR := 0.05
 const WEIGHTLESS_DENSITY := 0.04  # what's left of an item's weight when it goes weightless
-const CONTACT_EVERY := 4  # physics steps between contact exchanges (heat, cold, charge)
+const CONTACT_EVERY := 4
+# Prestigium runs in a gradient across a piece, teal at its top-left to blue at its bottom-right
+const PRESTIGIUM_FROM := Color(0.25, 0.9, 0.82)
+const PRESTIGIUM_TO := Color(0.18, 0.38, 1.0)  # physics steps between contact exchanges (heat, cold, charge)
 const INHERITED_MODS := ["heavy", "weightless", "reinforced", "bouncy", "spiked", "small", "large", "huge"]
-# Fire runs out: after burning this long an item is charred and can't catch again.
+# Fire eats wood: every quarter second a burning thing loses BURN_SHARE of its burnable cells'
+# worth of BURN_DAMAGE, harder the longer it's been alight, until there's no wood left. Metal
+# that's only oiled has nothing to eat: it burns BURN_LIMIT seconds, then it's out for good.
 const BURN_LIMIT := 8.0
+const BURN_SHARE := 0.15
+const BURN_DAMAGE := 1.0
+# and it leaps: flame reaches this far (px) from a burning cell to the next thing, further up
+const FIRE_REACH := 14.0
+const FIRE_REACH_UP := 30.0
+const EMBER_REACH := 45.0  # embers: now and then fire jumps a gap this wide (px) to something nearby
+const EMBER_CHANCE := 0.12  # per quarter second, per thing in range
 const MAGNET_RANGE := 260.0
 const MAGNET_ACCEL := 2200.0
 
@@ -169,9 +181,20 @@ static func create(d: Dictionary) -> Item:
 		fused._init_from(d, fc, org)
 		return fused
 	var mask := ItemDefs.scale_mask(ItemDefs.shape_mask(d.shape), d.get("size", 1.0))
+	var it := Item.new()
+	it._init_from(d, _mask_cells(d, mask), Vector2(mask[0].length(), mask.size()) * CELL * 0.5)
+	return it
+
+
+## A thing's cells from its pixel mask, in its material, as tough as its modifiers make it
+## (`cond`: how worn, 0..1), shaded.
+static func _mask_cells(d: Dictionary, mask: PackedStringArray, cond: float = 1.0) -> Dictionary:
+	var main_mat: String = d.get("material", "wood")
 	var hp_mult := 1.0
 	for m in d.modifiers:
-		hp_mult *= ItemDefs.MODIFIERS[m].get("hp", 1.0)
+		if m != "tempered":
+			hp_mult *= ItemDefs.MODIFIERS[m].get("hp", 1.0)
+	var temper: float = ItemDefs.MODIFIERS["tempered"].get("hp", 1.0) if d.modifiers.has("tempered") else 1.0
 	var cs := {}
 	for y in mask.size():
 		var row: String = mask[y]
@@ -179,17 +202,17 @@ static func create(d: Dictionary) -> Item:
 			var ch := row[x]
 			if ch == ".":
 				continue
-			var mat: String = d.material if ch == "M" else ItemDefs.MASK_MATS.get(ch, d.material)
-			if ch == "i" and d.kind == "shield" and Materials.get_mat(d.material).get("conducts", false):
-				mat = d.material  # a metal shield's boss and bands are its own metal, not a weak spot
-			var hp: float = Materials.hp_of(mat) * hp_mult
-			cs[Vector2i(x, y)] = {"mat": mat, "hp": hp, "max": hp, "shade": 1.0}
+			var mat: String = main_mat if ch == "M" else ItemDefs.MASK_MATS.get(ch, main_mat)
+			if ch == "i" and d.kind == "shield" and Materials.get_mat(main_mat).get("conducts", false):
+				mat = main_mat  # a metal shield's boss and bands are its own metal, not a weak spot
+			var full: float = Materials.hp_of(mat) * hp_mult
+			if Materials.get_mat(mat).get("conducts", false):
+				full *= temper  # (quenching toughens the metal, not the grip)
+			cs[Vector2i(x, y)] = {"mat": mat, "hp": full * cond, "max": full, "shade": 1.0}
 			if ch == "h":
 				cs[Vector2i(x, y)].handle = true
 	_shade(cs)
-	var it := Item.new()
-	it._init_from(d, cs, Vector2(mask[0].length(), mask.size()) * CELL * 0.5)
-	return it
+	return cs
 
 
 static func _shade(cs: Dictionary) -> void:
@@ -353,8 +376,8 @@ func _physics_process(delta: float) -> void:
 		angular_damp = ad
 	_process_impacts()
 	_update_elements(delta)
-	if has_mod("magnetic"):
-		_magnetize()
+	if has_mod("magnetic") and (Engine.get_physics_frames() + get_instance_id()) % CONTACT_EVERY == 0:
+		_magnetize()  # (every few steps, a few times as hard: the same pull, a fraction of the scanning)
 	if _fuse >= 0.0:
 		_fuse -= delta
 		if _fuse < 0.0:
@@ -472,6 +495,8 @@ func is_loose_metal() -> bool:
 
 ## A magnet tidies the loose metal around it into a pile and stays put itself.
 func _magnetize() -> void:
+	if not is_in_group("items"):
+		return  # (a codex preview: not part of the game)
 	for n in get_tree().get_nodes_in_group("items"):
 		var o := n as Item
 		if o == null or o == self or o.held or o.freeze or not o.is_loose_metal():
@@ -480,7 +505,7 @@ func _magnetize() -> void:
 		var dist := d.length()
 		if dist > MAGNET_RANGE or dist < 1.0:
 			continue
-		var f := d / dist * (1.0 - dist / MAGNET_RANGE) * MAGNET_ACCEL * o.mass
+		var f := d / dist * (1.0 - dist / MAGNET_RANGE) * MAGNET_ACCEL * o.mass * CONTACT_EVERY
 		o.apply_central_force(-f)
 
 
@@ -508,6 +533,45 @@ func is_burning() -> bool:
 	return (flammable or has_mod("oiled")) and heat > 0.6 and not charred
 
 
+## Could fire take hold of it? (Anything with wood, cloth or leather left in it, or oil on it.)
+func can_catch() -> bool:
+	return (flammable or has_mod("oiled")) and not charred and not is_burning() and cold < 0.3 \
+		and not is_queued_for_deletion()
+
+
+func ignite(amount: float = 1.0) -> void:
+	heat = minf(1.0, maxf(heat, 0.45) + amount)
+
+
+## Flame leaps from its burning cells to whatever's close: beside them a little, above them
+## further (fire climbs). Not at home: the hoard on your shelves is safe from a stray spark.
+func _spread_fire(burnable: Array) -> void:
+	var game := get_tree().get_first_node_in_group("game")
+	if game and game.state == game.State.HOME:
+		return
+	var r := origin.length() + EMBER_REACH
+	var near: Array[Item] = []
+	for n in get_tree().get_nodes_in_group("items"):
+		var o := n as Item
+		if o and o != self and o.can_catch() and o.global_position.distance_to(global_position) < r + o.origin.length():
+			near.append(o)
+	if near.is_empty():
+		return
+	var reach := [Vector2(FIRE_REACH, 0), Vector2(-FIRE_REACH, 0), Vector2(0, FIRE_REACH), Vector2(0, -FIRE_REACH_UP)]
+	for o in near:
+		if randf() < EMBER_CHANCE:
+			o.ignite(0.35)  # an ember lands on it
+	for i in mini(10, burnable.size()):
+		var p := to_global(cell_pos(burnable[randi() % burnable.size()]))
+		for o in near:
+			if o.is_burning():
+				continue
+			for off in reach:
+				if o.cells.has(o.cell_at_global(p + off)):
+					o.ignite(0.35)
+					break
+
+
 func has_mod(m: String) -> bool:
 	return def.modifiers.has(m)
 
@@ -517,7 +581,32 @@ func _refresh_mod_looks() -> void:
 	for m in _mod_looks:
 		if not MOD_LOOKS[m][0] in STATIC_LOOKS:
 			_animated = true
+	if def.get("kind", "") in ["potion", "curio"]:
+		_animated = true  # potions bubble; curios catch the light (_draw_kind_fx)
 	queue_redraw()
+
+
+## Little lives of their own: a potion's liquid bubbles, a coin or a curio catches a glint
+## now and then.
+func _draw_kind_fx(cv: CanvasItem, t: float) -> void:
+	match str(def.get("kind", "")):
+		"potion":
+			var up := Vector2.UP.rotated(-global_rotation)
+			var liquid: Color = (def.get("liquid_color", Color(0.6, 0.8, 1.0)) as Color).lightened(0.4)
+			for c in _sparkles + _bubbles:
+				if not cells.has(c) or cells[c].mat != "glass":
+					continue
+				var h: int = absi((c.x * 73856093) ^ (c.y * 19349663))
+				var rise := fmod(t * 0.6 + h * 0.29, 1.0)
+				cv.draw_circle(cell_pos(c) + up * rise * 10.0, 1.2 * (1.0 - rise) + 0.4, Color(liquid, 0.8 * (1.0 - rise)))
+		"curio":
+			var ph := fmod(t * 0.5 + get_instance_id() * 0.13, 3.0)
+			if ph < 0.25 and not cells.is_empty():
+				var c: Vector2i = cells.keys()[get_instance_id() % cells.size()]
+				var sz := sin(ph / 0.25 * PI) * 4.0
+				var p := cell_pos(c)
+				cv.draw_line(p - Vector2(sz, 0), p + Vector2(sz, 0), Color(1, 1, 0.9), 1.0)
+				cv.draw_line(p - Vector2(0, sz), p + Vector2(0, sz), Color(1, 1, 0.9), 1.0)
 
 
 ## Give this item (and only this item, not pieces sharing its def) a new modifier.
@@ -597,38 +686,48 @@ func _end_weightless_spell() -> void:
 func rescale(factor: float) -> void:
 	if def.has("parts"):
 		return  # a glued-together thing is built from its pieces, not a mask: it can't be resized
-	var cond := health_ratio()
-	var new_size: float = clampf(def.get("size", 1.0) * factor, 0.4, 2.5)
+	var old_size: float = def.get("size", 1.0)
+	var new_size: float = clampf(old_size * factor, 0.4, 2.5)
+	var f := new_size / old_size
+	if cells.is_empty() or is_equal_approx(f, 1.0):
+		return
 	def = def.duplicate(true)
 	def.size = new_size
 	if def.has("swing_damage") and ItemDefs.DEFS.has(def.get("id", "")):
-		def.swing_damage = float(ItemDefs.DEFS[def.id].swing_damage) * new_size
-	var mask := ItemDefs.scale_mask(ItemDefs.shape_mask(def.shape), new_size)
-	var main_mat: String = def.get("material", "wood")
-	var hp_mult := 1.0
-	for m in def.modifiers:
-		hp_mult *= ItemDefs.MODIFIERS[m].get("hp", 1.0)
-	var cs := {}
-	for y in mask.size():
-		var row: String = mask[y]
-		for x in row.length():
-			var ch := row[x]
-			if ch == ".":
-				continue
-			var mat: String = main_mat if ch == "M" else ItemDefs.MASK_MATS.get(ch, main_mat)
-			if ch == "i" and def.kind == "shield" and Materials.get_mat(main_mat).get("conducts", false):
-				mat = main_mat
-			var hp: float = Materials.hp_of(mat) * hp_mult * cond
-			cs[Vector2i(x, y)] = {"mat": mat, "hp": hp, "max": Materials.hp_of(mat) * hp_mult, "shade": 1.0}
-			if ch == "h":
-				cs[Vector2i(x, y)].handle = true
-	Item._shade(cs)
-	cells = cs
-	origin = Vector2(mask[0].length(), mask.size()) * CELL * 0.5
-	_rebuild_shapes()
-	max_total = 0.0
+		def.swing_damage = float(ItemDefs.DEFS[def.id].swing_damage) * new_size * (ItemDefs.ASCEND_DAMAGE if def.get("ascended", false) else 1.0)
+	if def.kind == "coin" and ItemDefs.DEFS.has(def.get("id", "")):
+		# more gold or less: a coin's worth goes with its area (never below one)
+		def.value = maxi(1, roundi(float(ItemDefs.DEFS[def.id].value) * new_size * new_size))
+	# what's there is what grows (or shrinks): each cell of it, damage, rust and all, scaled
+	# like the mask is, so a broken blade's stub grows into a bigger stub, not a whole sword
+	var lo := Vector2i(1 << 30, 1 << 30)
+	var hi := -lo
 	for c in cells:
-		max_total += cells[c].max
+		lo = Vector2i(mini(lo.x, c.x), mini(lo.y, c.y))
+		hi = Vector2i(maxi(hi.x, c.x), maxi(hi.y, c.y))
+	var size_old := hi - lo + Vector2i.ONE
+	var size_new := Vector2i(maxi(1, roundi(size_old.x * f)), maxi(1, roundi(size_old.y * f)))
+	var scaled := {}
+	for y in size_new.y:
+		for x in size_new.x:
+			var src := lo + Vector2i(mini(int(x / f), size_old.x - 1), mini(int(y / f), size_old.y - 1))
+			if cells.has(src):
+				scaled[Vector2i(x, y)] = (cells[src] as Dictionary).duplicate()
+	if scaled.is_empty():
+		return
+	_shade(scaled)
+	# the same middle stays where it was in the body
+	var mid := (Vector2(lo + hi) + Vector2.ONE) * 0.5 * CELL - origin
+	var was := 0.0
+	for c in cells:
+		was += cells[c].max
+	var now := 0.0
+	for c in scaled:
+		now += scaled[c].max
+	max_total *= now / maxf(was, 0.001)  # (what it's lost stays lost: a stub is still a stub)
+	cells = scaled
+	origin = Vector2(size_new) * CELL * 0.5 - mid
+	_rebuild_shapes()
 	_recompute_mass()
 	queue_redraw()
 
@@ -646,32 +745,6 @@ func catch_at(p: Vector2, reach: float) -> Vector2:
 func catch_rust(level: float) -> void:
 	if conductive and level > rusting:
 		rusting = minf(1.0, level)
-
-
-## Pull every weld off this item (and off whatever was welded to it).
-func unstick() -> void:
-	for k in _joints.keys():
-		for j in _joints[k]:
-			if is_instance_valid(j):
-				j.queue_free()
-	_joints.clear()
-	for n in get_tree().get_nodes_in_group("items"):
-		var o := n as Item
-		if o and o._joints.has(self):
-			for j in o._joints[self]:
-				if is_instance_valid(j):
-					j.queue_free()
-			o._joints.erase(self)
-
-
-func is_stuck() -> bool:
-	if not _joints.is_empty():
-		return true
-	for n in get_tree().get_nodes_in_group("items"):
-		var o := n as Item
-		if o and o._joints.has(self):
-			return true
-	return false
 
 
 ## Turn one cell into another material, keeping how damaged it was.
@@ -764,6 +837,9 @@ func _update_elements(delta: float) -> void:
 		cold = 1.0
 	else:
 		cold = maxf(0.0, cold - delta * 0.1)
+	# frost douses a fire outright: the flames die the moment it takes, the warmth lingers
+	if cold > 0.15 and is_burning() and not has_mod("superheated"):
+		heat = minf(heat, 0.55)
 	# heat and cold eat each other: frost puts fires out, fire thaws ice
 	if heat > 0.0 and cold > 0.0:
 		var m := minf(heat, cold) * delta * 2.0
@@ -799,6 +875,10 @@ func _update_elements(delta: float) -> void:
 			o.charge = charge * 0.9
 		elif o.charge > 0.1 and conductive and charge < o.charge * 0.9:
 			charge = o.charge * 0.9
+		if is_burning() and o.can_catch():
+			o.ignite(dt * 4.0)
+		elif o.is_burning() and can_catch():
+			ignite(dt * 4.0)
 		if heat > o.heat:
 			o.heat = minf(1.0, o.heat + (heat - o.heat) * dt * (2.0 if o.conductive else 0.8))
 		elif o.heat > heat:
@@ -851,15 +931,20 @@ func _update_elements(delta: float) -> void:
 				rusting = maxf(0.0, rusting - 0.012)
 	if is_burning():
 		burn_time += 0.25
-		if burn_time >= BURN_LIMIT:
-			charred = true  # burnt out: smoulders down and won't light again
-			queue_redraw()
 		var burnable: Array = []
 		for c in cells:
 			if Materials.get_mat(cells[c].mat).get("burns", false):
 				burnable.append(c)
-		if not burnable.is_empty():
-			damage_cell(burnable[randi() % burnable.size()], 0.6, false)
+		if burnable.is_empty():
+			if burn_time >= BURN_LIMIT:
+				charred = true  # (oiled metal: the oil's burnt off)
+				queue_redraw()
+		else:
+			# the fire eats through it: a share of its wood every tick, faster as it takes hold
+			var dmg := BURN_DAMAGE * (1.0 + minf(burn_time, 6.0) * 0.25)
+			for i in maxi(1, ceili(burnable.size() * BURN_SHARE)):
+				damage_cell(burnable[randi() % burnable.size()], dmg, false)
+			_spread_fire(burnable)
 	if has_mod("regenerating"):
 		repair(0.0075)
 	if def.has("parts") and def.kind == "weapon":
@@ -1079,27 +1164,6 @@ static func _part_summary(d: Dictionary, dens: float, n: int) -> Dictionary:
 	return pd
 
 
-func _stick_to(o: Item) -> void:
-	for k in _joints.keys():
-		if not is_instance_valid(k):
-			_joints.erase(k)
-	if _joints.has(o) or o._joints.has(self) or _joints.size() >= 4:
-		return
-	# two plain pins along the line between the bodies make a rigid weld
-	# (a zero-width angular limit on one pin is unstable in the 2D solver)
-	var a := to_global(center_of_mass)
-	var b := o.to_global(o.center_of_mass)
-	var pins: Array[PinJoint2D] = []
-	for t in [0.35, 0.65]:
-		var j := PinJoint2D.new()
-		add_child(j)
-		j.global_position = a.lerp(b, t)
-		j.node_a = j.get_path_to(self)
-		j.node_b = j.get_path_to(o)
-		pins.append(j)
-	_joints[o] = pins
-
-
 ## Safety net: if the solver ever hands us non-finite numbers, snap back to the last good
 ## state instead of letting NaNs spread through contacts and joints.
 func _is_sane() -> bool:
@@ -1181,12 +1245,6 @@ func _part_of(cell: Dictionary) -> Dictionary:
 	return def
 
 
-## The kind of thing at a point of this item ("shield" where a buckler is glued on).
-func kind_at(p: Vector2) -> String:
-	var c := cell_at_global(p)
-	return str(_part_of(cells[c]).kind) if cells.has(c) else str(def.kind)
-
-
 ## The piece of this item at a local point (the grip): a glued sword-and-buckler held by the
 ## buckler is a buckler to Space, held by the sword it's a sword. Every part still blocks.
 func part_at_local(local: Vector2) -> Dictionary:
@@ -1220,10 +1278,6 @@ func heft() -> float:
 		elif pd.kind != "shield":
 			extra += m
 	return clampf(1.0 + 0.5 * extra / maxf(blade, 1.0), 1.0, 1.6)
-
-
-func damage_at(p: Vector2, amount: float) -> void:
-	damage_cell(cell_at_global(p), amount, true)
 
 
 ## An enemy blow chewing into it where a lane met it: the cell it struck and the ring of
@@ -1267,8 +1321,8 @@ func _fail_cell(c: Vector2i, m: Dictionary) -> void:
 		call_deferred("shatter")
 	cells.erase(c)
 	_shapes_dirty = true
-	if m.behavior != "tear":
-		# the failed cell comes off as a splinter / scrap of its own
+	if m.behavior != "tear" and not (m.get("burns", false) and is_burning()):
+		# the failed cell comes off as a splinter / scrap of its own (one that burnt away is ash)
 		cell.hp = cell.max * 0.6
 		var fling := Vector2(randf_range(-1.0, 1.0), randf_range(-1.4, -0.2)).normalized() * randf_range(80.0, 240.0)
 		_pending_debris.append({"cells": {c: cell}, "vel": fling})
@@ -1303,7 +1357,7 @@ func _draw_aura(cv: CanvasItem, t: float, half: Vector2) -> void:
 		cv.draw_line(p - Vector2(s, 0), p + Vector2(s, 0), Color(1, 1, 1, a), 1.0)
 		cv.draw_line(p - Vector2(0, s), p + Vector2(0, s), Color(1, 1, 1, a), 1.0)
 	if asc:
-		cv.draw_arc(center_of_mass, origin.length() * 0.6 + 6.0 + sin(t * 3.0) * 2.0, 0.0, TAU, 40, Color(0.85, 0.75, 1.0, 0.35), 2.0)
+		cv.draw_arc(center_of_mass, origin.length() * 0.6 + 6.0 + sin(t * 3.0) * 2.0, 0.0, TAU, 40, Color(0.4, 0.85, 1.0, 0.35), 2.0)
 
 
 ## Where a weapon's boss runes go: four per boss slain, spread down the blade.
@@ -1566,7 +1620,7 @@ func _spawn_piece(sub: Dictionary, extra_vel: Vector2) -> void:
 	var piece := Item.new()
 	piece._init_from(d, sub, origin)
 	piece.owned = owned
-	piece.heat = heat * 0.7  # leftover heat and cold fade on their own
+	piece.heat = heat if is_burning() else heat * 0.7  # leftover heat and cold fade on their own (but a fire carries on in what breaks off)
 	piece.cold = cold * 0.7
 	piece.charred = charred
 	piece.burn_time = burn_time
@@ -1653,6 +1707,9 @@ func _draw() -> void:
 		var m := Materials.get_mat(cell.mat)
 		var hpf := clampf(cell.hp / cell.max, 0.0, 1.0)
 		var base: Color = def.gem if cell.mat == "gem" and def.has("gem") else m.color
+		if cell.mat == "prestigium":
+			var span := maxf(1.0, (origin.x + origin.y) * 2.0 / CELL)
+			base = PRESTIGIUM_FROM.lerp(PRESTIGIUM_TO, clampf(float(c.x + c.y) / span, 0.0, 1.0))
 		if cell.mat == "glass" and def.has("liquid_color"):
 			base = (def.liquid_color as Color).lerp(Color(1, 1, 1), 0.2)
 		if has_mod("poisoned") and not cells.has(c + Vector2i.UP):
@@ -1725,6 +1782,13 @@ func _draw() -> void:
 		draw_arc(tp, 3.5, 0.0, TAU, 12, hc, 1.0)
 		draw_line(tp + Vector2(-5, 0), tp + Vector2(5, 0), hc, 1.0)
 		draw_line(tp + Vector2(0, -5), tp + Vector2(0, 5), hc, 1.0)
+	if look == "Flat Pixels":
+		# a thin dark edge round the silhouette, as the foes have: it reads against a dark room
+		for e in _edges:
+			var d: Vector2i = e[1]
+			var p := cell_pos(e[0]) + Vector2(d) * (CELL * 0.5 + 0.5)
+			var tt := Vector2(-d.y, d.x) * (CELL * 0.5 + 1.0)
+			draw_line(p - tt, p + tt, Color(0.03, 0.02, 0.02, 0.85), 1.5)
 	if look == "Outlined Sprite":
 		# one dark outline around the whole silhouette, with a light bevel on top-left edges
 		for c in cells:
@@ -1740,7 +1804,7 @@ func _draw() -> void:
 						draw_line(p + e2 - t2, p + e2 + t2, Color(1, 1, 1, 0.25), 1.0)
 	if def.kind == "weapon":
 		_draw_engravings()
-	if base_gravity == 0.0 or levitate_time > 0.0:
+	if (base_gravity == 0.0 and not has_meta("fall_gravity")) or levitate_time > 0.0:  # (not while falling to the Core: that's not magic)
 		draw_arc(center_of_mass, origin.length() * 0.5 + 4.0, 0.0, TAU, 16, Color(0.55, 0.8, 1.0, 0.35), 1.0)
 	if mods.has("volatile"):
 		# a rune at the heart of it (the effects layer makes it pulse)
@@ -1895,6 +1959,7 @@ func _draw_fx(cv: CanvasItem) -> void:
 		cv.draw_line(cc + Vector2(-4, 4), cc + Vector2(4, -4), Color(1, 0.2, 0.1, a), 2.0)
 	if not _mod_looks.is_empty():
 		_draw_mod_looks(cv, t, half)
+	_draw_kind_fx(cv, t)
 	if Looks.pick("items") == "Material Texture":
 		for c in _shiny:
 			if not cells.has(c):

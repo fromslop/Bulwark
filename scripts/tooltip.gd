@@ -22,6 +22,7 @@ const MOD_COLORS := {
 	"small": Color(0.75, 0.6, 1.0), "large": Color(0.75, 0.6, 1.0), "huge": Color(0.75, 0.6, 1.0),
 }
 const INK := Color(0.93, 0.88, 0.78)
+const EPIC := Color(0.78, 0.5, 1.0)  # epic modifiers: violet, past the rares' gold
 const DIM := Color(0.62, 0.57, 0.5)
 
 var _card: Card
@@ -548,13 +549,13 @@ class Card:
 			_frame(accent)
 		var y := PAD
 		# title row: name, then the price as a coin (red when you can't afford it)
-		var price_w := 0.0 if item.owned else 54.0
+		var price_w := 0.0 if item.owned or not item.has_meta("price") else 54.0  # (a chip off shop stock isn't for sale)
 		var shown := item.display_name()
 		if paint:
 			draw_string(font, Vector2(PAD, y + 20), shown, HORIZONTAL_ALIGNMENT_LEFT, -1, _title_size(shown, W - PAD * 2 - price_w), accent)
-			if not item.owned:
+			if price_w > 0.0:
 				var have: int = game.coin_total()
-				var cost: int = d.cost
+				var cost: int = int(item.get_meta("price"))
 				var px := W - PAD - price_w + 4
 				_coin(Vector2(px + 9, y + 13), 9.0)
 				draw_string(font, Vector2(px + 22, y + 20), str(cost), HORIZONTAL_ALIGNMENT_LEFT, -1, 18,
@@ -608,8 +609,9 @@ class Card:
 			y += 4
 			for m in d.modifiers:
 				var rare: bool = ItemDefs.MODIFIERS[m].get("rare", false)
-				var col: Color = Color(1.0, 0.82, 0.3) if rare else MOD_COLORS.get(m, INK)
-				var mname := ("RARE: " if rare else "") + str(ItemDefs.MODIFIERS[m].get("name", m)).to_upper()
+				var epic: bool = ItemDefs.MODIFIERS[m].get("epic", false)
+				var col: Color = EPIC if epic else (Color(1.0, 0.82, 0.3) if rare else MOD_COLORS.get(m, INK))
+				var mname := ("EPIC: " if epic else ("RARE: " if rare else "")) + str(ItemDefs.MODIFIERS[m].get("name", m)).to_upper()
 				var cw := font.get_string_size(mname, HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x + 12
 				if paint:
 					draw_rect(Rect2(PAD, y, cw, 16), Color(col.r, col.g, col.b, 0.22))

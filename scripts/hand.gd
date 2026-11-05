@@ -71,6 +71,7 @@ var frenzy_time := 0.0  # how long the streak has to land its next hit
 var gamble_mult := 1.0  # Gambler's Ring: what the next hit is multiplied by
 var blood_mult := 1.0  # Ring of Bloodletting: the next hit, paid for in blood
 var pain := 0.0  # everything the hand has taken this fight: blows, burns, its own blood (Ring of Scars)
+var hazard := false  # true while a held hazard's finishing burn goes through hurt()
 var self_harm := false  # true while a wound() is going through: a price paid on purpose
 var well_time := 0.0  # Ring of the Well: the pile is dragged to the hand while this runs
 var on_hurt: Callable  # set by the game: rings that change a blow to the hand (amount -> amount)
@@ -245,7 +246,8 @@ func release() -> void:
 func hurt(amount: float) -> void:
 	if amount <= 0.0:
 		return
-	amount *= resilience
+	if not hazard:
+		amount *= resilience
 	if on_hurt.is_valid():
 		amount = on_hurt.call(amount)
 		if amount <= 0.0:
@@ -489,8 +491,13 @@ func _touch_hazards(delta: float) -> void:
 		return
 	hazard_time = 0.2
 	var burnt := (shock * 10.0 + burn * 7.0 + frost * 4.0) * delta
-	injury = minf(max_hp, injury + burnt)
-	pain += burnt  # (grabbing a red-hot blade on purpose feeds the Ring of Scars)
+	if injury + burnt >= max_hp:
+		hazard = true
+		hurt(burnt)  # the burn that would finish it goes through hurt(): a Phoenix answers it
+		hazard = false
+	else:
+		injury += burnt
+		pain += burnt  # (grabbing a red-hot blade on purpose feeds the Ring of Scars)
 	if shock > 0.5 and held and randf() < delta * 1.5:
 		release()
 

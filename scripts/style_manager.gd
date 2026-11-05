@@ -15,7 +15,7 @@ const DARK_SHADER := "res://shaders/candle.gdshader"
 # to replace every colour with the setting's ramp, which turned each character the same
 # orange or green; this lets the modelled bodies keep their palettes. A setting's look can
 # override it with its own "keep".
-const KEEP_COLOUR := 0.35
+const KEEP_COLOUR := 0.45
 
 const NORMAL_ENV := {"bg": Color(0, 0, 0), "ambient": 0.4, "fog": 0.0, "fog_color": Color(0, 0, 0),
 	"light": Color(1, 0.9, 0.8), "energy": 1.0}

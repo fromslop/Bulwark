@@ -8,17 +8,21 @@ extends Node2D
 ##                    a frozen drain or quench barrel (frost), a fungus bloom (venom), a rust
 ##                    grate (rot), a storm glass (storm). The way into element reactions.
 ##   chandelier       punch its chain and it comes down on the foe
-##   blood altar      hold a weapon on it: it takes a share of your hand's health and
-##                    gives the weapon a rare modifier (once)
+##   blood altar      hold anything on it: it takes a share of your hand's health and
+##                    gives it a rare modifier (once)
 ## and the secrets, which only show when the hand is close:
 ##   loose brick      punch it three times for what's hidden behind it
 ##   falling star     now and then one streaks across the Star Chamber's sky; punch it
 ## Hold Alt over one to read what it does (the secrets, once found).
 
 const CELL := 7.5  # the items' own pixel size
+## A keepsake for each secret place's guardian beaten: [what it is].
+const RELICS := {"Coin Golem": ["a gold coin that still blinks"], "Housecat": ["its ball of yarn"],
+	"The Astronomer": ["a pocket orrery"], "Errata": ["a page with a blot on it"], "The Smelter": ["its crucible, on the mantel, still molten"]}
+const BUNTING_MAX := 30  # flags on the home's bunting (a flag per five foes felled)
 const NEAR := 110.0  # how close the hand has to be for a prop to show it's live
-const SECRET_NEAR := 70.0  # and for a secret to show at all
 const INFO := {
+	"core_trophy": ["The Smelter's Crucible", "Carried up from the Molten Core, where the floor gave way. It hasn't cooled, and it never will."],
 	"torch": ["Wall Torch", "Hold a piece in the flame and it heats up: fire for element reactions, and a red-hot blade scorches what it hits."],
 	"frost_drain": ["Frozen Drain", "Rimed over. Hold a piece against it and it chills: frost for element reactions."],
 	"quench": ["Quench Barrel", "Ice-cold water. Dip a piece and it chills (red-hot metal is tempered): frost for element reactions."],
@@ -26,12 +30,16 @@ const INFO := {
 	"rust_grate": ["Rust Grate", "Weeping rust. Hold a piece in it and it turns corrosive: rot for element reactions. Careful what it touches after."],
 	"storm_glass": ["Storm Glass", "A jar of trapped lightning. Hold a piece to it and it stays charged for a while: storm for element reactions."],
 	"chandelier": ["Chandelier", "Punch the chain and it drops on whoever's below: a heavy blow that staggers, and the candles catch."],
-	"altar": ["Blood Altar", "Hold a weapon on it: it takes a third of your hand's health and gives the weapon a rare modifier. Once."],
+	"altar": ["Blood Altar", "Hold anything on it: it takes a third of your hand's health and gives the piece a rare modifier. Once."],
 	"brick": ["Loose Brick", "There was something behind it."],
 	"star": ["Falling Star", "Punch one as it passes."],
 	"still_star": ["A Star That Waits", "It hangs still, too high to punch. Something that weighs nothing might reach it."],
 	"dummy": ["Training Dummy", "Swing at it to see what a hit does: rings, infusions and all. It remembers your best."],
-	"trophies": ["Trophy Board", ""],  # filled in from the save: see describe()
+	"tally": ["Tally", ""],  # these three are filled in from the save: see describe()
+	"trophy_shelf": ["Trophy Shelf", ""],
+	"pennant": ["Pennant", ""],
+	"relics": ["Relic Shelf", ""],
+	"bunting": ["Bunting", ""],
 	"cat": ["The Cat", "Asleep on the sill. Rest your empty hand on it a while."],
 	"hearth": ["Hearth", ""],  # filled in from the save: see describe()
 	"gong": ["Gong", "Strike it to go on. Look closely at its face first."],
@@ -64,10 +72,13 @@ const LAYOUT := {
 	"Star Chamber": [["storm_glass", Vector2(240, 160), 30.0, 1.0]],
 	"Hidden Vault": [["chandelier", Vector2(640, 48), 26.0, 1.0]],
 	"Homestead": [["dummy", Vector2(420, 470), 80.0, 1.0],  # stands on the floor
-		["trophies", Vector2(790, 200), 34.0, 1.0],  # on the wall between the beam and the mantel
+		["trophy_shelf", Vector2(790, 196), 60.0, 1.0],  # a cup for every boss, on the wall between the beam and the mantel
+		["tally", Vector2(520, 180), 50.0, 1.0],  # a chalk mark for every run, on the plaster by the window
+		["pennant", Vector2(590, 360), 34.0, 1.0],  # hung on the plaster: a star for every prestige reached
+		["bunting", Vector2(640, 40), 40.0, 1.0],  # strung along the top beam: a flag for every five foes felled
 		["cat", Vector2(300, 408), 26.0, 1.0],  # on the window sill
 		["placard", Vector2(790, 266), 30.0, 1.0],  # under the trophy board: which build this is
-		["hearth", Vector2(1060, 640), 95.0, 1.0]],  # the fireplace: melts junk down
+		["hearth", Vector2(1110, 560), 100.0, 1.0]],  # the fireplace: melts junk down
 	"Gilded Gullet": [["chandelier", Vector2(640, 48), 26.0, 1.0]],
 	"Giant's Table": [["torch", Vector2(1080, 140), 30.0, 1.0]],  # the giant candle's drip
 	"Clockwork Orrery": [["storm_glass", Vector2(240, 160), 30.0, 1.0]],
@@ -97,6 +108,12 @@ func setup(setting: String, rng_seed: int) -> void:
 			_add(p[0], p[1], p[2])
 	if setting == "Star Chamber":
 		_star_timer = _rng.randf_range(6.0, 12.0)
+	if setting == "Homestead" and game:
+		var have: Array = game.save.found.get("guardians", [])
+		if not have.filter(func(g: String) -> bool: return g != "The Smelter").is_empty():
+			_add("relics", Vector2(726, 350), 70.0)  # a shelf of keepsakes from the secret places' guardians
+		if have.has("The Smelter"):
+			_add("core_trophy", Vector2(1010, 292), 40.0)  # the Molten Core's prize: up on the mantel, glowing
 	queue_redraw()
 
 
@@ -121,10 +138,27 @@ func describe(key: String) -> Array:
 			[floori(float(game.save.stats.get("smelt", 0.0))), int(game.SMELT_PURSE)]]
 	if kind == "placard":
 		return ["Hoardsman", "Build %s" % version()]
-	if kind == "trophies" and game:
+	if game:
 		var st: Dictionary = game.save.stats
-		return ["Trophy Board", "Runs %d   ·   Deaths %d   ·   Foes felled %d   ·   Bosses %d\nDeepest run: prestige %d   ·   Best hit: %d" %
-			[st.runs, st.deaths, st.kills, st.bosses, game.save.prestige_best, st.best_hit]]
+		match kind:
+			"tally":
+				return ["Tally", "A chalk mark for every run you've set out on: %d. The charcoal ones didn't come back: %d.\nFoes felled, all told: %d." % [st.runs, st.deaths, st.kills]]
+			"trophy_shelf":
+				var names: Array = []
+				for t in game.save.trophies:
+					if str(t[0]) != "":
+						names.append("%s%s" % [t[0], " (prestige %d)" % int(t[1]) if int(t[1]) > 0 else ""])
+				return ["Trophy Shelf", ("A cup for every boss you've felled: %d. The deeper the run, the bigger the cup.\n%s" % [st.bosses, ", ".join(PackedStringArray(names))]) if st.bosses > 0 else "Empty. Fell a boss and its cup goes up here."]
+			"relics":
+				var have: Array = game.save.found.get("guardians", [])
+				var lines: Array = []
+				for g in have:
+					lines.append("%s: %s" % [RELICS.get(g, ["a keepsake"])[0], g])
+				return ["Relic Shelf", "Something from every secret place's guardian you've beaten (%d of %d).\n%s" % [have.size(), Secrets.STAGES.size(), "\n".join(PackedStringArray(lines))]]
+			"bunting":
+				return ["Bunting", "A flag for every five foes you've felled: %d felled, %d flags." % [st.kills, mini(int(st.kills / 5), BUNTING_MAX)] if st.kills >= 5 else "A bare string. Fell five foes and the first flag goes up."]
+			"pennant":
+				return ["Pennant", "A star for every prestige reached: your deepest run went to prestige %d." % game.save.prestige_best if game.save.prestige_best > 0 else "Plain. Push a run past its first boss and it gets its first star."]
 	return INFO.get(kind, ["?", ""])
 
 
@@ -296,12 +330,12 @@ func feed(items: Array, delta: float) -> void:
 						game.prop_feedback(it.global_position, Color(0.6, 0.85, 1.0))
 					it.storm_time = maxf(it.storm_time, 8.0)
 				"altar":
-					if it.def.kind != "weapon" or not it.held:
+					if it.def.kind in ["menu", "upgrade"] or not it.held:
 						continue
 					it.set_meta("on_altar", float(it.get_meta("on_altar", 0.0)) + delta)
 					if float(it.get_meta("on_altar")) > 1.5:
-						pr.used = true
-						game.on_altar(it, pr.pos)
+						it.set_meta("on_altar", 0.0)
+						pr.used = game.on_altar(it, pr.pos)  # (nothing left to give it: the altar waits)
 
 
 func _touches(it: Item, pr: Dictionary) -> bool:
@@ -392,15 +426,6 @@ static func _ray_box(o: Vector3, d: Vector3, box: AABB) -> float:
 		t0 = maxf(t0, minf(a, b))
 		t1 = minf(t1, maxf(a, b))
 	return t0 if t0 <= t1 and t1 > 0.0 else INF
-
-
-## Where a screen point meets the floor (y = 0).
-func _floor_point(screen: Vector2) -> Vector3:
-	var cam := _cam()
-	var o := cam.project_ray_origin(screen)
-	var d := cam.project_ray_normal(screen)
-	var t := -o.y / d.y if absf(d.y) > 0.0001 else 1.0
-	return o + d * t
 
 
 ## World units per screen pixel at a point (so props keep their size on screen).
@@ -566,14 +591,115 @@ func _build3d(pr: Dictionary) -> void:
 			_piece(body, _ball3(30, k, 10), Vector3(0, -350, 0), straw.lightened(0.05), k)
 			for i in 3:
 				_piece(body, _box3(94, 5, 54, k), Vector3(0, -225 - i * 30, 0), Color(0.55, 0.4, 0.2), k)
-		"trophies":
-			_piece(root, _box3(84, 44, 8, k), Vector3.ZERO, wood, k)
-			_piece(root, _box3(76, 4, 14, k), Vector3(0, 6, 6), wood.darkened(0.2), k)
-			if game:
-				for i in mini(int(game.save.prestige_best), 5):
-					_piece(root, _cyl3(5, 3, 12, k, 8), Vector3(-28 + i * 14, -2, 8), Color(0.95, 0.75, 0.25), k, 0.8)
-				for i in mini(int(game.save.stats.bosses), 6):
-					_piece(root, _ball3(4.5, k, 6), Vector3(-28 + i * 11, 14, 8), Color(0.9, 0.88, 0.8), k)
+		"trophy_shelf":
+			# a wall shelf on two brackets; a cup on it for every boss felled, bigger for a
+			# deeper run, its bowl glinting in that boss's colour
+			_piece(root, _box3(230, 8, 34, k), Vector3(0, 22, 14), wood, k)
+			for sx in [-1, 1]:
+				_piece(root, _box3(8, 26, 30, k), Vector3(sx * 96, 36, 10), wood.darkened(0.2), k)
+			var cups: Array = game.save.trophies.duplicate() if game else []
+			var n := mini(cups.size(), 9)
+			for i in n:
+				var t: Array = cups[cups.size() - n + i]
+				var s := 1.0 + 0.3 * float(int(t[1]))
+				var gold := Color(0.95, 0.75, 0.25)
+				var foe: Dictionary = EnemyDefs.ENEMIES.get(str(t[0]), {})
+				for key in EnemyDefs.ENEMIES:
+					if foe.is_empty() and EnemyDefs.ENEMIES[key].get("name", "") == str(t[0]):
+						foe = EnemyDefs.ENEMIES[key]
+				var bowl: Color = gold.lerp(foe.get("color", gold), 0.3) if not foe.is_empty() else gold
+				var cx := -100.0 + (i + 0.5) * 200.0 / maxf(1.0, n)
+				_piece(root, _cyl3(6, 8, 4, k, 8), Vector3(cx, 16 - 2 * s, 14), gold.darkened(0.2), k)  # foot
+				_piece(root, _cyl3(2, 2, 8 * s, k, 6), Vector3(cx, 14 - 6 * s, 14), gold, k)  # stem
+				_piece(root, _cyl3(9 * s, 4 * s, 12 * s, k, 10), Vector3(cx, 8 - 14 * s, 14), bowl, k, 0.5)  # bowl
+				for hx in [-1, 1]:
+					_piece(root, _box3(3, 7 * s, 3, k), Vector3(cx + hx * 10 * s, 8 - 14 * s, 14), gold, k)  # handles
+		"tally":
+			# chalk marks scratched on the plaster, in fives: one per run. The runs that ended
+			# in a death are in charcoal.
+			var runs := mini(int(game.save.stats.runs) if game else 0, 60)
+			var died := mini(int(game.save.stats.deaths) if game else 0, runs)
+			for i in runs:
+				var grp := int(i / 5)
+				var gx := -60.0 + (grp % 5) * 28.0
+				var gy := -30.0 + int(grp / 5) * 26.0
+				var col := Color(0.12, 0.1, 0.09) if i < died else Color(0.92, 0.9, 0.82)
+				if i % 5 == 4:
+					_piece(root, _box3(26, 2.5, 1, k), Vector3(gx + 6, gy, 2), col, k, 0.1, Vector3(0, 0, 0.5))  # the strike through
+				else:
+					_piece(root, _box3(2.5, 18, 1, k), Vector3(gx + (i % 5) * 5, gy, 1), col, k, 0.1, Vector3(0, 0, 0.06 * ((i * 7) % 3 - 1)))
+		"core_trophy":
+			# the Smelter's crucible: squat black iron on three stubby feet, brimming with slag that
+			# never cools, a glowing drip down its lip, lighting the plaster above it
+			var slag := Color(0.85, 0.2, 0.04)  # (deep: a brighter glow washes out to the plaster's cream in the home's grade)
+			for fx in [-14, 0, 14]:
+				_piece(root, _box3(6, 8, 6, k), Vector3(fx, 4, 14 + absf(fx) * 0.3), iron.darkened(0.4), k)
+			_piece(root, _cyl3(30, 20, 38, k, 14), Vector3(0, -19, 14), Color(0.09, 0.08, 0.08), k)
+			_piece(root, _cyl3(33, 33, 5, k, 14), Vector3(0, -38, 14), Color(0.16, 0.13, 0.12), k)  # the rim
+			for hx in [-1, 1]:
+				_piece(root, _box3(10, 5, 6, k), Vector3(hx * 36, -30, 14), Color(0.12, 0.1, 0.09), k)  # lugs
+			pr.flame = _piece(root, _cyl3(28, 28, 3, k, 14), Vector3(0, -41, 14), slag, k, 1.4)  # the molten top
+			# heaped up over the rim, so it shows from the front: a glowing mound with dark crusts
+			_piece(root, _ball3(24, k, 10), Vector3(0, -44, 18), slag, k, 1.2).scale = Vector3(1.0, 0.45, 0.8)
+			for i in 5:
+				var a := i * 1.3
+				_piece(root, _ball3(4.0 + (i % 2) * 2.0, k, 6), Vector3(cos(a) * 15, -50, 22 + sin(a) * 8), Color(0.2, 0.08, 0.04), k, 0.4)  # crusts
+			for cx in [-12, 4, 15]:  # cracks in the iron, glowing through
+				_piece(root, _box3(2.5, 14, 1, k), Vector3(cx, -18, 40), slag, k, 1.0, Vector3(0, 0, 0.3 if cx < 0 else -0.25))
+			_piece(root, _box3(5, 22, 3, k), Vector3(22, -26, 34), slag, k, 1.2, Vector3(0, 0, 0.12))  # the drip
+			_piece(root, _ball3(4, k, 6), Vector3(24, -15, 34), slag, k, 1.2)
+			_light3(root, Color(1.0, 0.4, 0.15), 0.5, 0.9).position = Vector3(0, -60, 30) * k
+		"relics":
+			# a little wall shelf, and on it whatever's been brought back from the secret places
+			_piece(root, _box3(170, 7, 30, k), Vector3(0, 20, 12), wood.darkened(0.1), k)
+			for sx in [-1, 1]:
+				_piece(root, _box3(6, 20, 24, k), Vector3(sx * 70, 32, 10), wood.darkened(0.3), k)
+			var have: Array = game.save.found.get("guardians", []) if game else []
+			var order := ["Coin Golem", "Housecat", "The Astronomer", "Errata"]  # (the Smelter's is on the mantel: core_trophy)
+			for i in order.size():
+				if not have.has(order[i]):
+					continue
+				var x := -58.0 + i * 29.0
+				match order[i]:
+					"Coin Golem":  # a short stack of gold, green-eyed
+						for c in 4:
+							_piece(root, _cyl3(9, 9, 4, k, 10), Vector3(x, 14 - c * 4.5, 14), Color(0.95, 0.72, 0.22).darkened(0.1 * (c % 2)), k, 0.3)
+						for ex in [-1, 1]:
+							_piece(root, _ball3(1.6, k, 5), Vector3(x + ex * 3, -2, 23), Color(0.4, 1.0, 0.75), k, 3.0)
+					"Housecat":  # a ball of blue yarn, a strand trailing off the shelf
+						_piece(root, _ball3(9, k, 8), Vector3(x, 9, 14), Color(0.25, 0.4, 0.8), k)
+						_piece(root, _box3(2, 18, 2, k), Vector3(x + 9, 26, 20), Color(0.25, 0.4, 0.8), k, 0.0, Vector3(0, 0, 0.3))
+					"The Astronomer":  # a brass orrery: a sun, a ring, a little world
+						_piece(root, _cyl3(3, 5, 8, k, 6), Vector3(x, 14, 14), Color(0.7, 0.55, 0.25), k)
+						_piece(root, _ball3(5, k, 8), Vector3(x, 4, 14), Color(1.0, 0.8, 0.35), k, 1.5)
+						_piece(root, _cyl3(11, 11, 1.2, k, 14), Vector3(x, 4, 14), Color(0.75, 0.6, 0.3), k, 0.0, Vector3(0.4, 0, 0.2))
+						_piece(root, _ball3(2.4, k, 6), Vector3(x + 11, 1, 16), Color(0.4, 0.55, 0.9), k)
+					"Errata":  # a page with a blot on it, propped against the wall
+						_piece(root, _box3(20, 26, 1, k), Vector3(x, 5, 6), Color(0.92, 0.88, 0.78), k, 0.0, Vector3(-0.2, 0, 0.05))
+						_piece(root, _ball3(5, k, 7), Vector3(x + 2, 4, 8), Color(0.03, 0.03, 0.05), k)
+		"bunting":
+			# a string along the beam; a little triangle flag on it for every five foes felled
+			var n := mini(int(int(game.save.stats.kills) / 5) if game else 0, BUNTING_MAX)
+			var span := 1000.0
+			for i in 21:  # the string, sagging between nails
+				var x0 := -span * 0.5 + i * span / 21.0
+				var sag := 10.0 * sin(PI * fmod(float(i) / 21.0 * 3.0, 1.0))
+				_piece(root, _box3(span / 21.0 + 2, 1.5, 1.5, k), Vector3(x0 + span / 42.0, sag, 2), Color(0.75, 0.68, 0.5), k)
+			var cols := [Color(0.6, 0.15, 0.12), Color(0.85, 0.7, 0.3), Color(0.2, 0.35, 0.6), Color(0.3, 0.5, 0.25), Color(0.85, 0.8, 0.7)]
+			for i in n:
+				var x := -span * 0.5 + (i + 0.5) * span / BUNTING_MAX
+				var sag := 10.0 * sin(PI * fmod((i + 0.5) / BUNTING_MAX * 3.0, 1.0))
+				for row in 4:
+					_piece(root, _box3(18.0 * (1.0 - row / 4.0), 5, 1, k), Vector3(x, sag + 4 + row * 5, 3), cols[i % cols.size()], k)
+		"pennant":
+			# a long cloth pennant from the beam, a gold star for every prestige reached
+			var cloth := Color(0.5, 0.12, 0.1)
+			_piece(root, _cyl3(2, 2, 70, k, 6), Vector3(0, -38, 4), wood, k, 0.0, Vector3(0, 0, PI / 2))  # the rod
+			for row in 10:
+				var w := 60.0 * (1.0 - row / 10.0)
+				_piece(root, _box3(w, 9, 2, k), Vector3(0, -30 + row * 9, 4), cloth.darkened(0.06 * (row % 2)), k)
+			for i in mini(int(game.save.prestige_best) if game else 0, 6):
+				_piece(root, _box3(7, 7, 2, k), Vector3(0, -24 + i * 12, 6), Color(1.0, 0.8, 0.3), k, 1.2, Vector3(0, 0, PI / 4))
 		"placard":
 			_piece(root, _box3(152, 64, 6, k), Vector3.ZERO, wood, k)
 			_piece(root, _box3(144, 56, 2, k), Vector3(0, 0, 3.5), wood.lightened(0.12), k)
@@ -598,7 +724,6 @@ func _build3d(pr: Dictionary) -> void:
 			_piece(cat, _cyl3(3, 3, 30, k, 6), Vector3(22, 14, 0), fur, k, 0.0, Vector3(0, 0, 1.2))
 		"hearth":
 			pass  # the fireplace is already in the room
-	_build_star_and_planets()
 
 
 ## Words burnt into a prop, `size` screen pixels tall, centred on `px`.
@@ -615,10 +740,6 @@ func _letters(parent: Node3D, text: String, size: int, px: Vector3, col: Color, 
 	l.position = Vector3(px.x, -px.y, px.z) * k
 	l.set_meta("prop", true)
 	parent.add_child(l)
-
-
-func _build_star_and_planets() -> void:
-	pass
 
 
 ## Keep the 3D props moving: flames, the chandelier's fall, the dummy's sway, the cat, the
@@ -733,24 +854,3 @@ func _free3d() -> void:
 	_planet_nodes.clear()
 
 
-func _sprite(center: Vector2, rows: Array, palette: Dictionary) -> void:
-	var w: float = (rows[0] as String).length() * CELL
-	var h: float = rows.size() * CELL
-	var origin := center - Vector2(w, h) * 0.5
-	for y in rows.size():
-		var row: String = rows[y]
-		for x in row.length():
-			if palette.has(row[x]):
-				draw_rect(Rect2(origin + Vector2(x, y) * CELL - Vector2(1, 1), Vector2(CELL + 2, CELL + 2)), Color(0, 0, 0, 0.55))
-	for y in rows.size():
-		var row: String = rows[y]
-		for x in row.length():
-			if palette.has(row[x]):
-				draw_rect(Rect2(origin + Vector2(x, y) * CELL, Vector2(CELL, CELL)), palette[row[x]])
-
-
-func _flame(at: Vector2, t: float, outer: Color, inner: Color, k: float = 1.0) -> void:
-	var f := 1.0 + 0.15 * sin(t * 13.0) + 0.1 * sin(t * 7.3)
-	draw_circle(at + Vector2(0, -2) * k, 7.0 * f * k, Color(outer.r, outer.g, outer.b, 0.85))
-	draw_circle(at + Vector2(0, -6) * k, 4.5 * f * k, outer.lightened(0.2))
-	draw_circle(at + Vector2(0, -3) * k, 3.0 * k, inner)

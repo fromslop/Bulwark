@@ -18,17 +18,17 @@ func _initialize() -> void:
 			early_rare += 1
 	var late_legend := 0
 	var late_steel := 0
-	for i in 400:
+	for i in 1000:
 		var d := ItemDefs.roll_offer(8, rng)
 		if d.rarity == 3:
 			late_legend += 1
 		if d.material == "steel":
 			late_steel += 1
-	print("rarity: round 1 -> steel %d iron %d rare+ %d / 400 | round 9 -> legendary %d steel %d / 400" % [early_steel, early_iron, early_rare, late_legend, late_steel])
+	print("rarity: round 1 -> steel %d iron %d rare+ %d / 400 | round 9 -> legendary %d steel %d / 1000" % [early_steel, early_iron, early_rare, late_legend, late_steel])
 	if early_steel + early_iron + early_rare > 0:
 		fails.append("the first shop should be all common wood, leather and copper")
-	if late_legend < 2 or late_legend > 30 or late_steel < 60:
-		fails.append("late shops should turn up steel, and legendaries only rarely (%d / 400)" % late_legend)
+	if late_legend < 3 or late_legend > 40 or late_steel < 150:
+		fails.append("late shops should turn up steel, and legendaries only rarely (%d / 1000)" % late_legend)
 	# prestigium: none before the wall, some past it; a legendary in it is ascended
 	var prest := [0, 0]
 	for p in 2:

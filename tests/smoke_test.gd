@@ -213,8 +213,9 @@ func _setup_elements() -> void:
 	# electrified rock resting on an iron sword lying flat on the floor
 	zap_sword = main._spawn(ItemDefs.make("longsword", "iron"), Vector2(300, 690))
 	zap_sword.rotation = PI / 2
-	# a flat charged crate (a round rock tends to roll off the blade)
-	zap_rock = main._spawn(ItemDefs.make("crate", "wood", ["electrified"]), Vector2(300, 630))
+	# a flat charged strongbox (a round rock tends to roll off the blade; a wooden crate can
+	# catch fire from the hot test across the floor, and a fire takes its charge with it)
+	zap_rock = main._spawn(ItemDefs.make("strongbox", "iron", ["electrified"]), Vector2(300, 630))
 	# red-hot rock dropped on a crate
 	crate2 = main._spawn(ItemDefs.make("crate", "wood"), Vector2(800, 680))
 	hot_rock = main._spawn(ItemDefs.make("strongbox", "iron", ["superheated"]), Vector2(800, 560))  # flat, dropped from clear above: lands on it
@@ -227,7 +228,7 @@ func _setup_elements() -> void:
 
 
 func _check_elements() -> void:
-	_check(zap_sword.charge > 0.5, "iron touching an electrified crate should be charged (got %.2f)" % zap_sword.charge)
+	_check(zap_sword.charge > 0.5, "iron touching an electrified strongbox should be charged (got %.2f)" % zap_sword.charge)
 	_check(is_instance_valid(crate2) and crate2.heat > 0.3, "a crate under a red-hot rock should heat up")
 	_check(glue_a.has_part("crate"), "a buckler with glue on its underside, pressed on by hand, should fuse with the crate it lands on")
 	glue_a.held = false
@@ -266,6 +267,8 @@ func _check_elements() -> void:
 	main.hand.held = null
 	_check(main.hand.injury == before, "holding a charged sword by its wrapped handle should be safe")
 	main.hand.wear_ring("ring_grounding")
+	zap_sword.heat = 0.0  # (shock alone: any warmth it caught from the fire test isn't the ring's to stop)
+	zap_sword.cold = 0.0
 	before = main.hand.injury
 	main.hand.held = zap_sword
 	main.hand.grab_local = zap_sword.cell_pos(blade)
