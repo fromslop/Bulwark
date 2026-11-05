@@ -1,0 +1,7 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="PackedScene" path="res://addons/headnhands/recorder/hh_recorder.tscn" id="1_recorder"]
+[ext_resource type="Script" path="res://recording/studio/studio.gd" id="2_studio"]
+
+[node name="Recorder" instance=ExtResource("1_recorder")]
+script = ExtResource("2_studio")

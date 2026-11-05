@@ -218,6 +218,65 @@ func _toggle_recording() -> void:
 			_finish_recording()
 
 
+# --- Public controls (the workspace's buttons call these) ---------------------
+
+func is_idle() -> bool:
+	return state == State.IDLE
+
+
+func is_recording() -> bool:
+	return state == State.RECORDING
+
+
+func recording_time() -> float:
+	return (Time.get_ticks_usec() - record_start_usec) / 1_000_000.0 if state == State.RECORDING else 0.0
+
+
+func toggle_recording() -> void:
+	_toggle_recording()
+
+
+func select_character_id(id: String) -> void:
+	if state != State.IDLE:
+		return
+	_select_character(character_ids.find(id))
+	_stop_replay()
+
+
+func pick_cue(index: int) -> void:
+	if state == State.IDLE:
+		cue_index = clampi(index, -1, cues.size() - 1)
+
+
+## Replay the last take on the character, or go back to the live mirror.
+func toggle_replay() -> void:
+	_on_right_button("ax_button")
+
+
+func toggle_view() -> void:
+	_on_right_button("by_button")
+
+
+func toggle_play_along() -> void:
+	_on_left_button("by_button")
+
+
+func cycle_punch() -> void:
+	_on_left_button("primary_click")
+
+
+func toggle_ghost() -> void:
+	_on_right_button("primary_click")
+
+
+func punch_group() -> String:
+	return _punch_group()
+
+
+func character_id() -> String:
+	return _character_id()
+
+
 # --- Characters ---------------------------------------------------------------
 
 func _select_character(index: int) -> void:
