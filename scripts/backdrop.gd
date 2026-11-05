@@ -113,6 +113,8 @@ var _flames: Array = []  # [mesh, base scale, speed, phase]: tongues of fire tha
 var _spinners: Array = []  # [node, radians per second]: rings of crust turning round the Molten Core's whirlpool
 var _risers: Array = []  # [node, speed, bottom, top, drift]: embers and bubbles rising, then starting over
 var _rng := RandomNumberGenerator.new()
+var blaze := 0.0  # the home fire, stoked with wood: 0 is its usual size, 1 a roaring blaze
+const BLAZE_FADE := 0.04  # per second: a full blaze dies back down in about 25s
 
 
 static func create(name: String, with_lever: bool = false) -> Backdrop:
@@ -484,14 +486,17 @@ func _margin() -> void:
 
 func _process(_delta: float) -> void:
 	var t := Time.get_ticks_msec() * 0.001
+	blaze = maxf(0.0, blaze - BLAZE_FADE * get_process_delta_time())
 	for f in _flicker:
 		var l: OmniLight3D = f[0]
-		l.light_energy = f[1] * (0.8 + 0.12 * sin(t * f[2] + f[3]) + 0.08 * sin(t * f[2] * 2.7 + f[3] * 3.0))
+		var up := 1.0 + blaze * 1.3 if f.size() > 4 else 1.0  # (a hearth light: brighter as the fire's stoked)
+		l.light_energy = f[1] * up * (0.8 + 0.12 * sin(t * f[2] + f[3]) + 0.08 * sin(t * f[2] * 2.7 + f[3] * 3.0))
 	for f in _flames:
 		var m: Node3D = f[0]
 		var base: Vector3 = f[1]
 		var lick := 0.75 + 0.2 * sin(t * f[2] + f[3]) + 0.12 * sin(t * f[2] * 2.3 + f[3] * 1.7)
-		m.scale = Vector3(base.x * (1.1 - 0.2 * lick), base.y * lick, base.z)
+		var grow := 1.0 + blaze * 1.6 if f.size() > 4 else 1.0  # (a hearth flame: taller and fuller when stoked)
+		m.scale = Vector3(base.x * (1.1 - 0.2 * lick) * (1.0 + blaze * 0.5), base.y * lick * grow, base.z)
 		m.rotation.z = 0.12 * sin(t * f[2] * 0.6 + f[3])
 	var dt := get_process_delta_time()
 	for sp in _spinners:
@@ -502,6 +507,11 @@ func _process(_delta: float) -> void:
 		n.position.x += sin(t * 1.3 + float(r[4])) * 0.1 * dt
 		if n.position.y > float(r[3]):
 			n.position.y = float(r[2])
+
+
+## Wood thrown on the home fire: it flares up, then dies back down by itself.
+func stoke(amount: float) -> void:
+	blaze = minf(1.0, blaze + amount)
 
 
 ## A tongue of fire: a cone that licks and sways (see _process).
@@ -792,6 +802,7 @@ func _homestead() -> void:
 		_cyl(0.05, 0.055, 0.62, lg[0], Color(0.22, 0.13, 0.07), 7, lg[1])
 	for i in 9:
 		_box(Vector3(0.07, 0.04, 0.07), Vector3(0.95 + i * 0.065, 0.79, -1.10 + (i % 3) * 0.03), Color(1.0, 0.35 + (i % 3) * 0.12, 0.05), Vector3(0, i, 0), 3.0)
+	var first_flame := _flames.size()
 	for i in 7:
 		var fx := 0.98 + i * 0.075
 		var h := 0.22 + 0.18 * sin(i * 1.3 + 0.4) * sin(i * 0.7) + (0.12 if i in [2, 3, 4] else 0.0)
@@ -799,7 +810,10 @@ func _homestead() -> void:
 		_flame(Vector3(fx + 0.02, 0.87, -1.08), h * 0.6, 0.04, Color(1.0, 0.82, 0.3), 5.0)
 	_box(Vector3(1.4, 0.12, 0.4), Vector3(1.2, 1.55, -1.35), timber)  # mantel
 	_candle(Vector3(0.8, 1.61, -1.35), 0.14)
+	for k in range(first_flame, _flames.size()):
+		_flames[k].append(true)  # these grow when the fire's stoked
 	_light(Vector3(1.2, 1.2, -0.9), Color(1.0, 0.5, 0.18), 5.0, 5.0)  # the fire lights the room: strong near it, falling away
+	_flicker[-1].append(true)
 	# a window, left, with the night sky, a moon and a few stars. The glass sits a little in
 	# front of the wall (sharing the wall's plane, the two flickered: the window would turn
 	# the colour of the plaster), and it's dark with no glow of its own, so the grade always
@@ -843,6 +857,7 @@ func _homestead() -> void:
 	for k in 5:
 		_cyl(0.04, 0.04, 0.45, Vector3(1.85 + k * 0.05, 0.38, -1.0 + (k % 2) * 0.05), Color(0.35, 0.22, 0.12), 6, Vector3(PI * 0.5, 0, 0.3 * k))
 	_light(Vector3(1.2, 0.6, -0.5), Color(1.0, 0.35, 0.1), 2.2, 3.4)  # the embers' low glow across the floor (it flickers)
+	_flicker[-1].append(true)
 
 
 ## An ossuary: a long hall faced entirely in bone. Stacked femurs, rows of skulls, a few

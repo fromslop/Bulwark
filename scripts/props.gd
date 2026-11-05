@@ -134,7 +134,7 @@ func _add(kind: String, pos: Vector2, r: float) -> void:
 func describe(key: String) -> Array:
 	var kind := key.trim_prefix("prop:")
 	if kind == "hearth" and game:
-		return ["Hearth", "Throw junk in the fire (scraps, pauldrons, skulls, rocks) and it melts down. Melt enough and a Coin Purse pops out to take on a run.\nMelted so far: %d of %d" %
+		return ["Hearth", "Throw junk in the fire (scraps, pauldrons, skulls, rocks) and it melts down; throw wood on and it roars up. Melt enough and a Coin Purse pops out to take on a run.\nMelted so far: %d of %d" %
 			[floori(float(game.save.stats.get("smelt", 0.0))), int(game.SMELT_PURSE)]]
 	if kind == "placard":
 		return ["Hoardsman", "Build %s" % version()]
@@ -277,14 +277,19 @@ func feed(items: Array, delta: float) -> void:
 				var it := n as Item
 				if it == null or not it.owned or it.held or it.freeze or it.is_queued_for_deletion():
 					continue
-				if not (it.def.kind in ["junk", "debris"] or it.def.get("piece", false)):
+				var junk: bool = it.def.kind in ["junk", "debris"] or it.def.get("piece", false)
+				if not junk and not _wooden(it):
 					continue
 				if it.global_position.distance_to(pr.pos) > pr.r:
 					it.remove_meta("in_fire")
 					continue
+				# your own wooden gear goes on the fire only when it's thrown in (not when it
+				# just rolls up against the hearth)
+				if not junk and not it.has_meta("in_fire") and game.clock - float(it.get_meta("let_go_at", -99.0)) > 3.0:
+					continue
 				it.set_meta("in_fire", float(it.get_meta("in_fire", 0.0)) + delta)
 				it.heat = minf(1.0, it.heat + delta)
-				if float(it.get_meta("in_fire")) > 0.8:
+				if float(it.get_meta("in_fire")) > (0.8 if junk else 1.5):
 					game.on_smelt(it, pr.pos)
 			continue
 		if pr.kind == "still_star":
@@ -728,6 +733,15 @@ func _build3d(pr: Dictionary) -> void:
 			_piece(cat, _cyl3(3, 3, 30, k, 6), Vector3(22, 14, 0), fur, k, 0.0, Vector3(0, 0, 1.2))
 		"hearth":
 			pass  # the fireplace is already in the room
+
+
+## Mostly wood (or anything else that burns): it'll feed the hearth.
+static func _wooden(it: Item) -> bool:
+	var n := 0
+	for c in it.cells:
+		if Materials.get_mat(it.cells[c].mat).get("burns", false):
+			n += 1
+	return n * 2 >= it.cells.size() and n > 0
 
 
 ## Words burnt into a prop, `size` screen pixels tall, centred on `px`.

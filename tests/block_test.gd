@@ -626,4 +626,16 @@ func _grip_and_smelt() -> void:
 	var purses: Array = main.get_tree().get_nodes_in_group("items").filter(func(n: Node) -> bool: return n is Item and n.def.get("id", "") == "coin_purse")
 	_check(not is_instance_valid(junk) or junk.is_queued_for_deletion(), "a pauldron left in the hearth should melt down")
 	_check(purses.size() == 1, "melting enough junk should pop out a Coin Purse")
+	# wood thrown on the fire burns away and stokes it; wood that just rolls up to it is left be
+	var resting: Item = main._spawn(ItemDefs.make("club", "wood"), hearth.pos)
+	var thrown: Item = main._spawn(ItemDefs.make("club", "wood"), hearth.pos + Vector2(10, 0))
+	thrown.set_meta("let_go_at", main.clock)
+	main.backdrop.blaze = 0.0
+	for i in 40:
+		main.props.feed([resting, thrown], 0.05)
+	await physics_frame
+	_check(not is_instance_valid(thrown) or thrown.is_queued_for_deletion(), "a wooden club thrown in the hearth should burn away")
+	_check(main.backdrop.blaze > 0.1, "wood on the fire should make it roar up (blaze %.2f)" % main.backdrop.blaze)
+	_check(is_instance_valid(resting) and not resting.is_queued_for_deletion(), "a wooden club that only rolled up to the hearth should be left alone")
+	resting.queue_free()
 	main.props.clear()

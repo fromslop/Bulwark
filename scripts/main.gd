@@ -119,6 +119,7 @@ const HOME_GONG := {"pos": Vector2(1215, 260), "radius": 42.0}
 const RACK_SLOTS := [Vector2(70, 150), Vector2(160, 150), Vector2(250, 150), Vector2(340, 150)]
 const SHELF_SLOTS := [Vector2(995, 150), Vector2(1070, 150), Vector2(1145, 150), Vector2(860, MANTEL_Y - 28.0), Vector2(945, MANTEL_Y - 28.0), Vector2(1030, MANTEL_Y - 28.0)]
 const MANTEL_Y := 302.0  # the top of the 3D mantel over the hearth, on screen: the lower shelf row sits on it
+const STOKE_CELLS := 60.0  # wood cells thrown on the home fire for a full blaze
 const SMELT_PURSE := 10.0  # scrap value melted in the home hearth for one Coin Purse
 const SNAP_REACH := 55.0
 
@@ -480,6 +481,7 @@ func _slot_item(it: Item, i: int) -> void:
 ## Let go of something at home near a free slot and it hangs itself there.
 func _on_released(it: Item) -> void:
 	if it and is_instance_valid(it):
+		it.set_meta("let_go_at", clock)  # (the home hearth takes wood that's thrown in, not wood that rolls near it)
 		it.remove_meta("thrown")
 		if state == State.COMBAT and _has(it, "javelin") and it.linear_velocity.length() > JAVELIN_SPEED:
 			it.swing_time = JAVELIN_FLIGHT  # it's in flight: it can still hit
@@ -2667,8 +2669,15 @@ func release_if_holding(it: Item) -> void:
 ## builds up (saved) until a Coin Purse pops out to take on a run.
 func on_smelt(it: Item, at: Vector2) -> void:
 	var value := 0.0
+	var wood := 0
 	for c in it.cells:
 		value += maxf(0.05, float(SCRAP_VALUE.get(it.cells[c].mat, 0.0)))
+		if Materials.get_mat(it.cells[c].mat).get("burns", false):
+			wood += 1
+	if wood > 0 and backdrop:
+		backdrop.stoke(clampf(wood / STOKE_CELLS, 0.15, 1.0))  # wood feeds the fire: it roars up
+		overlay.sparks(at + Vector2(0, -40), 4000.0 * wood, Color(1.0, 0.7, 0.25))
+		Sfx.play("crack", -8.0, 0.6)
 	if it.held:
 		hand.release()
 	it.queue_free()
