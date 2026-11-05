@@ -92,11 +92,11 @@ const ATTACKS := {
 		"dir": Vector2.ZERO, "damage": 15.0, "impact": 1.0, "push": 4000.0, "windup": 0.6, "pose": "thrust", "track": true},
 	# --- the Duelist's rapier: thin, quick lines that slip between whatever's piled up ----
 	"lunge": {"zone": [Vector2(0.3, 0.47), Vector2(1, 0.47), Vector2(1, 0.53), Vector2(0.3, 0.53)],
-		"dir": Vector2(-1, 0), "damage": 24.0, "impact": 0.8, "push": 6000.0, "windup": 0.6, "pose": "lunge"},
+		"dir": Vector2(-1, 0), "damage": 24.0, "impact": 0.8, "push": 6000.0, "windup": 0.8, "pose": "lunge"},
 	"flick_high": {"zone": [Vector2(0, 0.13), Vector2(1, 0.13), Vector2(1, 0.2), Vector2(0, 0.2)],
-		"dir": Vector2(-1, 0), "damage": 18.0, "impact": 0.7, "push": 8000.0, "windup": 0.55, "pose": "high_right"},
+		"dir": Vector2(-1, 0), "damage": 18.0, "impact": 0.7, "push": 8000.0, "windup": 0.75, "pose": "high_right"},
 	"riposte": {"zone": [Vector2(0.5, 0.45), Vector2(0.54, 0.5), Vector2(0.5, 0.55), Vector2(0.46, 0.5)],
-		"dir": Vector2.ZERO, "damage": 26.0, "impact": 1.6, "push": 6000.0, "windup": 0.5, "pose": "thrust", "track": true},
+		"dir": Vector2.ZERO, "damage": 26.0, "impact": 1.6, "push": 6000.0, "windup": 0.7, "pose": "thrust", "track": true},
 	# --- the Rusted's rotten blade: what blocks it starts to rust ------------------------
 	# (act: the blade's point dragged along the floor from left to right, scraping)
 	"drag_low": {"zone": [Vector2(0, 0.72), Vector2(0.45, 0.72), Vector2(0.45, 0.9), Vector2(0, 0.9)],
@@ -313,10 +313,10 @@ const ENEMIES := {
 		"bio": "A maul the size of a door. His low swings drag across the floor: follow the head with your shield. He's angrier the more he bleeds."},
 	# A fencer: thin, fast lines that slip past a cluttered floor, and a riposte at your hand
 	# the moment you block clean. Goes down easily; just hard to land on.
-	"Duelist": {"name": "Duelist", "stagger": 24.0, "hp": 130.0, "poise": 9.0, "armor": 0.2, "speed": 1.35, "power": 0.9, "reward": 22,
-		"attacks": ["lunge", "flick_high", "cut_tl", "cut_tr", "cut_mr", "jab"], "rest": [0.5, 0.9], "color": Color(0.5, 0.2, 0.3),
-		"weapon": "rapier", "idle": "bounce", "riposte": "riposte", "stagger_time": 0.5, "flinch": 0.6,
-		"feint": {"chance": 0.35, "at": 0.5, "windup": 0.5},
+	"Duelist": {"name": "Duelist", "stagger": 24.0, "hp": 130.0, "poise": 9.0, "armor": 0.2, "speed": 1.0, "power": 0.9, "reward": 22,
+		"attacks": ["lunge", "flick_high", "cut_tl", "cut_tr", "cut_mr", "jab"], "rest": [0.8, 1.3], "color": Color(0.5, 0.2, 0.3),
+		"weapon": "rapier", "idle": "bounce", "riposte": "riposte", "riposte_windup": 0.7, "stagger_time": 0.5, "flinch": 0.6,
+		"feint": {"chance": 0.35, "at": 0.5, "windup": 0.7},
 		"bio": "Light on his feet and bored of you. Half his wind-ups are lies: he breaks off and comes from somewhere else. Answer a clean block of yours with a riposte at your hand."},
 	# Rotten armour and a rotten blade: what blocks it rusts, and the rust spreads through your
 	# metal. His own plate is barely hanging on, though.

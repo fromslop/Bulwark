@@ -61,6 +61,10 @@ var punch_time := 0.0
 var punch_cooldown := 0.0
 var _punch_queued := 0.0  # a press that came just before the fist was ready: lands when it is
 var hazard_time := 0.0
+var stunned := 0.0  # zapped by something charged: the hand locks where it was and can't grab
+var _stun_at := Vector2.ZERO
+const SHOCK_ZAP := 8.0  # the one jolt a fully charged thing gives the hand that takes hold of it
+const SHOCK_STUN := 0.6  # and how long the hand stays locked afterwards
 var dead := false
 var momentum_time := 0.0  # Ring of Momentum: a primed big hit after a good block
 var momentum_mult := 2.5  # how big (more after a parry)
@@ -143,8 +147,8 @@ func target() -> Vector2:
 func _unhandled_input(e: InputEvent) -> void:
 	if get_tree().paused:
 		return
-	if dead:
-		return
+	if dead or stunned > 0.0:
+		return  # (a stunned hand does nothing until it comes to)
 	if e is InputEventMouseButton:
 		var mb := e as InputEventMouseButton
 		if mb.button_index == MOUSE_BUTTON_LEFT:
@@ -204,6 +208,8 @@ func item_near(p: Vector2) -> Item:
 
 
 func _try_grab() -> void:
+	if stunned > 0.0:
+		return  # still jolted: the fingers won't close
 	var p := get_global_mouse_position()
 	var it := item_near(p)
 	if it == null:
@@ -364,6 +370,9 @@ func _process(delta: float) -> void:
 		return
 	if dead:
 		position += Vector2(0, 60.0 * delta)  # the hand sags and falls away
+	elif stunned > 0.0:
+		stunned = maxf(0.0, stunned - delta)
+		position = _stun_at + Vector2(randf_range(-1, 1), randf_range(-1, 1)) * 3.0  # locked up, twitching
 	else:
 		position = target()
 	punch_time = maxf(0.0, punch_time - delta)
@@ -476,8 +485,9 @@ func _hold_ready() -> void:
 	held.apply_torque(-(k * off + READY_DAMPING * held.angular_velocity) / state.inverse_inertia)
 
 
-## Holding something charged, hot or frozen hurts, unless a ring protects it or you've got
-## it by a weapon's wrapped handle. Hovering over it (or inspecting it) is safe. Shocks also make the hand spasm and drop things.
+## Holding something hot or frozen hurts, unless a ring protects it or you've got it by a
+## weapon's wrapped handle. Hovering over it (or inspecting it) is safe. Something charged
+## zaps the hand instead: one jolt, it lets go, and it's stunned stiff for a moment.
 func _touch_hazards(delta: float) -> void:
 	var touching: Item = held
 	if touching == null:
@@ -487,10 +497,13 @@ func _touch_hazards(delta: float) -> void:
 	var shock := 0.0 if has_ring("ring_grounding") else touching.charge
 	var burn := 0.0 if has_ring("ring_fireward") else touching.heat
 	var frost := 0.0 if has_ring("ring_fireward") else touching.cold
-	if shock < 0.05 and burn < 0.2 and frost < 0.3:
+	if shock >= 0.1:
+		_zap(shock)
+		return
+	if burn < 0.2 and frost < 0.3:
 		return
 	hazard_time = 0.2
-	var burnt := (shock * 10.0 + burn * 7.0 + frost * 4.0) * delta
+	var burnt := (burn * 7.0 + frost * 4.0) * delta
 	if injury + burnt >= max_hp:
 		hazard = true
 		hurt(burnt)  # the burn that would finish it goes through hurt(): a Phoenix answers it
@@ -498,8 +511,25 @@ func _touch_hazards(delta: float) -> void:
 	else:
 		injury += burnt
 		pain += burnt  # (grabbing a red-hot blade on purpose feeds the Ring of Scars)
-	if shock > 0.5 and held and randf() < delta * 1.5:
-		release()
+
+
+
+## A charged thing taken hold of: it jolts the hand, which drops it and locks up a moment.
+func _zap(shock: float) -> void:
+	var jolt := SHOCK_ZAP * shock
+	release()
+	stunned = SHOCK_STUN
+	_stun_at = position
+	hazard_time = SHOCK_STUN  # (it flickers the whole time)
+	_flinch = 0.3
+	Sfx.play("zap", -4.0, randf_range(0.9, 1.1))
+	if injury + jolt >= max_hp:
+		hazard = true
+		hurt(jolt)  # the jolt that would finish it goes through hurt(): a Phoenix answers it
+		hazard = false
+	else:
+		injury += jolt
+		pain += jolt
 
 
 # --- drawing -------------------------------------------------------------------

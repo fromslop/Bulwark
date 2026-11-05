@@ -65,10 +65,10 @@ const LAYOUT := {
 	"Dungeon Cell": [["torch", Vector2(210, 165), 30.0, 1.0], ["brick", Vector2(1040, 130), 18.0, 0.6]],
 	"Corridor": [["torch", Vector2(1070, 160), 30.0, 1.0], ["chandelier", Vector2(640, 48), 26.0, 1.0], ["brick", Vector2(250, 300), 18.0, 0.6]],
 	"Cistern": [["rust_grate", Vector2(1060, 160), 30.0, 1.0]],
-	"Catacombs": [["fungus", Vector2(980, 290), 32.0, 1.0]],
+	"Catacombs": [["fungus", Vector2(980, 150), 32.0, 1.0]],
 	"Crypt Chapel": [["chandelier", Vector2(640, 48), 26.0, 1.0], ["altar", Vector2(210, 300), 34.0, 1.0]],
 	"Forge": [["quench", Vector2(190, 250), 34.0, 1.0]],
-	"Ossuary": [["fungus", Vector2(950, 300), 32.0, 1.0], ["brick", Vector2(330, 120), 18.0, 0.5]],
+	"Ossuary": [["fungus", Vector2(950, 150), 32.0, 1.0], ["brick", Vector2(330, 120), 18.0, 0.5]],
 	"Star Chamber": [["storm_glass", Vector2(240, 160), 30.0, 1.0]],
 	"Hidden Vault": [["chandelier", Vector2(640, 48), 26.0, 1.0]],
 	"Homestead": [["dummy", Vector2(420, 470), 80.0, 1.0],  # stands on the floor
@@ -82,7 +82,7 @@ const LAYOUT := {
 	"Gilded Gullet": [["chandelier", Vector2(640, 48), 26.0, 1.0]],
 	"Giant's Table": [["torch", Vector2(1080, 140), 30.0, 1.0]],  # the giant candle's drip
 	"Clockwork Orrery": [["storm_glass", Vector2(240, 160), 30.0, 1.0]],
-	"Ink Margin": [["fungus", Vector2(960, 290), 32.0, 1.0]],
+	"Ink Margin": [["fungus", Vector2(960, 150), 32.0, 1.0]],
 }
 
 
@@ -581,16 +581,20 @@ func _build3d(pr: Dictionary) -> void:
 				blob.scale = Vector3(1, 1, 0.4)
 		"dummy":
 			var straw := Color(0.85, 0.72, 0.35)
+			var burlap := Color(0.56, 0.45, 0.3)
+			var rope := Color(0.55, 0.12, 0.1)
 			_piece(root, _box3(120, 10, 60, k), Vector3(0, -5, 0), Color(0.3, 0.2, 0.11), k)
 			var body := Node3D.new()
 			root.add_child(body)
 			pr.flame = body  # what sways
 			_piece(body, _cyl3(7, 7, 210, k, 8), Vector3(0, -105, 0), wood, k)
-			_piece(body, _box3(90, 120, 50, k), Vector3(0, -260, 0), straw, k)
-			_piece(body, _box3(150, 18, 22, k), Vector3(0, -300, 0), straw.darkened(0.08), k)
+			_piece(body, _box3(90, 120, 50, k), Vector3(0, -260, 0), burlap, k)  # a burlap sack of straw
+			_piece(body, _box3(150, 18, 22, k), Vector3(0, -300, 0), burlap.darkened(0.1), k)
+			_piece(body, _cyl3(22, 22, 4, k, 12), Vector3(0, -262, 26), Color(0.62, 0.13, 0.12), k, 0.0, Vector3(PI / 2, 0, 0))  # a painted target
+			_piece(body, _cyl3(10, 10, 5, k, 10), Vector3(0, -262, 27), Color(0.9, 0.82, 0.62), k, 0.0, Vector3(PI / 2, 0, 0))
 			_piece(body, _ball3(30, k, 10), Vector3(0, -350, 0), straw.lightened(0.05), k)
 			for i in 3:
-				_piece(body, _box3(94, 5, 54, k), Vector3(0, -225 - i * 30, 0), Color(0.55, 0.4, 0.2), k)
+				_piece(body, _box3(94, 5, 54, k), Vector3(0, -225 - i * 30, 0), rope, k)  # red rope lashings
 		"trophy_shelf":
 			# a wall shelf on two brackets; a cup on it for every boss felled, bigger for a
 			# deeper run, its bowl glinting in that boss's colour

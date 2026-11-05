@@ -54,7 +54,7 @@ static func for_round(n: int, rng: RandomNumberGenerator, prestige: int = 0, rec
 
 # per setting: fog density, fog colour, ambient energy
 const ENV := {
-	"Homestead": {"fog": 0.1, "fog_color": Color(0.05, 0.03, 0.015), "ambient": 0.36},  # (dimmer: the fire and the lantern light it)
+	"Homestead": {"fog": 0.14, "fog_color": Color(0.05, 0.025, 0.06), "ambient": 0.22},  # (dim: the fire, the lantern and the moon light it; plum haze for depth)
 	"Ossuary": {"fog": 0.2, "fog_color": Color(0.03, 0.03, 0.025), "ambient": 0.32},
 	"Star Chamber": {"fog": 0.05, "fog_color": Color(0.01, 0.01, 0.03), "ambient": 0.3},
 	"Dungeon Cell": {"fog": 0.18, "fog_color": Color(0.02, 0.02, 0.025), "ambient": 0.35},
@@ -73,8 +73,8 @@ const ENV := {
 
 # per setting: the world grade's five colour stops (dark to bright) and its texture
 const LOOK := {
-	"Homestead": {"c": [Color(0.03, 0.025, 0.05), Color(0.17, 0.1, 0.1), Color(0.52, 0.29, 0.13), Color(0.93, 0.63, 0.3), Color(1.0, 0.93, 0.72)],
-		"pixel": 2.0, "noise": 0.03, "gamma": 0.82, "contrast": 1.15},  # (cool shadows under warm firelight: depth)
+	"Homestead": {"c": [Color(0.025, 0.02, 0.07), Color(0.14, 0.07, 0.15), Color(0.52, 0.22, 0.13), Color(0.97, 0.64, 0.28), Color(1.0, 0.94, 0.78)],
+		"pixel": 2.0, "noise": 0.03, "gamma": 0.92, "contrast": 1.25, "keep": 0.7},  # (indigo and plum shadows, rust to amber firelight; the room keeps most of its own colour)
 	"Ossuary": {"c": [Color(0.03, 0.03, 0.02), Color(0.2, 0.18, 0.12), Color(0.5, 0.45, 0.32), Color(0.85, 0.8, 0.62), Color(1.0, 0.98, 0.9)],
 		"pixel": 2.0, "noise": 0.08, "gamma": 0.85, "contrast": 1.1},
 	"Star Chamber": {"c": [Color(0.0, 0.0, 0.04), Color(0.05, 0.05, 0.25), Color(0.2, 0.25, 0.6), Color(0.6, 0.7, 0.95), Color(0.95, 0.98, 1.0)],
@@ -745,9 +745,13 @@ func _cistern() -> void:
 
 ## Home: a timber-framed room, a hearth with a fire going, a window with the night behind it,
 ## a table with a candle, a bookshelf, a rug. Warm and low. Nothing here hits back.
+## Home. The palette: teal limewash and walnut timbers, a forest-green wainscot, honey
+## floorboards, an indigo rug with a mustard border, an oxblood chair and brick at the
+## hearth. Warm fire and lantern light on the right and middle, cool moonlight from the
+## window on the left, so the room has a warm side and a cold side and depth between.
 func _homestead() -> void:
-	var plaster := Color(0.6, 0.5, 0.38)
-	var timber := Color(0.32, 0.2, 0.1)
+	var plaster := Color(0.2, 0.42, 0.44)  # teal limewash: the firelight turns it olive, the shadows keep it blue
+	var timber := Color(0.24, 0.12, 0.07)  # dark walnut
 	_box(Vector3(5.0, 3.2, 0.2), Vector3(0, 1.6, -1.7), plaster)
 	for x in [-1.9, -0.95, 0.0, 0.95, 1.9]:
 		_box(Vector3(0.14, 3.2, 0.06), Vector3(x, 1.6, -1.58), timber)  # posts
@@ -755,17 +759,17 @@ func _homestead() -> void:
 	_box(Vector3(5.0, 0.14, 0.06), Vector3(0, 0.7, -1.58), timber)
 	_box(Vector3(0.3, 3.2, 4.0), Vector3(-1.9, 1.6, 0.3), plaster.darkened(0.3))
 	_box(Vector3(0.3, 3.2, 4.0), Vector3(1.9, 1.6, 0.3), plaster.darkened(0.3))
-	_box(Vector3(5.0, 0.3, 4.0), Vector3(0, 3.2, 0.3), timber.darkened(0.3))
+	_box(Vector3(5.0, 0.3, 4.0), Vector3(0, 3.2, 0.3), Color(0.12, 0.07, 0.1))  # the ceiling, lost in plum shadow
 	for i in 6:
 		_box(Vector3(0.12, 0.12, 4.0), Vector3(-1.5 + i * 0.6, 3.05, 0.3), timber)  # rafters
-	_box(Vector3(5.0, 0.1, 4.0), Vector3(0, -0.05, 0.3), Color(0.4, 0.26, 0.14))  # floorboards
-	_box(Vector3(2.4, 0.02, 1.6), Vector3(0, 0.01, -0.3), Color(0.62, 0.45, 0.2))  # rug: a border...
-	_box(Vector3(2.1, 0.022, 1.3), Vector3(0, 0.012, -0.3), Color(0.5, 0.15, 0.12))  # ...and its red field
-	_box(Vector3(1.2, 0.024, 0.5), Vector3(0, 0.013, -0.3), Color(0.38, 0.1, 0.1))
-	_box(Vector3(5.0, 0.6, 0.04), Vector3(0, 0.3, -1.57), Color(0.26, 0.16, 0.08))  # a wainscot of dark boards along the wall
+	_box(Vector3(5.0, 0.1, 4.0), Vector3(0, -0.05, 0.3), Color(0.46, 0.27, 0.13))  # honey floorboards
+	_box(Vector3(2.4, 0.02, 1.6), Vector3(0, 0.01, -0.3), Color(0.78, 0.55, 0.14))  # rug: a mustard border...
+	_box(Vector3(2.1, 0.022, 1.3), Vector3(0, 0.012, -0.3), Color(0.13, 0.17, 0.38))  # ...an indigo field...
+	_box(Vector3(1.2, 0.024, 0.5), Vector3(0, 0.013, -0.3), Color(0.58, 0.12, 0.14))  # ...and a crimson medallion
+	_box(Vector3(5.0, 0.6, 0.04), Vector3(0, 0.3, -1.57), Color(0.11, 0.22, 0.15))  # a wainscot of forest-green boards along the wall
 	_box(Vector3(5.0, 0.04, 0.06), Vector3(0, 0.6, -1.56), timber)
 	# an armchair, turned to the fire
-	var seat := Color(0.42, 0.14, 0.1)
+	var seat := Color(0.5, 0.09, 0.12)  # oxblood velvet
 	_box(Vector3(0.5, 0.12, 0.45), Vector3(1.55, 0.35, -0.55), seat, Vector3(0, -0.6, 0))
 	_box(Vector3(0.5, 0.55, 0.1), Vector3(1.7, 0.62, -0.38), seat.darkened(0.15), Vector3(-0.15, -0.6, 0))
 	for arm in [-1, 1]:
@@ -775,10 +779,10 @@ func _homestead() -> void:
 	_box(Vector3(0.01, 0.4, 0.01), Vector3(-0.35, 2.85, -0.7), Color(0.15, 0.13, 0.1))
 	_box(Vector3(0.14, 0.18, 0.14), Vector3(-0.35, 2.56, -0.7), Color(0.18, 0.16, 0.14))
 	_box(Vector3(0.1, 0.13, 0.1), Vector3(-0.35, 2.56, -0.7), Color(1.0, 0.75, 0.4), Vector3.ZERO, 3.0)
-	_light(Vector3(-0.35, 2.45, -0.7), Color(1.0, 0.72, 0.4), 1.6, 3.5)
+	_light(Vector3(-0.2, 2.2, -1.0), Color(1.0, 0.68, 0.34), 2.8, 2.6)  # a warm pool on the middle of the wall
 	# the hearth, right, with a fire in it
-	_block_wall(Vector3(1.2, 0, -1.45), 1.3, 1.5, Color(0.35, 0.3, 0.26), 0.3, 0.15)
-	_box(Vector3(1.3, 0.8, 0.5), Vector3(1.2, 0.4, -1.2), Color(0.3, 0.27, 0.24))  # a raised hearthstone
+	_block_wall(Vector3(1.2, 0, -1.45), 1.3, 1.5, Color(0.46, 0.22, 0.16), 0.3, 0.15)  # old red brick
+	_box(Vector3(1.3, 0.8, 0.5), Vector3(1.2, 0.4, -1.2), Color(0.32, 0.28, 0.27))  # a raised hearthstone
 	_box(Vector3(0.9, 0.6, 0.3), Vector3(1.2, 1.1, -1.35), Color(0.03, 0.02, 0.02))
 	_box(Vector3(0.86, 0.45, 0.02), Vector3(1.2, 1.05, -1.48), Color(0.35, 0.1, 0.03), Vector3.ZERO, 0.6)  # the soot-black back, lit from below
 	# a fire: andirons, logs, a bed of embers and flames that lick and sway
@@ -795,7 +799,7 @@ func _homestead() -> void:
 		_flame(Vector3(fx + 0.02, 0.87, -1.08), h * 0.6, 0.04, Color(1.0, 0.82, 0.3), 5.0)
 	_box(Vector3(1.4, 0.12, 0.4), Vector3(1.2, 1.55, -1.35), timber)  # mantel
 	_candle(Vector3(0.8, 1.61, -1.35), 0.14)
-	_light(Vector3(1.2, 1.2, -0.9), Color(1.0, 0.55, 0.22), 4.2, 6.0)  # the fire lights the room
+	_light(Vector3(1.2, 1.2, -0.9), Color(1.0, 0.5, 0.18), 5.0, 5.0)  # the fire lights the room: strong near it, falling away
 	# a window, left, with the night sky, a moon and a few stars. The glass sits a little in
 	# front of the wall (sharing the wall's plane, the two flickered: the window would turn
 	# the colour of the plaster), and it's dark with no glow of its own, so the grade always
@@ -805,15 +809,23 @@ func _homestead() -> void:
 	_box(Vector3(0.9, 0.05, 0.03), Vector3(-1.2, 1.7, -1.56), timber)
 	_box(Vector3(0.96, 0.05, 0.03), Vector3(-1.2, 2.2, -1.56), timber)
 	_box(Vector3(1.0, 0.08, 0.1), Vector3(-1.2, 1.17, -1.55), timber)  # sill
+	for side in [-1, 1]:
+		# heavy green curtains drawn back, tied with mustard cord
+		var cx: float = -1.2 + side * 0.55
+		_box(Vector3(0.2, 1.25, 0.05), Vector3(cx, 1.72, -1.52), Color(0.1, 0.3, 0.2))
+		_box(Vector3(0.06, 1.2, 0.055), Vector3(cx - side * 0.06, 1.72, -1.515), Color(0.07, 0.22, 0.15))  # a fold in shadow
+		_box(Vector3(0.22, 0.04, 0.06), Vector3(cx, 1.45, -1.5), Color(0.82, 0.6, 0.16))
+	_box(Vector3(1.4, 0.04, 0.04), Vector3(-1.2, 2.36, -1.5), Color(0.2, 0.17, 0.14))  # the curtain rail
 	_ball(0.09, Vector3(-1.4, 1.95, -1.57), Color(0.95, 0.95, 0.85))
 	for st in [Vector3(-1.05, 2.05, -1.572), Vector3(-0.9, 1.85, -1.572), Vector3(-1.5, 1.5, -1.572), Vector3(-1.0, 1.42, -1.572), Vector3(-1.3, 2.1, -1.572)]:
 		_box(Vector3(0.015, 0.015, 0.005), st, Color(0.9, 0.92, 1.0), Vector3.ZERO, 3.0)
-	_light(Vector3(-1.2, 1.7, -1.2), Color(0.6, 0.7, 1.0), 0.8, 3.0, false)
+	_box(Vector3(0.3, 0.3, 0.005), Vector3(-1.4, 1.95, -1.58), Color(0.35, 0.45, 0.7), Vector3.ZERO, 0.6)  # the moon's halo
+	_light(Vector3(-1.2, 1.7, -1.1), Color(0.45, 0.6, 1.0), 1.8, 3.4, false)  # moonlight: a cool wash over the left of the room
 	# a bookshelf in the corner and a table
 	_box(Vector3(0.6, 1.6, 0.25), Vector3(-1.65, 0.8, -1.4), timber.darkened(0.2))
 	for r in 3:
 		for k in 5:
-			_box(Vector3(0.08, 0.22, 0.18), Vector3(-1.86 + k * 0.1, 0.35 + r * 0.45, -1.38), [Color(0.5, 0.15, 0.1), Color(0.15, 0.3, 0.45), Color(0.6, 0.5, 0.25)][(k + r) % 3])
+			_box(Vector3(0.08, 0.22, 0.18), Vector3(-1.86 + k * 0.1, 0.35 + r * 0.45, -1.38), [Color(0.6, 0.12, 0.12), Color(0.12, 0.3, 0.5), Color(0.78, 0.6, 0.2), Color(0.18, 0.4, 0.25)][(k * 2 + r) % 4])
 	_box(Vector3(1.0, 0.06, 0.5), Vector3(0.1, 0.72, -1.1), timber.lightened(0.15))
 	for lx in [-0.35, 0.55]:
 		_box(Vector3(0.06, 0.7, 0.06), Vector3(lx, 0.36, -1.1), timber)
@@ -830,7 +842,7 @@ func _homestead() -> void:
 	_cyl(0.25, 0.2, 0.3, Vector3(1.95, 0.15, -1.0), Color(0.5, 0.35, 0.18), 10)
 	for k in 5:
 		_cyl(0.04, 0.04, 0.45, Vector3(1.85 + k * 0.05, 0.38, -1.0 + (k % 2) * 0.05), Color(0.35, 0.22, 0.12), 6, Vector3(PI * 0.5, 0, 0.3 * k))
-	_light(Vector3(1.2, 1.0, -0.7), Color(1.0, 0.45, 0.15), 1.6, 3.0)  # the embers' low glow (it flickers)
+	_light(Vector3(1.2, 0.6, -0.5), Color(1.0, 0.35, 0.1), 2.2, 3.4)  # the embers' low glow across the floor (it flickers)
 
 
 ## An ossuary: a long hall faced entirely in bone. Stacked femurs, rows of skulls, a few

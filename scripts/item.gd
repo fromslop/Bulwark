@@ -47,6 +47,8 @@ const INHERITED_MODS := ["heavy", "weightless", "reinforced", "bouncy", "spiked"
 # worth of BURN_DAMAGE, harder the longer it's been alight, until there's no wood left. Metal
 # that's only oiled has nothing to eat: it burns BURN_LIMIT seconds, then it's out for good.
 const BURN_LIMIT := 8.0
+const ELEMENT_HOPS := 8  # cold and heat pass on through this many things from where they started
+const NO_HOPS := 99
 const BURN_SHARE := 0.15
 const BURN_DAMAGE := 1.0
 # and it leaps: flame reaches this far (px) from a burning cell to the next thing, further up
@@ -139,6 +141,11 @@ var heat := 0.0
 var conductive := false
 var flammable := false
 var cold := 0.0
+# how many things away the cold (or heat) came from: a frosty or red-hot thing is 0, what
+# touches it 1, and so on. It's just as cold in play, only drawn fainter the further it got,
+# and it stops passing on after ELEMENT_HOPS. Fire catching from fire isn't held back.
+var cold_hops := NO_HOPS
+var heat_hops := NO_HOPS
 var burn_time := 0.0
 var soak := {}  # liquid -> how much has soaked in (coatings take hold past a threshold)
 var _shattered := false
@@ -203,6 +210,8 @@ static func _mask_cells(d: Dictionary, mask: PackedStringArray, cond: float = 1.
 			if ch == ".":
 				continue
 			var mat: String = main_mat if ch == "M" else ItemDefs.MASK_MATS.get(ch, main_mat)
+			if ch == "h":
+				mat = ItemDefs.grip_mat(main_mat)
 			if ch == "i" and d.kind == "shield" and Materials.get_mat(main_mat).get("conducts", false):
 				mat = main_mat  # a metal shield's boss and bands are its own metal, not a weak spot
 			var full: float = Materials.hp_of(mat) * hp_mult
@@ -383,7 +392,7 @@ func _physics_process(delta: float) -> void:
 		if _fuse < 0.0:
 			explode()
 			return
-	var tint := Vector2i(int(heat * 8.0), int(cold * 8.0))
+	var tint := Vector2i(int(heat * 8.0 * hop_fade(heat_hops)), int(cold * 8.0 * hop_fade(cold_hops)))
 	if tint != _tint:
 		_tint = tint
 		queue_redraw()
@@ -527,6 +536,12 @@ func explode() -> void:
 		var c: Vector2i = keys[i]
 		_spawn_piece({c: cells[c]}, Vector2.from_angle(randf() * TAU) * randf_range(300.0, 700.0))
 	queue_free()
+
+
+## How strongly cold or heat that came `hops` things away is drawn: full at the source,
+## down to a hint at the end of the chain.
+static func hop_fade(hops: int) -> float:
+	return clampf(1.0 - 0.09 * hops, 0.28, 1.0)
 
 
 func is_burning() -> bool:
@@ -806,6 +821,10 @@ func adopt_material(mat: String) -> void:
 		return
 	def = def.duplicate(true)
 	def.material = mat
+	if mat in ItemDefs.METAL_GRIPS:
+		for c in cells:
+			if cells[c].get("handle", false):
+				transmute_cell(c, mat)  # turned to fine metal: the grip goes with it
 	if def.has("title"):
 		def.name = "%s %s" % [mat.capitalize(), def.title]
 	if mat == "prestigium" and def.has("legend"):
@@ -847,6 +866,16 @@ func _update_elements(delta: float) -> void:
 			heat = maxf(0.0, heat - m)
 		if not has_mod("frosty"):
 			cold = maxf(0.0, cold - m)
+	# where the cold or heat came from: its own (a frosty or burning thing, or set on it
+	# outright by a drain, a potion, a forge) is the start of a chain
+	if has_mod("frosty") or (cold > 0.0 and cold_hops == NO_HOPS):
+		cold_hops = 0
+	elif cold <= 0.0:
+		cold_hops = NO_HOPS
+	if has_mod("superheated") or is_burning() or (heat > 0.0 and heat_hops == NO_HOPS):
+		heat_hops = 0
+	elif heat <= 0.0:
+		heat_hops = NO_HOPS
 	if conductive and heat > 0.6 and cold > 0.25 and not has_mod("tempered"):
 		add_mod("tempered")  # quenched while red-hot: the metal comes out tougher
 		heat = 0.2
@@ -879,14 +908,18 @@ func _update_elements(delta: float) -> void:
 			o.ignite(dt * 4.0)
 		elif o.is_burning() and can_catch():
 			ignite(dt * 4.0)
-		if heat > o.heat:
+		if heat > o.heat and heat_hops < ELEMENT_HOPS:
 			o.heat = minf(1.0, o.heat + (heat - o.heat) * dt * (2.0 if o.conductive else 0.8))
-		elif o.heat > heat:
+			o.heat_hops = mini(o.heat_hops, heat_hops + 1)
+		elif o.heat > heat and o.heat_hops < ELEMENT_HOPS:
 			heat = minf(1.0, heat + (o.heat - heat) * dt * (2.0 if conductive else 0.8))
-		if cold > o.cold:
+			heat_hops = mini(heat_hops, o.heat_hops + 1)
+		if cold > o.cold and cold_hops < ELEMENT_HOPS:
 			o.cold = minf(1.0, o.cold + (cold - o.cold) * dt * (1.5 if o.conductive else 0.6))
-		elif o.cold > cold:
+			o.cold_hops = mini(o.cold_hops, cold_hops + 1)
+		elif o.cold > cold and o.cold_hops < ELEMENT_HOPS:
 			cold = minf(1.0, cold + (o.cold - cold) * dt * (1.5 if conductive else 0.6))
+			cold_hops = mini(cold_hops, o.cold_hops + 1)
 		# glue only grabs with its glued patch: press that patch against the other thing, one of
 		# the two in your hand, and the one in your hand takes the other in
 		if _glue > 0 and (held or o.held) and _glue_touches(o):
@@ -1069,6 +1102,8 @@ func fuse(o: Item) -> bool:
 	heat = maxf(heat, o.heat)
 	charge = maxf(charge, o.charge)
 	cold = maxf(cold, o.cold)
+	cold_hops = mini(cold_hops, o.cold_hops)
+	heat_hops = mini(heat_hops, o.heat_hops)
 	Item._shade(cells)
 	max_total = 0.0
 	for c in cells:
@@ -1622,6 +1657,8 @@ func _spawn_piece(sub: Dictionary, extra_vel: Vector2) -> void:
 	piece.owned = owned
 	piece.heat = heat if is_burning() else heat * 0.7  # leftover heat and cold fade on their own (but a fire carries on in what breaks off)
 	piece.cold = cold * 0.7
+	piece.heat_hops = heat_hops
+	piece.cold_hops = cold_hops
 	piece.charred = charred
 	piece.burn_time = burn_time
 	piece.transform = transform
@@ -1726,9 +1763,9 @@ func _draw() -> void:
 		if charred and m.get("burns", false):
 			col = col.darkened(0.6)
 		if cold > 0.05:
-			col = col.lerp(Color(0.75, 0.9, 1.0), cold * 0.5)
+			col = col.lerp(Color(0.75, 0.9, 1.0), cold * 0.5 * hop_fade(cold_hops))
 		if heat > 0.05:
-			col = col.lerp(Color(1.0, 0.35, 0.1), heat * (0.6 if m.get("conducts", false) else 0.25))
+			col = col.lerp(Color(1.0, 0.35, 0.1), heat * (0.6 if m.get("conducts", false) else 0.25) * hop_fade(heat_hops))
 		col.a = 1.0
 		var r := Rect2(cell_pos(c) - half, Vector2(CELL, CELL))
 		if m.behavior == "dent" and hpf < 0.6:

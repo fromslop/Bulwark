@@ -168,6 +168,8 @@ var _core_cleared := false
 var _lift_busy := false  # the lift is arriving or leaving: its doors aren't to be used
 var _weigh_t := 0.0
 var explosions := 0  # running count, for tests and tuning
+const BLOWBACK := 0.7  # an enemy that sets off a volatile item takes this much of a point-blank blast
+const BLOWBACK_TIME := 3.0  # how long after its blow a blast still counts as its doing (a chain included)
 var rerolls := 0       # this shop visit
 var secret_next := false  # the hidden lever was pulled: the next fight is in the Hidden Vault
 var secret_stage := ""  # a secret place unlocked this run (secrets.gd): the next ordinary fight is there
@@ -1554,6 +1556,7 @@ func _resolve_attack(atk: Dictionary, who: Enemy = null) -> void:
 			top_parry = parry
 		if it.has_mod("volatile"):
 			it.light_fuse(0.05)
+			_set_off_by(it, enemy)
 		if it._glue > 0 and it.glued_at(at):
 			gummed = true
 		it.apply_impulse(dir * atk.push * cover * (1.0 - 0.7 * parry), at - it.global_position)
@@ -2946,10 +2949,28 @@ func _open_menu(it: Item) -> void:
 			overlay.ring(hand.position, 30.0, Color(1, 1, 0.9), 0.3)
 
 
+## A volatile item an enemy's blow set off: the blast comes back at that enemy.
+func _set_off_by(it: Item, who: Enemy) -> void:
+	if who:
+		it.set_meta("set_off_by", who)
+		it.set_meta("set_off_at", clock)
+
+
+func _blown_back_at(source: Item) -> Enemy:
+	if source == null or not source.has_meta("set_off_by") or clock - float(source.get_meta("set_off_at", -99.0)) > BLOWBACK_TIME:
+		return null
+	var who = source.get_meta("set_off_by")
+	if not is_instance_valid(who) or not (who in living()):
+		return null
+	return who
+
+
 ## A volatile item went off: shove and shred everything nearby, set things alight,
-## hurt the hand, and hurt the enemy if it went off over one of its body parts.
+## hurt the hand, and hurt the enemy if it went off over one of its body parts, or if
+## it was that enemy's own blow that set it off (and the chain it starts).
 func on_explosion(at: Vector2, radius: float, power: float, source: Item) -> void:
 	explosions += 1
+	var culprit := _blown_back_at(source)
 	for n in get_tree().get_nodes_in_group("items"):
 		var it := n as Item
 		if it == null or it == source or it.is_queued_for_deletion():
@@ -2961,6 +2982,8 @@ func on_explosion(at: Vector2, radius: float, power: float, source: Item) -> voi
 		it.apply_central_impulse((it.global_position - at).normalized() * it.mass * 700.0 * f * power)
 		it.heat = maxf(it.heat, 0.8 * f)
 		it.blast_lock(Item.BLAST_LOCK * f * power)  # a crate's lock blows open, steel or not
+		if culprit and it.has_mod("volatile"):
+			_set_off_by(it, culprit)
 		for c in it.cells.keys():
 			var cd := it.to_global(it.cell_pos(c)).distance_to(at)
 			if cd < radius:
@@ -2975,7 +2998,16 @@ func on_explosion(at: Vector2, radius: float, power: float, source: Item) -> voi
 				var dmg: float = 30.0 * power * (1.0 - ed / radius) * r.mult
 				r.who.take_hit(dmg, r.id)
 				overlay.ring(r.center, radius, Color(1, 0.6, 0.2), 0.5)
+				if r.who == culprit:
+					culprit = null
 				break
+		if culprit:
+			for r in culprit.regions():
+				if r.id == "torso":
+					culprit.take_hit(30.0 * power * BLOWBACK * r.mult, "torso")
+					overlay.ring(r.center, 60.0, Color(1, 0.6, 0.2), 0.5)
+					popups.word(r.center + Vector2(0, -40), "BLOWBACK", Color(1, 0.6, 0.2))
+					break
 	overlay.sparks(at, 400000.0 * power)
 	_shake += 25.0 * power
 

@@ -1065,7 +1065,7 @@ func on_blocked(clean: bool) -> void:
 	if _queued != "":
 		return  # a follow-up's already promised (and shown): it comes first; the bash keeps
 	if data.has("riposte"):
-		queue_attack(data.riposte, 0.45)
+		queue_attack(data.riposte, float(data.get("riposte_windup", 0.45)))
 	if data.has("bash_after") and clean_blocks >= int(data.bash_after):
 		clean_blocks = 0
 		queue_attack("shield_bash", 0.8)

@@ -10,6 +10,12 @@ const PRICE_SCALE := 0.7  # all gear prices; tune the shop's generosity here
 const UPGRADE_PRICE_SCALE := 0.75
 
 const MASK_MATS := {"w": "wood", "i": "iron", "l": "leather", "c": "cloth", "s": "stone", "g": "gem", "h": "wood"}
+const METAL_GRIPS := ["steel", "prestigium"]  # fine metals get a grip of their own metal, not a wooden one that burns
+
+
+## What a weapon's grip (an "h" in its mask) is made of: wood, or the blade's own metal from steel up.
+static func grip_mat(main_mat: String) -> String:
+	return main_mat if main_mat in METAL_GRIPS else "wood"
 
 # materials are listed cheapest first; later rounds roll further down the list
 # "shop": false keeps a def out of random shop stock

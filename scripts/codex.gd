@@ -1070,7 +1070,7 @@ class Page:
 				var ch: String = mask[yy][xx]
 				if ch == ".":
 					continue
-				var m: String = mat if ch == "M" else ItemDefs.MASK_MATS.get(ch, mat)
+				var m: String = mat if ch == "M" else (ItemDefs.grip_mat(mat) if ch == "h" else ItemDefs.MASK_MATS.get(ch, mat))
 				var col: Color = d.gem if ch == "g" and d.has("gem") else Materials.get_mat(m).color
 				if m == "glass" and d.has("liquid_color"):
 					col = (d.liquid_color as Color).lerp(Color(1, 1, 1), 0.2)  # a potion shows what's in it

@@ -49,6 +49,7 @@ func _process(_d: float) -> bool:
 			_test_tracking()
 			_test_reactions()
 		14:
+			_test_blowback()
 			_test_traits()
 		40:
 			_test_duo()
@@ -190,6 +191,23 @@ func _test_tracking() -> void:
 	zap.free()
 
 
+## A volatile item an enemy's blow sets off hurts that enemy, wherever the pile is; one
+## that went off by itself, down in the pile, doesn't reach it.
+func _test_blowback() -> void:
+	var e := _become("Footman")
+	var lone: Item = main._spawn(ItemDefs.make("shortsword", "iron", ["volatile"]), Vector2(200, 690))
+	var hp0 := e.hp
+	lone.explode()
+	_check(is_equal_approx(e.hp, hp0), "a blast down in the pile shouldn't reach the enemy by itself")
+	var bomb: Item = main._spawn(ItemDefs.make("shortsword", "iron", ["volatile"]), Vector2(1080, 690))
+	var next: Item = main._spawn(ItemDefs.make("shortsword", "iron", ["volatile"]), Vector2(1110, 690))
+	main._set_off_by(bomb, e)
+	bomb.explode()
+	_check(e.hp < hp0, "an enemy that sets off a volatile item should take the blast (%.0f -> %.0f)" % [hp0, e.hp])
+	_check(next.get_meta("set_off_by", null) == e, "the chain a blowback starts should still count against that enemy")
+	next.queue_free()
+
+
 func _test_reactions() -> void:
 	var d := _become("Duelist")
 	d.on_blocked(true)
@@ -197,6 +215,12 @@ func _test_reactions() -> void:
 	d._queued = ""
 	d.on_blocked(false)
 	_check(d._queued == "", "a sloppy block shouldn't draw a riposte")
+	# every blow it throws, the riposte and a feint's answer too, leaves time to react
+	var duel: Dictionary = EnemyDefs.scaled("Duelist", 0)
+	var quickest := minf(float(duel.riposte_windup), float(duel.feint.windup))
+	for id in duel.attacks:
+		quickest = minf(quickest, float(EnemyDefs.ATTACKS[id].windup))
+	_check(quickest / float(duel.speed) >= 0.6, "the Duelist's quickest wind-up should be reactable (%.2fs)" % (quickest / float(duel.speed)))
 	var c := _become("Castellan")
 	for i in 3:
 		c.on_blocked(true)

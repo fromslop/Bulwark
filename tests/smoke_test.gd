@@ -248,8 +248,15 @@ func _check_elements() -> void:
 	main.hand.held = zap_sword
 	main.hand.grab_local = zap_sword.cell_pos(blade)  # by the blade
 	main.hand._touch_hazards(0.5)
+	_check(main.hand.held == null and main.hand.stunned > 0.0, "a charged sword should jolt the hand: it drops it and is stunned")
 	main.hand.held = null
 	_check(main.hand.injury > before, "holding a charged sword should hurt")
+	var zapped_at: Vector2 = main.hand.position
+	main.hand.pinned = zapped_at + Vector2(200, 0)
+	await process_frame
+	_check(main.hand.position.distance_to(zapped_at) < 10.0, "a stunned hand should stay where it was zapped")
+	main.hand.pinned = Vector2.INF
+	main.hand.stunned = 0.0
 	before = main.hand.injury
 	main.hand.held = null
 	main.hand.position = zap_sword.global_position
