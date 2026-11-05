@@ -305,6 +305,7 @@ const ENEMIES := {
 		"attacks": ["overhead_l", "overhead_r", "thrust", "slash_high_r"], "rest": [0.9, 1.6], "color": Color(0.55, 0.57, 0.62),
 		"weapon": "sword", "idle": "steady",
 		"combos": {"overhead_l": "thrust", "overhead_r": "thrust", "slash_high_r": "overhead_l"}, "combo_chance": 0.3, "combo_windup": 0.8,
+		"guard_stance": {"chance": 0.35, "time": [1.2, 2.0]},
 		"bio": "Drilled since he could walk. Everything comes from above, and his overheads run straight into a thrust: watch for the second blow."},
 	# A giant with a maul. Every swing is wide and low and wrecks gear. Gets faster as it gets angry.
 	"Brute": {"name": "Brute", "stagger": 125.0, "hp": 160.0, "poise": 42.0, "armor": 0.45, "speed": 0.85, "power": 0.45, "reward": 24,
@@ -373,6 +374,7 @@ const ENEMIES := {
 	"Castellan": {"name": "Castellan", "stagger": 220.0, "hp": 480.0, "poise": 55.0, "armor": 1.0, "speed": 1.0, "power": 0.6, "reward": 50,
 		"attacks": ["tower_slam", "overhead_l", "overhead_r", "tower_slam", "shield_bash"], "rest": [1.0, 1.7], "color": Color(0.35, 0.4, 0.55),
 		"weapon": "shield", "idle": "guard", "guard": true, "bash_after": 3, "boss": true,
+		"guard_stance": {"chance": 0.4, "time": [1.5, 2.5]},
 		"combos": {"tower_slam": "overhead_r", "overhead_l": "thrust"}, "combo_chance": 0.4, "combo_windup": 0.7,
 		"bio": "Keeper of the gate. He carries a wall of his own and keeps it between you and him; knock him reeling to get past it. He answers a tidy defence by scattering it."},
 	# The Sexton: keeper of the bell and the graveyard. A great bronze bell on a pole and a grave

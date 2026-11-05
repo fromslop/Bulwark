@@ -119,6 +119,7 @@ const HOME_GONG := {"pos": Vector2(1215, 260), "radius": 42.0}
 const RACK_SLOTS := [Vector2(70, 150), Vector2(160, 150), Vector2(250, 150), Vector2(340, 150)]
 const SHELF_SLOTS := [Vector2(995, 150), Vector2(1070, 150), Vector2(1145, 150), Vector2(860, MANTEL_Y - 28.0), Vector2(945, MANTEL_Y - 28.0), Vector2(1030, MANTEL_Y - 28.0)]
 const MANTEL_Y := 302.0  # the top of the 3D mantel over the hearth, on screen: the lower shelf row sits on it
+const GUARD_WEAR := 3.0  # condition a blow on a raised guard takes off each cell that struck
 const STOKE_CELLS := 60.0  # wood cells thrown on the home fire for a full blaze
 const SMELT_PURSE := 10.0  # scrap value melted in the home hearth for one Coin Purse
 const SNAP_REACH := 55.0
@@ -1809,6 +1810,14 @@ func _check_weapon_hit(it: Item, regs: Array) -> bool:
 		it.swing_hit = true
 		it.hit_flash = 0.15
 		var enemy: Enemy = r.get("who", self.enemy)
+		if enemy.is_guarding():
+			if _has(it, "guardbreaker"):
+				it.set_meta("broke_guard", true)
+				enemy.drop_guard()  # knocked aside: the blow goes through, doubled (see _rare_mult)
+				popups.word(r.center + Vector2(0, -50), "GUARD BROKEN", Color(1.0, 0.82, 0.3))
+			else:
+				_glance_off_guard(it, enemy, r, contact)
+				return true
 		if enemy.data.get("boss", false):
 			it.set_meta("hit_boss", true)
 		var thrown: bool = it.has_meta("thrown") and not it.held
@@ -1828,7 +1837,7 @@ func _check_weapon_hit(it: Item, regs: Array) -> bool:
 			dmg *= INFUSED_BONUS
 		if hand.has_ring("ring_executioner") and (enemy.state == "broken" or enemy.off_balance > 0.0):
 			dmg *= 3.0
-		var guard_broken: bool = _has(it, "guardbreaker") and enemy.state == "windup"
+		var guard_broken: bool = _has(it, "guardbreaker") and (enemy.state == "windup" or it.has_meta("broke_guard"))
 		dmg *= _rare_mult(it, enemy, r)
 		dmg *= it.heft()  # glued-on weight: a rock on a club is a mace
 		if thrown:
@@ -1854,6 +1863,7 @@ func _check_weapon_hit(it: Item, regs: Array) -> bool:
 		elif legend == "rot" and enemy.poison_time > 0.0:
 			dmg *= 1.6 if asc else 1.25
 		enemy.take_hit(dmg, r.id, true, WEAPON_STAGGER * (5.0 if guard_broken else 1.0))
+		it.remove_meta("broke_guard")
 		save.stats.best_hit = maxi(int(save.stats.best_hit), roundi(dmg))
 		_legend_hit(it, legend, asc, enemy, dmg, r)
 		_rare_after_hit(it, enemy, r, contact)
@@ -1890,6 +1900,20 @@ func _check_weapon_hit(it: Item, regs: Array) -> bool:
 	return false
 
 
+## A blow on a foe that's on guard: it does nothing to them, and the guard chews up the
+## weapon's edge (GUARD_WEAR a contact cell, far more than armour does).
+func _glance_off_guard(it: Item, enemy: Enemy, r: Dictionary, contact: Array[Vector2i]) -> void:
+	for c in contact:
+		it.damage_cell(c, GUARD_WEAR * (1.0 + float(enemy.data.get("armor", 0.0))), true)
+	it.angular_velocity *= -0.5
+	it.remove_meta("thrown")
+	overlay.sparks(r.center, 60000.0, Color(0.85, 0.9, 1.0))
+	overlay.ring(r.center, r.radius + 20.0, Color(0.7, 0.75, 0.85), 0.3)
+	popups.word(r.center + Vector2(0, -50), "GUARDED", Color(0.75, 0.8, 0.9))
+	Sfx.play("clang", -2.0, randf_range(0.85, 1.0))
+	_shake += 2.0
+
+
 ## A rare modifier on the item, or borrowed by a Mimic from the last weapon held.
 func _has(it: Item, m: String) -> bool:
 	return it.has_mod(m) or (it.has_meta("mimic") and (it.get_meta("mimic") as Array).has(m))
@@ -1906,7 +1930,7 @@ func _rare_mult(it: Item, enemy: Enemy, r: Dictionary) -> float:
 		m *= 2.0
 	if _has(it, "pristine") and it.edge_condition() >= 0.9:
 		m *= 2.0
-	if _has(it, "guardbreaker") and enemy.state == "windup":
+	if _has(it, "guardbreaker") and (enemy.state == "windup" or it.has_meta("broke_guard")):
 		m *= 2.0
 	if _has(it, "merciless") and enemy.hp < enemy.max_hp / 3.0:
 		m *= 3.0
@@ -2904,6 +2928,10 @@ func _on_punched(at: Vector2) -> void:
 	for r in _all_regions():
 		if at.distance_to(r.center) <= r.radius + 6.0:
 			var e: Enemy = r.who
+			if e.is_guarding():
+				Sfx.play("clack", -2.0, 0.7)  # a fist on a guard: nothing
+				popups.word(r.center + Vector2(0, -50), "GUARDED", Color(0.75, 0.8, 0.9))
+				return
 			var dmg: float = PUNCH_DAMAGE * hand.strength * r.mult * e.punch_mult()
 			e.take_hit(dmg, r.id, true, PUNCH_STAGGER)
 			Sfx.play("punch", 0.0)

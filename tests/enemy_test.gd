@@ -50,6 +50,7 @@ func _process(_d: float) -> bool:
 			_test_reactions()
 		14:
 			_test_blowback()
+			_test_guard()
 			_test_traits()
 		40:
 			_test_duo()
@@ -206,6 +207,51 @@ func _test_blowback() -> void:
 	_check(e.hp < hp0, "an enemy that sets off a volatile item should take the blast (%.0f -> %.0f)" % [hp0, e.hp])
 	_check(next.get_meta("set_off_by", null) == e, "the chain a blowback starts should still count against that enemy")
 	next.queue_free()
+
+
+func _cond(it: Item) -> float:
+	var n := 0.0
+	for c in it.cells:
+		n += float(it.cells[c].hp)
+	return n
+
+
+## Hit the torso with a fresh iron longsword: [damage done, condition the sword lost].
+func _swing_at(e: Enemy, mods: Array = []) -> Array:
+	var sword: Item = main._spawn(ItemDefs.make("longsword", "iron", mods), Vector2(-400, 0))
+	var torso: Dictionary = e.regions().filter(func(r: Dictionary) -> bool: return r.id == "torso")[0]
+	torso.who = e
+	sword.global_position = torso.center
+	sword.angular_velocity = 10.0
+	var hp0 := e.hp
+	var c0 := _cond(sword)
+	main._check_weapon_hit(sword, [torso])
+	var out := [hp0 - e.hp, c0 - _cond(sword)]
+	sword.queue_free()
+	return out
+
+
+## A Knight on guard takes nothing from a blow, and the blow wears the weapon down; a
+## Guardbreaker knocks the guard aside and goes through.
+func _test_guard() -> void:
+	var k := _become("Knight")
+	_check(k.data.has("guard_stance"), "the Knight should have a guard stance")
+	var open := _swing_at(k)
+	k._begin_guard()
+	_check(k.is_guarding(), "a Knight should be able to stand on guard")
+	var guarded := _swing_at(k)
+	_check(guarded[0] == 0.0, "a blow on a raised guard should do no damage (%.1f)" % guarded[0])
+	_check(guarded[1] > open[1] * 2.0, "a blow on a guard should wear the weapon far more than an open hit (%.1f vs %.1f)" % [guarded[1], open[1]])
+	var broke := _swing_at(k, ["guardbreaker"])
+	_check(broke[0] > open[0] and not k.is_guarding(), "a Guardbreaker should knock the guard aside and hit harder (%.1f vs %.1f)" % [broke[0], open[0]])
+	k._begin_guard()
+	k.guard_time = 0.05
+	k._guarded_last = true
+	k.active = true  # (the state machine only runs on an active foe)
+	for i in 10:
+		k._process(0.02)
+	k.active = false
+	_check(not k.is_guarding(), "a guard should come down after a while")
 
 
 func _test_reactions() -> void:

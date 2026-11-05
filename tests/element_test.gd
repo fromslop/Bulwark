@@ -11,6 +11,7 @@ var main: Node
 var f := 0
 var fails: Array = []
 var row: Array = []
+var w := 0.0  # a bar's width (less a hair, so neighbours press together)
 
 
 func _initialize() -> void:
@@ -34,6 +35,16 @@ func _width(it: Item) -> float:
 	return hi - lo + Item.CELL
 
 
+## An end bar can slide off the row as it settles: push it back against its neighbour.
+func _snug(end: int, next: int) -> void:
+	var a: Item = row[end]
+	var b: Item = row[next]
+	a.global_position = Vector2(b.global_position.x + signf(a.global_position.x - b.global_position.x) * w, b.global_position.y)
+	a.rotation = b.rotation
+	a.linear_velocity = Vector2.ZERO
+	a.angular_velocity = 0.0
+
+
 func _process(_d: float) -> bool:
 	f += 1
 	match f:
@@ -46,12 +57,13 @@ func _process(_d: float) -> bool:
 					n.queue_free()
 		12:
 			var probe: Item = main._spawn(ItemDefs.make(SLAB[0], SLAB[1]), Vector2(-500, 0))
-			var w := _width(probe) - 1.0  # (a hair of overlap: they settle pressed together)
+			w = _width(probe) - 1.0  # (a hair of overlap: they settle pressed together)
 			probe.queue_free()
 			for i in N:
 				var it: Item = main._spawn(ItemDefs.make(SLAB[0], SLAB[1]), Vector2(640 - (N - 1) * w * 0.5 + i * w, 690))
 				row.append(it)
 		90:
+			_snug(0, 1)
 			row[0].add_mod("frosty")
 		600:
 			var hops := []
@@ -72,6 +84,7 @@ func _process(_d: float) -> bool:
 			for it in row:
 				it.cold = 0.0
 				it.cold_hops = Item.NO_HOPS
+			_snug(N - 1, N - 2)
 			row[N - 1].add_mod("superheated")
 		1100:
 			var hops := []

@@ -35,6 +35,8 @@ const POSES := {
 	# the off hand's own blade: a cut from the left while the right stays ready ("shield": the left hand moves)
 	"off_high": {"wind": [Vector3(-0.55, 1.85, 0.05), Vector3(0, 0, 0.7)], "hit": [Vector3(0.45, 1.55, 0.45), Vector3(0, 0, -1.4)], "shield": true},
 	"off_low": {"wind": [Vector3(-0.55, 1.1, 0.0), Vector3(0, 0, 1.6)], "hit": [Vector3(0.45, 1.05, 0.45), Vector3(0, 0, -1.6)], "shield": true},
+	# on guard: the blade held level across the body, the off hand on it ("wind" and "hit" alike)
+	"guard": {"wind": [Vector3(0.2, 1.52, 0.35), Vector3(0, 0.2, 1.62)], "hit": [Vector3(0.2, 1.52, 0.35), Vector3(0, 0.2, 1.62)], "l": true},
 	# a pole held in both hands, the head swung round low and wide
 	"reap": {"wind": [Vector3(-0.65, 1.2, -0.05), Vector3(0, 0, 1.3)], "hit": [Vector3(0.6, 1.15, 0.45), Vector3(0, 0, -1.3)], "l": true},
 }
@@ -52,7 +54,21 @@ var data: Dictionary
 var hp := 100.0
 var max_hp := 100.0
 var speed := 1.0
-var state := "idle"  # idle, windup, recover, stagger, dead
+var state := "idle"  # idle, windup, recover, stagger, guarding, broken, dead
+var guard_time := 0.0  # guarding: how much longer it holds the guard
+var _guard_total := 1.0
+# Recorded clips (HeadnHands, baked to res://animations/<model>/<clip>.res). When a foe has
+# a clip for what it's doing, its hands play it instead of the procedural pose; its head
+# keeps watching the player's cursor, with the clip's head motion layered on top.
+const CLIP_DIR := "res://animations"
+const CLIP_STRIKE := 0.7  # where a clip's blow lands, as a fraction of it, when it isn't marked
+const CLIP_HEAD := {"idle": 0.5, "other": 0.85}  # how much of the clip's own head motion shows
+static var _clip_cache := {}  # path -> Animation (or null: no clip)
+var clip_name := ""  # the clip playing now ("" = procedural)
+var clip_time := 0.0
+var _clip: Animation
+var _gaze := Vector3.ZERO  # the head's own aim at the cursor (pitch, yaw, lean), before any clip layer
+var _guarded_last := false  # (never two guards in a row: it has to swing in between)
 var active := true
 var current: Dictionary = {}
 var progress := 0.0
@@ -133,13 +149,44 @@ func is_enraged() -> bool:
 
 ## The off-hand shield is up: the torso is covered until the enemy is reeling or broken.
 func guard_up() -> bool:
-	return data.get("guard", false) and state in ["idle", "windup", "recover"] and off_balance <= 0.0
+	return data.get("guard", false) and state in ["idle", "windup", "recover", "guarding"] and off_balance <= 0.0
+
+
+## On guard: weapons and fists glance off it (see main's _check_weapon_hit).
+func is_guarding() -> bool:
+	return state == "guarding"
+
+
+## Between attacks, a foe with a guard stance sometimes stands on guard instead: blade
+## level across the body, for a second or two. Then it attacks.
+func _begin_guard() -> void:
+	var g: Dictionary = data.guard_stance
+	state = "guarding"
+	guard_time = rng.randf_range(float(g.time[0]), float(g.time[1]))
+	_guard_total = guard_time
+	_guarded_last = true
+	var pose: Dictionary = POSES.guard
+	if shield_arm:
+		_move({"rest": REST_R}, "rest", 0.25, Tween.EASE_OUT)  # the shield does the guarding (see _update_posture)
+	else:
+		_move(pose, "wind", 0.25, Tween.EASE_OUT)
+	Sfx.play("clack", -6.0, 0.8)
+
+
+## The guard comes down (its time is up, or a Guardbreaker knocked it aside).
+func drop_guard(after: float = 0.3) -> void:
+	if state != "guarding":
+		return
+	state = "idle"
+	_timer = after
+	_settle()
 
 
 ## The skeleton every design shares: the performers (Head, LeftHand, RightHand) plus a
 ## Torso that follows the head. Meshes are hung on it by _dress(), one design at a time.
 func _build(_col: Color) -> void:
 	body = Node3D.new()
+	body.name = "Body"  # (recorded clips address Body/Head, Body/RightHand, Body/LeftHand)
 	add_child(body)
 	torso = Node3D.new()
 	torso.name = "Torso"
@@ -844,6 +891,8 @@ func _process(delta: float) -> void:
 			_mats[i].albedo_color = _mats[i].albedo_color.lerp(Color(0.35, 0.7, 0.25), delta * 0.5)
 	if not _strings.is_empty():
 		_update_strings()
+	if state == "dead" and active:
+		_update_clip(delta)  # (a death clip, if it has one)
 	if state == "dead" or not active:
 		return
 	slow_time = maxf(0.0, slow_time - delta)
@@ -861,7 +910,15 @@ func _process(delta: float) -> void:
 	match state:
 		"idle":
 			if _timer <= 0.0:
-				_begin_attack()
+				if data.has("guard_stance") and _queued == "" and not _guarded_last and rng.randf() < float(data.guard_stance.chance):
+					_begin_guard()
+				else:
+					_guarded_last = false
+					_begin_attack()
+		"guarding":
+			guard_time -= dt
+			if guard_time <= 0.0:
+				drop_guard(0.2)
 		"windup":
 			progress = clampf(1.0 - _timer / _windup_total, 0.0, 1.0)
 			_shape_zone()
@@ -883,6 +940,107 @@ func _process(delta: float) -> void:
 				_timer = rng.randf_range(rest[0], rest[1]) / cur_speed()
 				if _queued != "":
 					_timer = minf(_timer, 0.15)  # a follow-up doesn't wait
+	_update_clip(dt)
+
+
+# --- recorded clips ---------------------------------------------------------------
+
+## A baked clip of this foe's, or null if it hasn't been recorded.
+func clip(name: String) -> Animation:
+	var path := "%s/%s/%s.res" % [CLIP_DIR, model_path(data).get_file().get_basename(), name]
+	if not _clip_cache.has(path):
+		_clip_cache[path] = load(path) if ResourceLoader.exists(path) else null
+	return _clip_cache[path]
+
+
+## Forget loaded clips (after baking new ones while the game runs).
+static func reload_clips() -> void:
+	_clip_cache.clear()
+
+
+## Which clip goes with what it's doing now.
+func _clip_wanted() -> String:
+	match state:
+		"windup":
+			return "act_" + str(current.get("id", ""))
+		"recover":
+			return clip_name if clip_name.begins_with("act_") and clip_name != "act_guard" else ""  # the blow's follow-through
+		"guarding":
+			return "act_guard"
+		"stagger":
+			return "act_stagger"
+		"broken":
+			return "act_broken"
+		"dead":
+			return "act_death"
+		"idle":
+			return "idle_" + str(data.get("idle", "steady"))
+	return ""
+
+
+## Plays the clip for what it's doing, if there is one: hands from the clip, the head the
+## cursor gaze with the clip's head motion on top.
+func _update_clip(dt: float) -> void:
+	var want := _clip_wanted()
+	if want != clip_name:
+		var had := _clip != null
+		clip_name = want
+		clip_time = 0.0
+		_clip = clip(want) if want != "" else null
+		if had and _clip == null and state != "dead":
+			_settle()  # back to the procedural pose, from wherever the clip left the hands
+		if _clip == null and state == "recover":
+			clip_name = ""
+	if _clip == null:
+		return
+	var length := _clip.length
+	match state:
+		"windup":
+			clip_time = progress * strike_time(_clip)  # the blow lands when the game's strike does
+		"guarding":
+			clip_time = clampf(1.0 - guard_time / _guard_total, 0.0, 1.0) * length
+		_:
+			clip_time += dt
+			if _clip.loop_mode != Animation.LOOP_NONE:
+				clip_time = fmod(clip_time, maxf(length, 0.001))
+			else:
+				clip_time = minf(clip_time, length)
+	if _tween and _tween.is_valid():
+		_tween.kill()  # the clip has the hands now
+	for part in [["RightHand", right_hand], ["LeftHand", left_hand]]:
+		var tr := _clip_tracks(_clip, part[0])
+		if tr.x >= 0:
+			part[1].position = _clip.position_track_interpolate(tr.x, clip_time)
+		if tr.y >= 0:
+			part[1].quaternion = _clip.rotation_track_interpolate(tr.y, clip_time)
+	var ht := _clip_tracks(_clip, "Head")
+	if ht.y >= 0:
+		var rest := _clip.rotation_track_interpolate(ht.y, 0.0)
+		var now := _clip.rotation_track_interpolate(ht.y, clip_time)
+		var w: float = CLIP_HEAD.idle if state == "idle" else CLIP_HEAD.other
+		head.quaternion = head.quaternion * Quaternion.IDENTITY.slerp(rest.inverse() * now, w)
+
+
+## When a clip's blow lands: its "strike" mark (the recording suite sets it), or CLIP_STRIKE.
+static func strike_time(a: Animation) -> float:
+	return float(a.get_meta("strike", a.length * CLIP_STRIKE))
+
+
+## A clip's [position, rotation] track indices for one of the performers (-1 if none).
+static func _clip_tracks(a: Animation, part: String) -> Vector2i:
+	var key := "tracks_" + part
+	if a.has_meta(key):
+		return a.get_meta(key)
+	var out := Vector2i(-1, -1)
+	for i in a.get_track_count():
+		if not str(a.track_get_path(i)).ends_with("Body/" + part):
+			continue
+		if a.track_get_type(i) == Animation.TYPE_POSITION_3D:
+			out.x = i
+		elif a.track_get_type(i) == Animation.TYPE_ROTATION_3D:
+			out.y = i
+	a.set_meta(key, out)
+	return out
 
 
 ## Head watches the player's hand when idle and the target zone while winding up;
@@ -899,8 +1057,9 @@ func _update_gaze(delta: float) -> void:
 	var rear := 0.0
 	if state == "windup" and not current.is_empty() and POSES[current.pose].get("head", false):
 		rear = -0.5 + progress * 0.9  # rears back, then lunges forward to spit
-	head.rotation.y = lerp_angle(head.rotation.y, yaw, 1.0 - exp(-delta * 8.0))
-	head.rotation.x = lerp_angle(head.rotation.x, -pitch + rear, 1.0 - exp(-delta * 8.0))
+	_gaze.y = lerp_angle(_gaze.y, yaw, 1.0 - exp(-delta * 8.0))
+	_gaze.x = lerp_angle(_gaze.x, -pitch + rear, 1.0 - exp(-delta * 8.0))
+	head.rotation = _gaze
 	torso.rotation.y = lerp_angle(torso.rotation.y, yaw * 0.35, 1.0 - exp(-delta * 2.0))
 
 
@@ -947,7 +1106,8 @@ func _update_posture(delta: float) -> void:
 	body.rotation.z = lerpf(body.rotation.z, reel + tilt * 0.3, k)
 	body.position.y = lerpf(body.position.y, -0.1 * slump, k) if state == "broken" else body.position.y
 	head.position.y = lerpf(head.position.y, 1.68 - worn * 0.08 - slump * 0.12 - hunch * 0.1, k)
-	head.rotation.z = lerpf(head.rotation.z, sin(t * 2.3) * 0.25 * dizzy + slump * 0.3 + tilt, k)
+	_gaze.z = lerpf(_gaze.z, sin(t * 2.3) * 0.25 * dizzy + slump * 0.3 + tilt, k)
+	head.rotation = _gaze
 	if shield_arm and state != "dead":
 		# the Castellan keeps the wall up: the shield covers the torso until it's rattled
 		var up: bool = guard_up() and not (state == "windup" and current.get("pose", "") == "bash")

@@ -1,0 +1,8 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://recording/enemy_rig.gd" id="1_rig"]
+
+[node name="TheSmelter" type="Node3D"]
+script = ExtResource("1_rig")
+enemy_id = "The Smelter"
+faces_player = true
