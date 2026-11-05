@@ -153,7 +153,7 @@ var _gong_struck := false
 ## through the earth. It starts to crack at CRACK_AT of it. Each fall shores the floor up: the
 ## next limit is what you fell with plus MOLTEN_STEP for every fall so far this run (about ten
 ## more iron tower shields the first time, twenty the next...), so you don't fall straight back.
-const MOLTEN_MASS := 3000.0
+const MOLTEN_MASS := 5000.0  # (an ordinary hoard gets here around the middle of prestige 2; a heavy buyer, sooner)
 const MOLTEN_STEP := 2000.0
 const CRACK_AT := 0.7
 const FALL_DEPTH := 40.0  # metres of earth
