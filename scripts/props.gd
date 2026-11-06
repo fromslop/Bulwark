@@ -341,8 +341,10 @@ func feed(items: Array, delta: float) -> void:
 
 
 func _touches(it: Item, pr: Dictionary) -> bool:
+	var xf := it.global_transform
+	var r2: float = pr.r * pr.r
 	for c in it.cells:
-		if it.to_global(it.cell_pos(c)).distance_to(pr.pos) <= pr.r:
+		if (xf * it.cell_pos(c)).distance_squared_to(pr.pos) <= r2:
 			return true
 	return false
 

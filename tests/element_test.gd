@@ -80,7 +80,7 @@ func _process(_d: float) -> bool:
 			_check(reached <= Item.ELEMENT_HOPS + 1, "the far end of the row shouldn't be cold (%s)" % [hops])
 			_check(row[1].cold > 0.5 and row[1].cold_hops == 1, "what touches the frosty one should be frozen, a step away")
 			_check(Item.hop_fade(row[reached].cold_hops) < Item.hop_fade(row[1].cold_hops), "frost should be drawn fainter further along")
-			row[0].def.modifiers.erase("frosty")
+			row[0].remove_mod("frosty")
 			row[0].cold = 0.0
 			for it in row:
 				it.cold = 0.0
@@ -102,7 +102,7 @@ func _process(_d: float) -> bool:
 			if DisplayServer.get_name() != "headless":
 				DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://shots"))
 				root.get_texture().get_image().save_png("res://shots/elements_heat.png")
-			row[N - 1].def.modifiers.erase("superheated")
+			row[N - 1].remove_mod("superheated")
 			for it in row:
 				it.heat = 0.0
 				it.heat_hops = Item.NO_HOPS

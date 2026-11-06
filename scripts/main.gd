@@ -221,6 +221,7 @@ var free_rerolls := 0  # from horseshoes
 var _debris_check := 0.0
 var _shake := 0.0
 var _bone_timer := 0.0  # Ossuary: bones drop now and then
+var _env_on := false  # a room's physics is set on the bodies (see _setting_physics)
 # What the pile is worth right now (hoard utilities): refreshed every second
 var hoard_wear := 1.0     # Trophy Pegs: gear wear from blows
 var hoard_stagger := 1.0  # War Banner: stagger from blocks
@@ -793,6 +794,8 @@ func _return_home() -> void:
 func _set_backdrop(name: String, keyhole: bool = false) -> void:
 	if backdrop:
 		backdrop.queue_free()
+	if _env_on:
+		_reset_env()
 	backdrop = Backdrop.create(name)
 	_keyhole = {"pos": KEYHOLE_SPOTS[rng.randi() % KEYHOLE_SPOTS.size()], "used": false} if keyhole else {}
 	overlay.keyhole = _keyhole
@@ -904,64 +907,93 @@ func _clear_untaken_fixtures() -> void:
 ## quenched, which tempers it), and charge spreads through the water, hand included.
 ## Forge hearth: things held in it heat up. Star Chamber: nothing weighs much. Ossuary:
 ## bones drop from the ceiling now and then.
+## The water, the lift and the ink are settings on each body (Item.set_env: a gravity
+## factor and damping the server applies), put on as things go in and taken off as they
+## come out, at a quarter of the physics rate: a pushed body never sleeps, a lighter one
+## does, and a flooded pile costs what a dry one costs.
 func _setting_physics(delta: float) -> void:
+	var quarter := Engine.get_physics_frames() % Item.CONTACT_EVERY == 0
+	var qdt := delta * Item.CONTACT_EVERY
 	match setting():
 		"Cistern":
+			if not quarter:
+				return
+			_env_on = true
 			var wet: Array[Item] = []
 			var volts := 0.0
 			for n in get_tree().get_nodes_in_group("items"):
 				var it := n as Item
-				if it == null or it.freeze or it.is_queued_for_deletion() or it.global_position.y < WATER_Y:
+				if it == null or it.is_queued_for_deletion():
+					continue
+				var under := it.global_position.y >= WATER_Y and not it.freeze
+				it.set_env(0.4 if under else 1.0, 4.8 if under else 0.0, 4.8 if under else 0.0)  # (0.6 of its weight held up, 0.96 of its speed kept a step)
+				if not under:
 					continue
 				wet.append(it)
-				it.apply_central_force(Vector2(0, -it.mass * 980.0 * 0.6))
-				it.linear_velocity *= 0.96
-				it.angular_velocity *= 0.96
 				if it.heat > 0.3:
 					it.cold = maxf(it.cold, 0.3)  # quench
-				it.heat *= 0.9
+				it.heat *= 0.656  # (0.9 a step)
 				volts = maxf(volts, it.charge)
 			if volts > 0.5:
 				for it in wet:
 					it.charge = maxf(it.charge, volts * 0.8)
 				if hand.position.y > WATER_Y and not hand.has_ring("ring_grounding"):
-					hand.injury = minf(hand.max_hp, hand.injury + volts * 8.0 * delta)
+					hand.injury = minf(hand.max_hp, hand.injury + volts * 8.0 * qdt)
 					hand.hazard_time = 0.2
 		"Forge":
+			if not quarter:
+				return
 			for n in get_tree().get_nodes_in_group("items"):
 				var it := n as Item
 				if it and not it.freeze and HEARTH.has_point(it.global_position):
-					it.heat = minf(1.0, it.heat + 0.35 * delta)
+					it.heat = minf(1.0, it.heat + 0.35 * qdt)
 		"Star Chamber":
+			if not quarter:
+				return
+			_env_on = true
 			for n in get_tree().get_nodes_in_group("items"):
 				var it := n as Item
 				if it and not it.freeze and not it.is_queued_for_deletion():
-					it.apply_central_force(Vector2(0, -it.mass * 980.0 * 0.85))
-					it.linear_velocity *= 0.995
+					it.set_env(0.15, 0.6, 0.0)  # (0.85 of its weight lifted, 0.995 of its speed kept a step)
 		"Clockwork Orrery":
 			# light gravity, and the planets sweep through on their arms, batting things aside
+			_env_on = true
+			var pls := planets()
 			for n in get_tree().get_nodes_in_group("items"):
 				var it := n as Item
 				if it == null or it.freeze or it.is_queued_for_deletion():
 					continue
-				it.apply_central_force(Vector2(0, -it.mass * 980.0 * 0.5))
-				for pl in planets():
+				if quarter:
+					it.set_env(0.5, 0.0, 0.0)
+				for pl in pls:
 					var d: Vector2 = it.global_position - pl.pos
 					if d.length() < pl.r + 20.0:
 						it.apply_central_impulse((d.normalized() + pl.vel.normalized() * 0.5) * it.mass * 30.0)
 		"Ink Margin":
 			# the floor is wet ink: what lies in it drags
+			if not quarter:
+				return
+			_env_on = true
 			for n in get_tree().get_nodes_in_group("items"):
 				var it := n as Item
-				if it and not it.freeze and it.global_position.y > 600.0:
-					it.linear_velocity *= 0.9
-					it.angular_velocity *= 0.9
+				if it and not it.freeze:
+					var ink := it.global_position.y > 600.0
+					it.set_env(1.0, 12.0 if ink else 0.0, 12.0 if ink else 0.0)  # (0.9 of its speed kept a step)
 		"Ossuary":
 			_bone_timer -= delta
 			if _bone_timer <= 0.0:
 				_bone_timer = rng.randf_range(6.0, 11.0)
 				var b := _spawn(ItemDefs.make("skull", "bone"), Vector2(rng.randf_range(100, 1180), -20))
 				b.angular_velocity = rng.randf_range(-6, 6)
+
+
+## The room's hand comes off everything (the fight's over, or it's another room).
+func _reset_env() -> void:
+	_env_on = false
+	for n in get_tree().get_nodes_in_group("items"):
+		var it := n as Item
+		if it:
+			it.set_env(1.0, 0.0, 0.0)
 
 
 func _clear_enemies() -> void:
@@ -1132,6 +1164,7 @@ func _on_enemy_died() -> void:
 					if it and it.owned and it.has_meta("hit_boss") and it.def.kind == "weapon":
 						it.def = it.def.duplicate(true)
 						it.def.boss_kills = int(it.def.get("boss_kills", 0)) + 1
+						it.def_changed()
 						it.queue_redraw()
 						overlay.ring(it.global_position, 40.0, Color(0.95, 0.6, 1.0), 0.6)
 	var alive := living()
@@ -1225,9 +1258,8 @@ func _pay_utilities() -> void:
 			"crucible":
 				# metal scrap resting on it melts down: a coin for every three cells
 				var melted := 0
-				for b in it.get_colliding_bodies():
-					var o := b as Item
-					if o and o.owned and o.is_loose_metal() and o.def.kind != "coin":
+				for o in it.touching():
+					if o.owned and o.is_loose_metal() and o.def.kind != "coin":
 						melted += maxi(1, int(o.cells.size() / 3.0))
 						o.queue_free()
 				if melted > 0:
@@ -1975,6 +2007,8 @@ func _centroid(poly: PackedVector2Array) -> Vector2:
 func _physics_process(_delta: float) -> void:
 	if state == State.COMBAT:
 		_setting_physics(_delta)
+	elif _env_on:
+		_reset_env()
 	if state in [State.COMBAT, State.VICTORY, State.SHOP, State.HOME] and not _falling:
 		_prop_tick += _delta
 		if _prop_tick >= 0.05:
@@ -2024,11 +2058,16 @@ func _physics_process(_delta: float) -> void:
 
 ## A swinging weapon hits the first body part (weak spot first) any of its cells passes over.
 func _check_weapon_hit(it: Item, regs: Array) -> bool:
+	var xf := it.global_transform
+	var at: Array = []  # [cell, where it is on screen], once, for every part it's checked against
+	for c in it.cells:
+		at.append([c, xf * it.cell_pos(c)])
 	for r in regs:
 		var contact: Array[Vector2i] = []
-		for c in it.cells:
-			if it.to_global(it.cell_pos(c)).distance_to(r.center) <= r.radius:
-				contact.append(c)
+		var r2: float = r.radius * r.radius
+		for cp in at:
+			if (cp[1] as Vector2).distance_squared_to(r.center) <= r2:
+				contact.append(cp[0])
 		if contact.is_empty():
 			continue
 		it.swing_hit = true
@@ -2436,7 +2475,9 @@ func _tick_wisps(delta: float) -> void:
 		_wisps.clear()
 		overlay.wisps = []
 		return
-	for node in get_tree().get_nodes_in_group("items"):
+	# (the look for a wispfire weapon in flight walks the whole pile: every fourth frame)
+	var scan := Engine.get_process_frames() % PREVIEW_EVERY == 0
+	for node in (get_tree().get_nodes_in_group("items") if scan else []):
 		var it := node as Item
 		if it == null or not it.owned or not _has(it, "wispfire") or it.speed_parry() < WISP_SPEED:
 			continue
@@ -3427,8 +3468,8 @@ func on_tempered(it: Item) -> void:
 ## Glue pot and friends: dab the modifier onto the item the pot is touching (or under the hand).
 func _apply_from(pot: Item) -> void:
 	var target: Item = null
-	for b in pot.get_colliding_bodies():
-		if b is Item and b.def.kind != "debris":
+	for b in pot.touching():
+		if b.def.kind != "debris":
 			target = b
 			break
 	if target == null:
