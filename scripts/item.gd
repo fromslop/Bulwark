@@ -39,6 +39,10 @@ const WHETSTONE_WEAR := 0.1  # of the condition a whetstone puts back, what it l
 const ANVIL_WEAR := 0.05
 const WEIGHTLESS_DENSITY := 0.04  # what's left of an item's weight when it goes weightless
 const CONTACT_EVERY := 4
+# Slower than this (px/s, spin counted at the rim) a body scans its contacts only every
+# CONTACT_EVERY steps: a knock from something fast is registered by the fast thing, for
+# both of them, and two slow things can't meet hard enough to count.
+const SLOW_SPEED := 80.0
 const NEAR_WINDOW := 2.5 * CELL  # px: nearest_cell's window (2 cells each way, from inside one)
 # Prestigium runs in a gradient across a piece, teal at its top-left to blue at its bottom-right
 const PRESTIGIUM_FROM := Color(0.25, 0.9, 0.82)
@@ -250,6 +254,8 @@ var env_gravity := 1.0
 var env_linear_damp := 0.0
 var env_angular_damp := 0.0
 var _touching: Array = []  # the bodies it was against at its last physics step (see touching())
+var _slow := true  # moving slower than SLOW_SPEED at its last physics step
+var _sheen_at := PackedVector2Array()  # the sheeny cells' places on the thing (the sheen walks these)
 var _contact_seen := {}  # (the other contact map: the two swap every step, nothing allocated)
 var _fx_shown := false
 var _fx_anim_was := false  # drew moving effects last frame: one more redraw clears them
@@ -589,12 +595,13 @@ func _integrate_forces(state: PhysicsDirectBodyState2D) -> void:
 		if not _contact_ids.is_empty():
 			_contact_ids.clear()
 			_touching.clear()
-	else:
+	elif not _slow or (Engine.get_physics_frames() + _stagger) % CONTACT_EVERY == 0:
 		_integrate_contacts(state, count)
 	_vel_prev = _vel_now
 	_vel_now = state.linear_velocity
 	_spin_prev = _spin_now
 	_spin_now = state.angular_velocity
+	_slow = _vel_now.length() + absf(_spin_now) * origin.length() < SLOW_SPEED
 
 
 func _integrate_contacts(state: PhysicsDirectBodyState2D, count: int) -> void:
@@ -631,10 +638,20 @@ func _integrate_contacts(state: PhysicsDirectBodyState2D, count: int) -> void:
 		elif other is RigidBody2D:
 			om = other.mass
 			ov = other.linear_velocity
+		var rel := absf((mine - ov).dot(n))
 		var share := 1.0 if om == INF else 2.0 * om / (mass + om)
-		var dv := absf((mine - ov).dot(n)) * share
+		var dv := rel * share
 		if dv > SOUND_MIN_DV:
-			_impacts.append([state.get_contact_local_position(i), dv, other])
+			_impacts.append([at, dv, other])
+		if other is Item and other._slow and not other._contact_ids.has(get_instance_id()):
+			# it may be between scans: the knock lands on it from here, and the contact is
+			# marked seen for it so its next scan doesn't count the same knock again (if it
+			# scanned first this step it has the contact already, and its own knock)
+			var theirs: float = rel * 2.0 * mass / (mass + om)
+			if theirs > SOUND_MIN_DV:
+				other._impacts.append([at, theirs, self])
+				other._wake_tick()
+			other._contact_ids[get_instance_id()] = true
 	_contact_seen = _contact_ids
 	_contact_ids = seen
 
@@ -2031,6 +2048,7 @@ func _recompute_mass() -> void:
 	_bubbles.clear()
 	_sparkles.clear()
 	_sheeny.clear()
+	_sheen_at.clear()
 	_twinkly.clear()
 	for c in cells:
 		for d in DIRS:
@@ -2050,6 +2068,7 @@ func _recompute_mass() -> void:
 			_twinkly.append(c)
 		elif mat == "copper" or mat == "iron" or mat == "steel":
 			_sheeny.append(c)
+			_sheen_at.append(cell_pos(c))
 	# the point: the cell farthest from the grip (or from the middle, if it has none)
 	var from := center_of_mass
 	var grips := cells.keys().filter(func(c: Vector2i) -> bool: return cells[c].get("handle", false))
@@ -2218,18 +2237,12 @@ func _draw_fx(cv: CanvasItem) -> void:
 	var t := Time.get_ticks_msec() * 0.001
 	var half := Vector2(CELL, CELL) * 0.5
 	# a swing leaves a smear of the blade behind it: ghosts of where it just was, fading
-	if not _trail.is_empty():
-		var blade_col: Color = Materials.get_mat(def.get("material", "wood")).color
+	# (its own mesh, drawn faint at each past transform: one command a ghost, however big)
+	if not _trail.is_empty() and _mesh:
 		var inv := global_transform.affine_inverse()
 		for i in _trail.size():
-			var past: Transform2D = _trail[i]
 			var a := 0.45 * (1.0 - float(i + 1) / float(_trail.size() + 1))
-			var col := Color(blade_col.r, blade_col.g, blade_col.b, a).lightened(0.3)
-			for c in cells:
-				if cells[c].get("handle", false):
-					continue
-				var p: Vector2 = inv * (past * cell_pos(c))
-				cv.draw_rect(Rect2(p - half, Vector2(CELL, CELL)), col)
+			cv.draw_mesh(_mesh, null, inv * (_trail[i] as Transform2D), Color(1.0, 1.0, 1.0, a))
 	if _legendary and not _edges.is_empty():
 		_draw_aura(cv, t, half)
 	if _runed:
@@ -2316,13 +2329,11 @@ func _draw_fx(cv: CanvasItem) -> void:
 		var kx := xf.x.x + xf.x.y
 		var ky := xf.y.x + xf.y.y
 		var k0 := xf.origin.x + xf.origin.y + xf.get_rotation() * 200.0
-		for c in _sheeny:
-			if not cells.has(c):
-				continue
-			var l := cell_pos(c)
+		var size := Vector2(CELL, CELL)
+		for l in _sheen_at:  # (a cell lost since is drawn one frame more: the list follows at the rebuild)
 			var band := fmod(kx * l.x + ky * l.y + k0, 90.0)
 			if band < 10.0:
-				cv.draw_rect(Rect2(l - half, Vector2(CELL, CELL)), Color(1, 1, 1, 0.35 * (1.0 - absf(band - 5.0) / 5.0)))
+				cv.draw_rect(Rect2(l - half, size), Color(1, 1, 1, 0.35 * (1.0 - absf(band - 5.0) / 5.0)))
 
 
 ## The moving part of each modifier's look (see MOD_LOOKS), on the effects layer. Motes rise

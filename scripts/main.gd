@@ -3751,4 +3751,22 @@ func _update_debug() -> void:
 	var hov := hand.held if hand.held else hand.item_under(hand.position)
 	if hov:
 		lines.append(hov.describe() + ("   cd %.1f" % hov.cooldown if hov.def.has("cooldown") else ""))
+	# the frame's cost and what's in the pile (slow-mo is a frame over 25 ms: three physics steps)
+	var asleep := 0
+	var shapes := 0
+	var big: Item = null
+	for n in get_tree().get_nodes_in_group("items"):
+		var it := n as Item
+		if it == null:
+			continue
+		if it.sleeping:
+			asleep += 1
+		shapes += it._shapes.size()
+		if big == null or it.cells.size() > big.cells.size():
+			big = it
+	lines.append("frame %.1f ms (physics %.1f, process %.1f)  bodies %d (%d asleep) shapes %d pairs %d%s" % [
+		1000.0 / maxf(1.0, Engine.get_frames_per_second()), Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0,
+		Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0, get_tree().get_nodes_in_group("items").size(), asleep, shapes,
+		Performance.get_monitor(Performance.PHYSICS_2D_COLLISION_PAIRS),
+		"  biggest: %s, %d cells, %d shapes" % [big.display_name(), big.cells.size(), big._shapes.size()] if big else ""])
 	debug_label.text = "\n".join(lines)

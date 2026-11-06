@@ -8,6 +8,11 @@ extends SceneTree
 ## Run: Godot_v4.7.2-stable_win64.exe --path . -s res://tests/perf_scale.gd -- [options]
 ##   --n=120        whole gear items (default 120)
 ##   --coins=0      loose fat coins on top (they fuse past COIN_BODIES; default 0)
+##   --debris=0     splinters and scraps in the pile (what a long run is mostly made of)
+##   --huge         three giants first: a greatsword, a tower shield and a round shield at
+##                  two and a half times their size (a thousand cells and more each)
+##   --stir=1500    knock a body every N ms while measuring, as a player rummaging does:
+##                  the whole touching pile wakes (measures the awake pile, over 6 s)
 ##   --charge       every fourth thing electrified: the whole pile carries charge
 ##   --seed=7       the room and the pile
 ##   --fps=0        cap the frame rate (0: none)
@@ -43,6 +48,9 @@ var _n := 120
 var _coins := 0
 var _spawned := 0
 var _coins_spawned := 0
+var _debris := 0
+var _debris_spawned := 0
+var _stir_at := 0  # ms
 var _next_row := 0  # physics tick of the next row
 var _waited := 0
 var _measure_from := 0  # physics tick the measuring starts at (0: not yet)
@@ -61,6 +69,7 @@ func _initialize() -> void:
 	args = OS.get_cmdline_user_args()
 	_n = _opt("--n", 120)
 	_coins = _opt("--coins", 0)
+	_debris = _opt("--debris", 0)
 	SaveData.PATH = "user://hoardsman_test_save.txt"  # never the player's real home
 	main = load("res://scenes/main.tscn").instantiate()
 	root.add_child(main)
@@ -90,7 +99,12 @@ func _row() -> void:
 			if _spawned >= _n:
 				break
 			var g: Array = GEAR[_spawned % GEAR.size()]
+			if "--huge" in args and _spawned < 3:
+				g = [["greatsword", "steel"], ["tower_shield", "iron"], ["round_shield", "steel"]][_spawned]
 			var d: Dictionary = ItemDefs.make(g[0], g[1])
+			if "--huge" in args and _spawned < 3:
+				d.size = 2.5
+				d.modifiers.append("spiked")
 			if "--charge" in args and _spawned % 4 == 0:
 				d.modifiers.append("electrified")
 			_harden(main._spawn(d, Vector2(70 + col * 100 + (_spawned * 37) % 30, 30 + (col % 3) * 15)))
@@ -101,6 +115,13 @@ func _row() -> void:
 				break
 			_harden(main._spawn(ItemDefs.make("coin5", "gold"), Vector2(30 + k * 52 + (_coins_spawned * 13) % 20, 20 + (k % 2) * 12)))
 			_coins_spawned += 1
+	elif _debris_spawned < _debris:
+		for k in 24:
+			if _debris_spawned >= _debris:
+				break
+			var d := {"kind": "debris", "shape": "coin", "material": "wood" if k % 3 else "iron", "name": "Scrap", "piece": true, "modifiers": []}
+			_harden(main._spawn(d, Vector2(30 + k * 52 + (_debris_spawned * 17) % 24, 20 + (k % 2) * 12)))
+			_debris_spawned += 1
 
 
 func _setup() -> void:
@@ -133,7 +154,8 @@ func _start_measuring() -> void:
 	if "--hide-items" in args:
 		main.items_root.visible = false
 	_measuring = true
-	_measure_end = Time.get_ticks_msec() + int(MEASURE * 1000.0)
+	_measure_end = Time.get_ticks_msec() + int(MEASURE * (2.0 if _opt("--stir", 0) > 0 else 1.0) * 1000.0)
+	_stir_at = Time.get_ticks_msec()
 
 
 func _dump(bodies: Array) -> void:
@@ -191,7 +213,7 @@ func _process(_d: float) -> bool:
 				_row()
 			else:
 				_waited += ROW_EVERY
-			if _spawned >= _n and _coins_spawned >= _coins:
+			if _spawned >= _n and _coins_spawned >= _coins and _debris_spawned >= _debris:
 				_measure_from = tick + SETTLE
 		return false
 	if not _measuring:
@@ -202,6 +224,11 @@ func _process(_d: float) -> bool:
 		for n in main.get_tree().get_nodes_in_group("items"):
 			if n.conductive:
 				n.charge = maxf(n.charge, 0.9)
+	if _opt("--stir", 0) > 0 and Time.get_ticks_msec() >= _stir_at:
+		_stir_at = Time.get_ticks_msec() + _opt("--stir", 0)
+		var all := main.get_tree().get_nodes_in_group("items")
+		var it: Item = all[(f * 7919) % all.size()]
+		it.apply_central_impulse(Vector2(randf_range(-0.6, 0.6), -1.0) * it.mass * 420.0)
 	var now := Time.get_ticks_usec()
 	if _last > 0:
 		frame_ms.append((now - _last) / 1000.0)
