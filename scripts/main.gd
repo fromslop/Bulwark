@@ -17,9 +17,12 @@ enum State { HOME, COMBAT, VICTORY, SHOP, DEFEAT }
 
 const SCREEN := Vector2(1280, 720)
 const SAMPLE_STEP := 14.0
-const DEBRIS_CAP := 160
-const BODY_CAP := 240   # absolute backstop: past this, the smallest fragments are cleared (never coins)
-const COIN_BODIES := 30  # past this many loose coins in the pile, five small ones fuse into one big one
+# The pile's size. A resting body costs next to nothing now (its look is one mesh, and
+# asleep it doesn't tick); what's left is the solver on the bodies that are moving, so
+# the caps are set by how much can be in motion at once, not by the count.
+const DEBRIS_CAP := 240
+const BODY_CAP := 360   # absolute backstop: past this, the smallest fragments are cleared (never coins)
+const COIN_BODIES := 60  # past this many loose coins in the pile, five small ones fuse into one big one
 const COIN_MERGES := 12  # fusions per second, so a hoard condenses over a few seconds rather than at once
 const SHAKE_CAP := 30.0
 const PUNCH_DAMAGE := 3.0
