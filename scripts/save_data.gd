@@ -3,7 +3,16 @@ extends RefCounted
 ## What survives between runs: the gear kept at home (and where it hangs), everything the
 ## codex has seen, and how deep a run has ever gone. One text file in user://.
 
-static var PATH := "user://hoardsman_save.txt"  # tests point this elsewhere
+static var PATH := default_path()  # tests point this elsewhere
+
+
+## Running from source: the one dev save. An exported release starts from a fresh save of
+## its own, named for its version, so each release begins fully reset (and never reads the
+## dev save, or an older release's).
+static func default_path() -> String:
+	if OS.is_debug_build():
+		return "user://hoardsman_save.txt"
+	return "user://hoardsman_save_v%s.txt" % str(ProjectSettings.get_setting("application/config/version", "0"))
 static var wiping := false  # the save was just erased: nothing writes it back until a fresh load
 const OLD_NAME := "Bulwark"  # what the game was called: its save and settings lived under that
 
@@ -14,8 +23,8 @@ static func carry_over() -> void:
 	var here := OS.get_user_data_dir()
 	var old := here.get_base_dir().path_join(OLD_NAME)
 	for pair in [["bulwark_save.txt", "hoardsman_save.txt"], ["settings.cfg", "settings.cfg"], ["looks.cfg", "looks.cfg"], ["style.cfg", "style.cfg"]]:
-		if wiping and pair[1] == "hoardsman_save.txt":
-			continue  # (just reset: don't bring the old one back)
+		if pair[1] == "hoardsman_save.txt" and (wiping or not OS.is_debug_build()):
+			continue  # (just reset, or a release: it starts fresh, so don't bring the old one back)
 		var src: String = old.path_join(pair[0])
 		var dst: String = here.path_join(pair[1])
 		if FileAccess.file_exists(src) and not FileAccess.file_exists(dst):

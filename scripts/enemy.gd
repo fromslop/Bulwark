@@ -355,7 +355,14 @@ static func model_path(d: Dictionary) -> String:
 
 static func _parse_model(path: String) -> Node:
 	if not FileAccess.file_exists(path):
+		# an exported game has no raw .glb, only Godot's imported copy of it: load that (without
+		# this every foe in a release fell back to its primitive build)
+		if ResourceLoader.exists(path):
+			var ps := load(path) as PackedScene
+			if ps:
+				return ps.instantiate()
 		return null
+	# (running from source: read the file itself, as the model tool last wrote it)
 	var doc := GLTFDocument.new()
 	var state := GLTFState.new()
 	var err := doc.append_from_file(path, state)
