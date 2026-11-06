@@ -119,6 +119,16 @@ static func pack(it: Item) -> Dictionary:
 		e.fused_kind = d.kind
 	if d.has("value"):
 		e.value = d.value
+	if d.has("lineage"):
+		e.lineage = d.lineage
+	if not d.has("parts") and not it.is_whole():
+		# a piece, or something with bits broken off: its own pixels, exactly, so it comes back
+		# as it is (made again from its mask it would be whole: a duplicate of what's missing)
+		e.cells = it.cells.duplicate(true)
+		e.cells_origin = it.origin
+		e.piece = bool(d.get("piece", false))
+		e.piece_kind = d.kind
+		e.piece_name = str(d.get("name", ""))
 	return e
 
 
@@ -153,6 +163,15 @@ static func unpack(e: Dictionary) -> Dictionary:
 		d.fused_origin = e.get("fused_origin", Vector2.ZERO)
 		d.name = e.get("fused_name", d.get("name", ""))
 		d.kind = e.get("fused_kind", d.kind)
+	if e.has("cells"):
+		d.fused_cells = (e.cells as Dictionary).duplicate(true)
+		d.fused_origin = e.get("cells_origin", Vector2.ZERO)
+		if e.get("piece", false):
+			d.piece = true
+			d.kind = e.get("piece_kind", d.kind)
+			d.name = e.get("piece_name", d.get("name", ""))
+	if e.has("lineage"):
+		d.lineage = e.lineage
 	d.boss_kills = int(e.get("boss_kills", 0))
 	d.kills = int(e.get("kills", 0))
 	return d

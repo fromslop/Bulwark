@@ -138,6 +138,17 @@ const KEYHOLE_REACH := 16.0  # px: how close the key has to come to the keyhole 
 # Where a keyhole can be, on screen: high on the walls, clear of the foe, the gong and the
 # ring slots (the pile buries anything low)
 const KEYHOLE_SPOTS := [Vector2(108, 86), Vector2(1189, 150), Vector2(1125, 56), Vector2(234, 96), Vector2(332, 58), Vector2(968, 70), Vector2(160, 300)]
+# The home's surfaces things can be set down on, on screen: [left, right, top]. One-way
+# ledges on their own physics layer (LEDGE_LAYER): what you let go of above one lands and
+# rests on it; what you're holding passes through, so dragging never snags on them.
+const HOME_LEDGES := {
+	"shelves": [957.0, 1183.0, 178.0],  # the wall shelves by the gong (the "any" rack spots)
+	"trophy board": [675.0, 905.0, 214.0],  # the trophy rack's board
+	"mantel": [815.0, 1280.0, 302.0],  # over the fireplace
+	"table": [480.0, 882.0, 628.0],  # the table in the middle of the room
+	"hearth": [842.0, 1280.0, 600.0],  # the hearthstone, and the firepit behind it
+}
+const LEDGE_LAYER := 8  # (physics layer 4: only things at home that aren't held collide with it)
 const STORAGE_OUT := Vector2(150, 560)  # where a thing taken out of the cupboard tumbles out
 
 var state := State.HOME
@@ -161,6 +172,7 @@ var hand: Hand
 var ui: CanvasLayer
 var codex: Codex
 var storage: Storage  # the cupboard at home
+var _ledges: StaticBody2D  # the home's surfaces (HOME_LEDGES), while at home
 var save: SaveData
 var debug_label: Label  # F1: developer readout, hidden by default
 var shelves: Array = []  # {rect, price, paid, item, body, kind}
@@ -445,12 +457,14 @@ func _go_home(carry: Item = null) -> void:
 		racks.append({"pos": Vector2(p.x, TROPHY_SHELF_Y), "kind": "trophy", "item": null})
 	overlay.racks = racks
 	hand.reset_run()  # a fresh hand (this lets go of what it carried: it drops here, yours)
+	hand.unlimited = true  # at home anything can be lifted, however heavy
 	# the collections hang in a row along the top wall (hung up high: the floor fills up)
 	for k in HOME_COLLECTIONS.size():
 		var c: Array = HOME_COLLECTIONS[k]
 		_spawn(ItemDefs.make(c[0], c[1]), Vector2(470 + k * 80, 100)).freeze = true
 	_spawn(ItemDefs.make("mirror", "copper"), Vector2(450, 250)).freeze = true
 	props.setup("Homestead", 0)
+	_build_home_ledges()
 	for e in save.home:
 		var d := SaveData.unpack(e)
 		if d.is_empty():
@@ -556,6 +570,46 @@ func _on_released(it: Item) -> void:
 		Sfx.play("clack", -8.0, 1.2)
 
 
+## The home's surfaces as one-way ledges (HOME_LEDGES), plus the relic shelf if it's up.
+func _build_home_ledges() -> void:
+	_clear_home_ledges()
+	_ledges = StaticBody2D.new()
+	_ledges.name = "HomeLedges"
+	_ledges.collision_layer = LEDGE_LAYER
+	_ledges.collision_mask = 0
+	var spans: Array = HOME_LEDGES.values()
+	for pr in props.props:
+		if pr.kind == "relics":
+			spans.append([pr.pos.x - 85.0, pr.pos.x + 85.0, pr.pos.y + 16.5])  # (its board: props.gd "relics")
+	for sp in spans:
+		var cs := CollisionShape2D.new()
+		var rs := RectangleShape2D.new()
+		rs.size = Vector2(float(sp[1]) - float(sp[0]), 8.0)
+		cs.shape = rs
+		cs.position = Vector2((float(sp[0]) + float(sp[1])) * 0.5, float(sp[2]) + 4.0)
+		cs.one_way_collision = true  # (lands from above; anything below comes up through it)
+		cs.one_way_collision_margin = 6.0
+		_ledges.add_child(cs)
+	add_child(_ledges)
+
+
+func _clear_home_ledges() -> void:
+	if _ledges and is_instance_valid(_ledges):
+		_ledges.queue_free()
+	_ledges = null
+
+
+## At home, what isn't in your hand rests on the ledges; what is passes through them.
+func _sync_ledge_masks() -> void:
+	for n in items_root.get_children():
+		var it := n as Item
+		if it == null or it.collision_mask == 0:
+			continue  # (shop stock and cups on the rack: set apart)
+		var on := not it.held
+		if it.get_collision_mask_value(4) != on:
+			it.set_collision_mask_value(4, on)
+
+
 ## The storage cupboard in the corner at home (a prop: props.gd "storage").
 func _over_storage(p: Vector2) -> bool:
 	for pr in props.props:
@@ -593,6 +647,8 @@ func _start_run() -> void:
 		codex.toggle()
 	if storage.is_open():
 		storage.toggle()
+	_clear_home_ledges()
+	hand.unlimited = false  # (out there, weight counts again)
 	save.tally("runs")
 	var carry := hand.held
 	if carry and carry.def.kind == "trophy":
@@ -770,6 +826,21 @@ func _fixture(d: Dictionary, at: Vector2, hanging: bool) -> Item:
 	return it
 
 
+## The vault's hoard stays for the shop that follows: what you haven't taken is hung again in
+## two rows along the wall under the shelves (clear of the stock, the dice and the door).
+## Whatever's still there when the next fight starts is gone.
+func _rehang_vault_loot() -> void:
+	var left: Array = get_tree().get_nodes_in_group("items").filter(func(n: Node) -> bool:
+		return n is Item and n.has_meta("fixture") and not n.has_meta("taken") and not n.is_queued_for_deletion())
+	for i in left.size():
+		var it: Item = left[i]
+		it.freeze = true
+		it.rotation = 0.0
+		it.linear_velocity = Vector2.ZERO
+		it.angular_velocity = 0.0
+		it.teleport(Vector2(90 + (i % 11) * 110, 330 + int(i / 11) * 95))
+
+
 func _clear_untaken_fixtures() -> void:
 	for n in get_tree().get_nodes_in_group("items"):
 		if n.has_meta("fixture") and not n.has_meta("taken"):
@@ -883,6 +954,7 @@ func _end_scrying() -> void:
 
 
 func _start_fight() -> void:
+	_clear_untaken_fixtures()  # (the vault's hoard, if it was left through the shop)
 	var plan := _next_plan
 	_next_plan = {}
 	var stale: bool = plan.is_empty() or plan.round != round_num or plan.prestige != prestige or plan.vault != secret_next \
@@ -1018,7 +1090,9 @@ func _on_enemy_died() -> void:
 	Music.set_mode(Music.Mode.CALM)  # drums out; the base plays on through the shop
 	_state_timer = 2.2
 	overlay.clear_zone()
-	_clear_untaken_fixtures()  # whatever you didn't take stays here
+	if setting() != "Hidden Vault":
+		_clear_untaken_fixtures()  # whatever you didn't take stays here
+	# (the vault's hoard stays through the shop: _rehang_vault_loot)
 	# (the stage's own things stay through the shop: an altar's still there once the foe's down)
 	styles.set_dark(false)
 	_pay_utilities()
@@ -1217,6 +1291,8 @@ func _defeat() -> void:
 
 func _open_shop() -> void:
 	state = State.SHOP
+	if setting() == "Hidden Vault":
+		_rehang_vault_loot()
 	for e in enemies:
 		if is_instance_valid(e):
 			e.visible = false
@@ -1699,6 +1775,11 @@ func _resolve_attack(atk: Dictionary, who: Enemy = null) -> void:
 		enemy.gum_up(1.5)
 	var dmg: float = atk.damage * leak
 	dmg += atk.damage * HAND_CAUGHT * hand_energy  # the hand itself caught in the swing
+	if dmg > 0.0 and atk.get("trait", "") == "charged" and hand.has_ring("ring_grounding"):
+		# a charged blow is a shock: the Ring of Grounding runs it off into the floor
+		overlay.sparks(hand.position, 6000.0, Color(0.6, 0.85, 1.0))
+		popups.word(hand.position + Vector2(0, -40), "GROUNDED", Color(0.75, 0.9, 1.0))
+		dmg = 0.0
 	_striker = enemy  # (so Thorns and the Martyr answer this one, not just the first)
 	hand.hurt(dmg)
 	_striker = null
@@ -1852,6 +1933,8 @@ func _physics_process(_delta: float) -> void:
 				var to: Vector2 = hand.position - it.global_position
 				if to.length() > 30.0:
 					it.apply_central_force(to.normalized() * it.mass * 2600.0)
+	if state == State.HOME:
+		_sync_ledge_masks()
 	if state == State.SHOP or state == State.HOME:
 		if state == State.SHOP and not _falling:
 			_update_shelves()

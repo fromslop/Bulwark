@@ -54,16 +54,53 @@ static func storable(it: Item) -> bool:
 	return it != null and it.owned and not it.def.kind in NOT_STORED
 
 
-## Put a thing away. False if it can't go in, or the cupboard is full.
+## Put a thing away, and with it every other piece of it lying about (anything broken off
+## it, or it broken off from: the same lineage, glued parts' too), so nothing comes back
+## doubled. False if it can't go in, or the cupboard is full. The rest of the pieces are
+## taken out of the world here; `it` is the caller's to free.
 func store(it: Item) -> bool:
 	if not storable(it) or contents().size() >= CAPACITY:
 		return false
+	var kin := kin_of(it)
 	var e := SaveData.pack(it)
 	e.erase("pos")
 	e.slot = -1
+	var with: Array = []
+	for o in kin:
+		var oe := SaveData.pack(o)
+		oe.offset = o.global_position - it.global_position
+		oe.erase("pos")
+		with.append(oe)
+		if o.held:
+			_game.hand.release()
+		o.queue_free()
+	if not with.is_empty():
+		e.with = with
 	contents().append(e)
 	_rebuild_pics()
 	return true
+
+
+## Everything else of yours that came from the same thing as `it` (its lineages, followed
+## through glued parts to the end).
+static func kin_of(it: Item) -> Array:
+	var lines: Array = it.lineages()
+	var out: Array = []
+	var grew := true
+	while grew:
+		grew = false
+		for n in it.get_tree().get_nodes_in_group("items"):
+			var o := n as Item
+			if o == null or o == it or out.has(o) or not o.owned or o.is_queued_for_deletion() or o.def.kind in ["menu", "coin"]:
+				continue
+			var ol: Array = o.lineages()
+			if ol.any(func(l: String) -> bool: return lines.has(l)):
+				out.append(o)
+				for l in ol:
+					if not lines.has(l):
+						lines.append(l)
+				grew = true
+	return out
 
 
 ## Take the `i`th thing out: it tumbles out in front of the cupboard.
@@ -80,6 +117,14 @@ func take_out(i: int) -> Item:
 	it.rotation = float(e.get("rot", 0.0))
 	SaveData.apply_health(it, float(e.get("health", 1.0)))
 	it.linear_velocity = Vector2(randf_range(160, 260), -220)
+	for oe in e.get("with", []):
+		var od := SaveData.unpack(oe)
+		if od.is_empty():
+			continue
+		var o: Item = _game._spawn(od, _game.STORAGE_OUT + (oe.get("offset", Vector2.ZERO) as Vector2).limit_length(60.0))
+		o.rotation = float(oe.get("rot", 0.0))
+		SaveData.apply_health(o, float(oe.get("health", 1.0)))
+		o.linear_velocity = Vector2(randf_range(120, 280), randf_range(-280, -160))
 	picked = mini(i, contents().size() - 1)
 	_rebuild_pics()
 	_game.on_storage_changed()
@@ -242,6 +287,9 @@ class Page:
 			_pic(i, Rect2(r.position + Vector2(6, 6), r.size - Vector2(12, 16)))
 			if on:
 				draw_rect(r, BRASS, false, 2.0)
+			var extra: int = (items[i].get("with", []) as Array).size()
+			if extra > 0:
+				draw_string(font, Vector2(r.position.x, r.end.y - 9), "+%d" % extra, HORIZONTAL_ALIGNMENT_RIGHT, r.size.x - 5, 11, BRASS)
 			var rar := int((items[i] as Dictionary).get("rarity", ItemDefs.rarity_of(str(items[i].get("id", "")))))
 			if rar > 0:
 				draw_rect(Rect2(r.position.x, r.position.y, r.size.x, 3), ItemDefs.RARITY_COLORS[clampi(rar, 0, 3)])
@@ -274,6 +322,11 @@ class Page:
 		draw_string(font, Vector2(x, y), tag, HORIZONTAL_ALIGNMENT_LEFT, w, 11, DIM2)
 		y += 22
 		var rows: Array = [["Condition", "%d%%" % roundi(float(e.get("health", 1.0)) * 100.0)]]
+		var pieces: int = (e.get("with", []) as Array).size()
+		if pieces > 0:
+			rows.append(["Pieces", "%d (kept together)" % (pieces + 1)])
+		elif e.get("piece", false) or e.has("cells"):
+			rows.append(["Pieces", "broken"])
 		var dmg: float = storage._pics[storage.picked].damage if storage.picked < storage._pics.size() else -1.0
 		if dmg >= 0.0:
 			rows.push_front(["Damage", "%d" % roundi(dmg)])

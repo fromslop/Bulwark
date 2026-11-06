@@ -62,14 +62,14 @@ func _ready() -> void:
 ## Wall Map in the codex reads this too, to say what's in each place.
 const LAYOUT := {
 	"Dungeon Cell": [["torch", Vector2(210, 165), 30.0, 1.0], ["brick", Vector2(1040, 130), 18.0, 0.6]],
-	"Corridor": [["torch", Vector2(1070, 160), 30.0, 1.0], ["chandelier", Vector2(640, 48), 26.0, 1.0], ["brick", Vector2(250, 300), 18.0, 0.6]],
+	"Corridor": [["torch", Vector2(1070, 160), 30.0, 1.0], ["chandelier", Vector2(640, 48), 26.0, 0.33], ["brick", Vector2(250, 300), 18.0, 0.6]],
 	"Cistern": [["rust_grate", Vector2(1060, 160), 30.0, 1.0]],
 	"Catacombs": [["fungus", Vector2(980, 150), 32.0, 1.0]],
-	"Crypt Chapel": [["chandelier", Vector2(640, 48), 26.0, 1.0], ["altar", Vector2(210, 300), 34.0, 1.0]],
+	"Crypt Chapel": [["chandelier", Vector2(640, 48), 26.0, 0.33], ["altar", Vector2(210, 300), 34.0, 0.33]],
 	"Forge": [["quench", Vector2(190, 250), 34.0, 1.0]],
 	"Ossuary": [["fungus", Vector2(950, 150), 32.0, 1.0], ["brick", Vector2(330, 120), 18.0, 0.5]],
 	"Star Chamber": [["storm_glass", Vector2(240, 160), 30.0, 1.0]],
-	"Hidden Vault": [["chandelier", Vector2(640, 48), 26.0, 1.0]],
+	"Hidden Vault": [["chandelier", Vector2(640, 48), 26.0, 0.33]],
 	"Homestead": [["dummy", Vector2(420, 470), 80.0, 1.0],  # stands on the floor
 		["trophy_shelf", Vector2(790, 196), 60.0, 1.0],  # the trophy rack: a board the bosses' cups stand on (main.gd TROPHY_SLOTS)
 		["tally", Vector2(520, 180), 50.0, 1.0],  # a chalk mark for every run, on the plaster by the window
@@ -88,7 +88,7 @@ const LAYOUT := {
 static func layout(setting: String) -> Array:
 	var out: Array = []
 	for p in LAYOUT.get(setting, []):
-		if float(p[3]) >= 1.0 and not out.has(p[0]):
+		if (float(p[3]) >= 1.0 or (float(p[3]) >= 0.3 and p[0] != "brick")) and not out.has(p[0]):  # (a loose brick is a secret: unnamed)
 			out.append(p[0])
 	if setting == "Star Chamber":
 		out.append("star")

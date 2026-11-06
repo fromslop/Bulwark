@@ -21,6 +21,7 @@ const STIFFNESS := 280.0
 const REACH_MASK := 1 | Item.SHOP_LAYER  # what the hand can grab or inspect: your things and the shop's stock
 const DAMPING := 32.0
 const MAX_FORCE := 210000.0
+var unlimited := false  # at home: no limit to what the hand can lift (main.gd sets it)
 const ROTATE_SPEED := 5.0
 ## Keep Space held after a swing and a weapon held by its handle comes back up to a ready
 ## position: a spring turns it until the blade points up from the grip (or to the angle Q/E
@@ -455,7 +456,7 @@ func _physics_process(delta: float) -> void:
 		return
 	var r := p - held.global_position
 	var f := held.mass * (STIFFNESS * (target() - p) - DAMPING * held.point_velocity(p))
-	held.apply_force(f.limit_length(MAX_FORCE * grip()), r)
+	held.apply_force(f if unlimited else f.limit_length(MAX_FORCE * grip()), r)
 	var spin := float(Input.is_key_pressed(KEY_E)) - float(Input.is_key_pressed(KEY_Q))
 	if spin != 0.0 and held.swing_time <= 0.0:
 		held.angular_velocity = move_toward(held.angular_velocity, spin * ROTATE_SPEED * grip(), 30.0 * delta)

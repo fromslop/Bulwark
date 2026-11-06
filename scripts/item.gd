@@ -245,6 +245,8 @@ static func _shade(cs: Dictionary) -> void:
 
 
 func _init_from(d: Dictionary, cs: Dictionary, org: Vector2) -> void:
+	if not d.has("lineage"):
+		d.lineage = new_lineage()  # (a piece broken off keeps its parent's: see lineages())
 	def = d
 	cells = cs
 	origin = org
@@ -766,6 +768,35 @@ func set_apart(on: bool) -> void:
 	else:
 		collision_layer = 1
 		collision_mask = 3
+
+
+## Every thing made gets a lineage of its own, and every piece broken off it (and every part
+## of a glued thing) keeps it: whatever came from one thing can be found again together.
+static func new_lineage() -> String:
+	return "%d-%d" % [Time.get_ticks_usec(), randi()]
+
+
+## This thing's lineages: its own, and every glued-on part's.
+func lineages() -> Array:
+	var out: Array = [str(def.get("lineage", ""))]
+	for pd in def.get("parts", []):
+		if (pd as Dictionary).has("lineage") and not out.has(str(pd.lineage)):
+			out.append(str(pd.lineage))
+	return out.filter(func(l: String) -> bool: return l != "")
+
+
+## Whole: every pixel its mask would give it (not a piece, nothing broken off).
+func is_whole() -> bool:
+	if def.get("piece", false):
+		return false
+	if def.has("parts") or not def.has("shape"):
+		return true  # (glued things keep their own cells anyway)
+	var n := 0
+	for row in ItemDefs.scale_mask(ItemDefs.shape_mask(def.shape), float(def.get("size", 1.0))):
+		for ch in row:
+			if ch != ".":
+				n += 1
+	return cells.size() >= n
 
 
 ## The nearest bit of this item to a point, if it's within reach (magnetic catch). INF if not.

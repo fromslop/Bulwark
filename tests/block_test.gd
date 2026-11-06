@@ -315,6 +315,8 @@ func _reactions_and_props(e: Enemy) -> void:
 		main.props.feed([blade], 0.05)
 	_check(blade.heat > 0.6, "a piece held in a torch should heat up (%.2f)" % blade.heat)
 	hp0 = e.hp
+	if not main.props.props.any(func(pr: Dictionary) -> bool: return pr.kind == "chandelier"):
+		main.props._add("chandelier", Vector2(640, 48), 26.0)  # (only there a third of the time)
 	var chand: Dictionary = main.props.props.filter(func(pr: Dictionary) -> bool: return pr.kind == "chandelier")[0]
 	_check(main.props.punch(chand.pos) and hp0 - e.hp >= 30.0, "punching the chandelier's chain should drop it on the foe")
 	main.props.setup("Catacombs", 1)
@@ -331,7 +333,18 @@ func _reactions_and_props(e: Enemy) -> void:
 	await physics_frame
 	await physics_frame
 	_check(main.coin_total() > coins0, "three punches on a loose brick should spill its stash")
+	# the chandelier and the blood altar are only on about a third of their stages
+	var seen := {"chandelier": 0, "altar": 0}
+	for k in 300:
+		main.props.setup("Crypt Chapel", 1000 + k)
+		for pr in main.props.props:
+			if seen.has(pr.kind):
+				seen[pr.kind] += 1
+	for kind in seen:
+		_check(seen[kind] > 60 and seen[kind] < 140, "the %s should turn up on about a third of its stages (%d of 300)" % [kind, seen[kind]])
 	main.props.setup("Crypt Chapel", 1)
+	if not main.props.props.any(func(pr: Dictionary) -> bool: return pr.kind == "altar"):
+		main.props._add("altar", Vector2(210, 300), 34.0)
 	var altar: Dictionary = main.props.props.filter(func(pr: Dictionary) -> bool: return pr.kind == "altar")[0]
 	var offering := _place("longsword", "steel", altar.pos)
 	offering.held = true
@@ -377,6 +390,13 @@ func _secrets() -> void:
 	floaty.freeze = false
 	_land("unmoor")
 	_check(floaty.reverse_time > 1.0, "the Astronomer's unmoor should make your gear fall upward")
+	# a charged blow is a shock: the Ring of Grounding takes it into the floor
+	await _clear()
+	var open_shock := _land("spark")
+	main.hand.wear_ring("ring_grounding")
+	var grounded := _land("spark")
+	main.hand.remove_ring("ring_grounding")
+	_check(open_shock > 0.0 and grounded == 0.0, "the Ring of Grounding should stop a charged blow hurting the hand (%.2f without, %.2f with)" % [open_shock, grounded])
 
 
 ## Each secret place's chain, step by step.

@@ -87,6 +87,53 @@ func _run() -> void:
 	main.storage.toggle()
 	_check(not main.storage.is_open(), "it should close")
 
+	# a thing broken in two: storing either half puts every piece of it away together, and
+	# taking it out gives back exactly those pixels (no duplicate made from its mask)
+	var whole: Item = main._spawn(ItemDefs.make("greatsword", "iron"), Vector2(640, 300))
+	whole.freeze = true
+	var line: String = whole.def.lineage
+	await _frames(2)
+	var pixels_before := whole.cells.size()
+	var mid := 0
+	for c in whole.cells:
+		mid = maxi(mid, c.y)
+	mid = int(mid / 2)
+	for c in whole.cells.keys():
+		if c.y == mid:
+			whole.damage_cell(c, 1e6, false)
+	await _frames(4)
+	var halves: Array = main.get_tree().get_nodes_in_group("items").filter(func(n: Node) -> bool: return n is Item and n.def.get("id", "") == "greatsword" and n.def.kind != "debris" and not n.is_queued_for_deletion())
+	var pixels_now := 0
+	var debris := 0
+	for h in halves:
+		pixels_now += h.cells.size()
+	for n in main.get_tree().get_nodes_in_group("items"):
+		if n is Item and n.def.get("lineage", "") == line and not halves.has(n) and not n.is_queued_for_deletion():
+			debris += n.cells.size()
+	_check(halves.size() >= 2, "the greatsword should have broken into pieces (%d)" % halves.size())
+	halves.sort_custom(func(a: Item, b: Item) -> bool: return a.cells.size() < b.cells.size())
+	var stored_before: int = main.save.storage.size()
+	if halves.size() >= 2:
+		var small: Item = halves[0]
+		small.freeze = false
+		await _drop_in(small)
+		await _frames(2)
+		var left: Array = main.get_tree().get_nodes_in_group("items").filter(func(n: Node) -> bool: return n is Item and n.def.get("lineage", "") == line and not n.is_queued_for_deletion())
+		_check(left.is_empty(), "storing one piece should put every piece of it away (%d left out)" % left.size())
+		_check(main.save.storage.size() == stored_before + 1, "all its pieces should go in as one thing (%d -> %d)" % [stored_before, main.save.storage.size()])
+		var e: Dictionary = main.save.storage[main.save.storage.size() - 1]
+		_check((e.get("with", []) as Array).size() >= 1, "the stored thing should carry its other pieces")
+		main.storage.take_out(main.save.storage.size() - 1)
+		await _frames(3)
+		var back_px := 0
+		var back_n := 0
+		for n in main.get_tree().get_nodes_in_group("items"):
+			if n is Item and n.def.get("lineage", "") == line and not n.is_queued_for_deletion():
+				back_px += n.cells.size()
+				back_n += 1
+		_check(back_px == pixels_now + debris and back_px <= pixels_before, "taken out, it should be exactly the pixels that went in (%d back, %d in, %d whole)" % [back_px, pixels_now + debris, pixels_before])
+		_check(back_n >= 2, "and still in pieces (%d)" % back_n)
+
 	# a run leaves what's stored at home
 	main._start_run()
 	await _frames(3)
