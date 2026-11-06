@@ -253,24 +253,33 @@ func _process(delta: float) -> void:
 			_replay.lanes = Lanes.build(z, _replay.dir)
 			_replay.open = (_replay.lanes as Array).map(func(_l): return 1.0)
 		if _swing_t < wind:
-			# winding up: the zone fills and the lanes march, as in a fight
+			# winding up: the zone fills and the lanes march, as in a fight (and a recorded
+			# clip winds up with it, its blow landing where the game's does)
+			_foe.progress = clampf(_swing_t / wind, 0.0, 1.0)
 			_telegraph.atk = _foe.current
 			_telegraph.show_zone(_replay.zone, _swing_t / wind, _replay.dir, clampf(float(atk.get("damage", 30.0)) / 30.0, 0.4, 1.6), str(atk.get("trait", "")))
 			_telegraph.lanes = _replay.lanes
 			_telegraph.cover = _replay.open
 		elif _swing_t - delta < wind:
 			# it lands: the flash and every lane lit open (nothing of yours in the way here)
-			if Enemy.POSES.has(str(atk.get("pose", ""))):
+			if _foe.clip_name != "":
+				_foe.state = "recover"  # the recorded blow plays its follow-through
+			elif Enemy.POSES.has(str(atk.get("pose", ""))):
 				_foe._move(Enemy.POSES[atk.pose], "hit", 0.15, Tween.EASE_IN)
 			_telegraph.flash(_replay.zone, 1.0)
 			_telegraph.lane_result(_replay.lanes, _replay.open)
 			_telegraph.clear_zone()
 			Sfx.play("swing", -12.0, 0.9)
-		if _swing_t >= wind + 0.6 and _foe.state == "windup":
-			_foe.state = "idle"
-			_foe._settle()
+		if _swing_t >= wind + 0.6 and _foe.state in ["windup", "recover"]:
+			_foe.state = "idle"  # (a clip plays its follow-through out into the idle)
+			if _foe.clip_name == "":
+				_foe._settle()
 		if _swing_t >= wind + REPLAY_GAP and attack_pick >= 0:
 			play_attack(_replay.id)  # again, so it can be studied
+	if _foe and is_instance_valid(_foe):
+		# the portrait isn't in a fight (its state machine is off: the book drives it), so its
+		# recorded clips are played from here, idle and attacks alike
+		_foe._update_clip(delta)
 
 
 # --- what each book holds ---------------------------------------------------------------

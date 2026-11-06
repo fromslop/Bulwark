@@ -152,7 +152,6 @@ var _tween: Tween
 var _mats: Array[StandardMaterial3D] = []
 var _base_colors: Array[Color] = []
 var _pauldrons: Array[MeshInstance3D] = []
-var _strings: Array[MeshInstance3D] = []  # Marionette design
 var _flash := 0.0
 # Character: what it does next besides picking at random. A queued attack is a follow-up
 # (a combo's second half, a riposte after you block clean) that goes before anything else.
@@ -295,9 +294,6 @@ func rebuild_look() -> void:
 		for c in n.get_children():
 			n.remove_child(c)  # out of the way now, so the new parts can take the old names
 			c.queue_free()
-	for st in _strings:
-		st.queue_free()
-	_strings.clear()
 	_mats.clear()
 	_base_colors.clear()
 	_pauldrons.clear()
@@ -313,20 +309,7 @@ func _dress() -> void:
 	var col: Color = data.color
 	shield_arm = null
 	model_loaded = false
-	var picked := Looks.pick("enemy")
-	# a Wraith is a wraith whatever F8 says, except that Character has a modelled wraith of its own
-	var look: String = "Character" if picked == "Character" else data.get("look", picked)
-	match look:
-		"Character":
-			_dress_character(col)
-		"Great Helm":
-			_dress_great_helm(col)
-		"Wraith":
-			_dress_wraith(col)
-		"Marionette":
-			_dress_marionette()
-		_:
-			_dress_boxes(col)
+	_dress_character(col)  # its model, or its primitive build where there's none
 	if data.get("boss", false) and not model_loaded:  # a modelled boss has its crown built in
 		_crown()
 	weak_spot = _box(torso, Vector3(0.09, 0.09, 0.02), Vector3(0, 0, 0.17), Color(1.0, 0.8, 0.2))
@@ -596,18 +579,6 @@ func _weapon(blade: Color, guard: Color, glow: bool = false) -> void:
 		_:
 			draw_blade.call(right_hand, Vector3(0.05, 0.85, 0.02), Vector3(0, 0.52, 0), blade)
 			_box(right_hand, Vector3(0.22, 0.035, 0.05), Vector3(0, 0.09, 0), guard)
-
-
-func _dress_boxes(col: Color) -> void:
-	_box(torso, Vector3(0.56, 0.5, 0.3), Vector3.ZERO, col)
-	_pauldrons.append(_box(torso, Vector3(0.2, 0.1, 0.32), Vector3(-0.3, 0.22, 0), col.lightened(0.1)))
-	_pauldrons.append(_box(torso, Vector3(0.2, 0.1, 0.32), Vector3(0.3, 0.22, 0), col.lightened(0.1)))
-	_box(torso, Vector3(0.48, 0.12, 0.28), Vector3(0, -0.3, 0), col.darkened(0.4))
-	_box(head, Vector3(0.3, 0.34, 0.3), Vector3.ZERO, col.lightened(0.15))
-	_box(head, Vector3(0.22, 0.035, 0.02), Vector3(0, 0.02, 0.16), Color(0.01, 0.01, 0.01))
-	_box(right_hand, Vector3(0.11, 0.13, 0.11), Vector3.ZERO, col.darkened(0.2))
-	_box(left_hand, Vector3(0.11, 0.13, 0.11), Vector3.ZERO, col.darkened(0.2))
-	_weapon(Color(0.7, 0.7, 0.75), Color(0.3, 0.3, 0.3))
 
 
 ## Character: each enemy gets its own model, built to say who it is at a glance. The
@@ -884,48 +855,6 @@ func _dress_wraith(col: Color) -> void:
 	_weapon(Color(0.4, 0.6, 1.0), Color(0.15, 0.15, 0.18), true)
 
 
-## Marionette: a painted wooden puppet whose head and hands hang on strings from above.
-## A nod to what drives it: recorded head-and-hands motion and nothing else.
-func _dress_marionette() -> void:
-	var wood := Color(0.62, 0.45, 0.28)
-	var paint := Color(0.2, 0.35, 0.6)
-	_mesh(torso, _cyl(0.2, 0.25, 0.48, 8), Vector3.ZERO, paint)
-	_mesh(torso, _cyl(0.22, 0.22, 0.06, 8), Vector3(0, -0.24, 0), wood.darkened(0.3))  # belt hoop
-	for side in [-1.0, 1.0]:
-		var pd := _mesh(torso, _cyl(0.09, 0.09, 0.05, 8), Vector3(0.28 * side, 0.2, 0), wood)
-		pd.rotation.z = PI / 2
-		_pauldrons.append(pd)
-	_mesh(head, _sphere(0.17, 8), Vector3.ZERO, wood.lightened(0.15))
-	for side in [-1.0, 1.0]:
-		_box(head, Vector3(0.04, 0.05, 0.02), Vector3(0.06 * side, 0.03, 0.16), Color(0.05, 0.05, 0.05))
-		_box(head, Vector3(0.05, 0.025, 0.01), Vector3(0.09 * side, -0.04, 0.155), Color(0.85, 0.35, 0.3))  # cheeks
-	_box(head, Vector3(0.1, 0.015, 0.02), Vector3(0, -0.08, 0.15), Color(0.3, 0.05, 0.05))  # mouth slot
-	var hat := _mesh(head, _cyl(0.0, 0.17, 0.2, 8), Vector3(0, 0.22, 0), paint.darkened(0.3))
-	hat.rotation.z = 0.15
-	for hand in [right_hand, left_hand]:
-		_mesh(hand, _sphere(0.07, 6), Vector3.ZERO, wood)
-	_weapon(wood.lightened(0.25), wood.darkened(0.2))
-	for n in [head, right_hand, left_hand]:
-		var st := MeshInstance3D.new()
-		var bm := BoxMesh.new()
-		bm.size = Vector3(0.006, 3.0, 0.006)
-		var m := StandardMaterial3D.new()
-		m.albedo_color = Color(0.85, 0.82, 0.75)
-		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		bm.material = m
-		st.mesh = bm
-		st.top_level = true
-		st.set_meta("follows", n)
-		add_child(st)
-		_strings.append(st)
-
-
-func _update_strings() -> void:
-	for st in _strings:
-		var n: Node3D = st.get_meta("follows")
-		st.global_position = n.global_position + Vector3(0, 1.5, 0)
-
-
 func _cyl(top: float, bottom: float, h: float, sides: int) -> CylinderMesh:
 	var m := CylinderMesh.new()
 	m.top_radius = top
@@ -1013,8 +942,6 @@ func _process(delta: float) -> void:
 			take_hit(POISON_DPS * 0.5, "torso", false)
 		for i in _mats.size():
 			_mats[i].albedo_color = _mats[i].albedo_color.lerp(Color(0.35, 0.7, 0.25), delta * 0.5)
-	if not _strings.is_empty():
-		_update_strings()
 	if state == "dead" or not active:
 		return
 	slow_time = maxf(0.0, slow_time - delta)

@@ -1,19 +1,20 @@
 class_name Looks
 extends Node
-## Design exploration: each part of the game has several completely different designs,
-## switchable live so they can be compared in play. F5 telegraph, F6 hand, F7 items,
-## F8 enemy. A name tag shows briefly at the bottom; choices are remembered.
+## Design exploration: a part of the game with several completely different designs,
+## switchable live so they can be compared in play: F6 the hand. (The telegraph, the items
+## and the foes have settled on one each: Red Zone, Material Texture and Character.) A name
+## tag shows briefly at the bottom; the choice is remembered.
 
 signal changed(part: String)
 
 const SAVE_PATH := "user://looks.cfg"
 const OPTIONS := {
-	"telegraph": ["Red Zone", "Blade Path", "Looming Shadow", "Scratch Marks", "Lock-on Brackets"],
+	"telegraph": ["Red Zone"],
 	"hand": ["Gauntlet", "Pixel Hand", "Bone", "Shadow Puppet"],
-	"items": ["Flat Pixels", "Outlined Sprite", "Material Texture", "Raised Tiles"],
-	"enemy": ["Character", "Boxes", "Great Helm", "Wraith", "Marionette"],
+	"items": ["Material Texture"],
+	"enemy": ["Character"],
 }
-const KEYS := {KEY_F5: "telegraph", KEY_F6: "hand", KEY_F7: "items", KEY_F8: "enemy"}
+const KEYS := {KEY_F6: "hand"}
 
 static var choice := {"telegraph": 0, "hand": 0, "items": 0, "enemy": 0}
 

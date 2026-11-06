@@ -1825,11 +1825,6 @@ func _draw() -> void:
 	var t := Time.get_ticks_msec() * 0.001
 	var mods: Array = def.modifiers
 	var dull := cooldown > 0.0 and def.has("cooldown")  # recovering from a swing: drained of colour
-	var look := Looks.pick("items")
-	if look == "Raised Tiles":
-		# the whole silhouette casts a shadow down and to the right
-		for c in cells:
-			draw_rect(Rect2(cell_pos(c) - half + Vector2(4, 4).rotated(-global_rotation), Vector2(CELL, CELL)), Color(0, 0, 0, 0.35))
 	for c in cells:
 		var cell: Dictionary = cells[c]
 		var m := Materials.get_mat(cell.mat)
@@ -1862,15 +1857,7 @@ func _draw() -> void:
 		if m.behavior == "dent" and hpf < 0.6:
 			r = r.grow(-1.0)
 		draw_rect(r, col)
-		match look:
-			"Material Texture":
-				_texture_cell(c, cell.mat, r, col, t)
-			"Raised Tiles":
-				var inner := r.grow(-1.0)
-				draw_line(inner.position, Vector2(inner.end.x, inner.position.y), col.lightened(0.35), 1.0)
-				draw_line(inner.position, Vector2(inner.position.x, inner.end.y), col.lightened(0.2), 1.0)
-				draw_line(Vector2(inner.position.x, inner.end.y), inner.end, col.darkened(0.45), 1.0)
-				draw_line(Vector2(inner.end.x, inner.position.y), inner.end, col.darkened(0.35), 1.0)
+		_texture_cell(c, cell.mat, r, col, t)  # each material's own grain, sheen or weave
 		if cell.get("handle", false):
 			# leather wrapping: dark diagonal bands
 			draw_line(r.position + Vector2(0, CELL * 0.75), r.position + Vector2(CELL, CELL * 0.25), Color(0.25, 0.15, 0.08), 2.0)
@@ -1910,26 +1897,6 @@ func _draw() -> void:
 		draw_arc(tp, 3.5, 0.0, TAU, 12, hc, 1.0)
 		draw_line(tp + Vector2(-5, 0), tp + Vector2(5, 0), hc, 1.0)
 		draw_line(tp + Vector2(0, -5), tp + Vector2(0, 5), hc, 1.0)
-	if look == "Flat Pixels":
-		# a thin dark edge round the silhouette, as the foes have: it reads against a dark room
-		for e in _edges:
-			var d: Vector2i = e[1]
-			var p := cell_pos(e[0]) + Vector2(d) * (CELL * 0.5 + 0.5)
-			var tt := Vector2(-d.y, d.x) * (CELL * 0.5 + 1.0)
-			draw_line(p - tt, p + tt, Color(0.03, 0.02, 0.02, 0.85), 1.5)
-	if look == "Outlined Sprite":
-		# one dark outline around the whole silhouette, with a light bevel on top-left edges
-		for c in cells:
-			var p := cell_pos(c)
-			for d in DIRS:
-				if not cells.has(c + d):
-					var e := Vector2(d) * (CELL * 0.5 + 1.0)
-					var tt := Vector2(-d.y, d.x) * (CELL * 0.5 + 1.0)
-					draw_line(p + e - tt, p + e + tt, Color(0.04, 0.03, 0.03), 2.0)
-					if d == Vector2i.UP or d == Vector2i.LEFT:
-						var e2 := Vector2(d) * (CELL * 0.5 - 1.0)
-						var t2 := Vector2(-d.y, d.x) * (CELL * 0.5 - 1.0)
-						draw_line(p + e2 - t2, p + e2 + t2, Color(1, 1, 1, 0.25), 1.0)
 	if def.kind == "weapon":
 		_draw_engravings()
 	if (base_gravity == 0.0 and not has_meta("fall_gravity")) or levitate_time > 0.0:  # (not while falling to the Core: that's not magic)
@@ -1991,7 +1958,7 @@ func _fx_active() -> bool:
 	return charge > 0.1 or is_burning() or _fuse >= 0.0 or _ready_flash > 0.0 or speed_parry() > 0.05 \
 		or _animated or rusting > 0.0 or not _trail.is_empty() or hit_flash > 0.0 or brace_time > 0.0 \
 		or _legendary or int(def.get("boss_kills", 0)) >= 3 \
-		or (Looks.pick("items") == "Material Texture" and not _shiny.is_empty())
+		or not _shiny.is_empty()
 
 
 ## Everything that moves, drawn on the light effects layer. It samples a few cells from
@@ -2088,7 +2055,7 @@ func _draw_fx(cv: CanvasItem) -> void:
 	if not _mod_looks.is_empty():
 		_draw_mod_looks(cv, t, half)
 	_draw_kind_fx(cv, t)
-	if Looks.pick("items") == "Material Texture":
+	if true:  # (the sheen off metal, gold and gems)
 		for c in _shiny:
 			if not cells.has(c):
 				continue

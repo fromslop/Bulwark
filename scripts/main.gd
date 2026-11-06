@@ -172,6 +172,7 @@ var hand: Hand
 var ui: CanvasLayer
 var codex: Codex
 var storage: Storage  # the cupboard at home
+var dev_menu: DevMenu  # F3, debug builds only
 var _ledges: StaticBody2D  # the home's surfaces (HOME_LEDGES), while at home
 var save: SaveData
 var debug_label: Label  # F1: developer readout, hidden by default
@@ -265,6 +266,10 @@ func _ready() -> void:
 	storage = Storage.new()
 	add_child(storage)
 	storage.setup(self)
+	if OS.is_debug_build():
+		dev_menu = DevMenu.new()  # (F3: developers only, never in an exported game)
+		add_child(dev_menu)
+		dev_menu.setup(self)
 	_go_home()
 
 
@@ -608,6 +613,54 @@ func _sync_ledge_masks() -> void:
 		var on := not it.held
 		if it.get_collision_mask_value(4) != on:
 			it.set_collision_mask_value(4, on)
+
+
+## Dev menu (F3): straight into a fight in `place`, at `stage` (1-based) and prestige `p`,
+## against the foes `ids` (EnemyDefs.ENEMIES keys, or "Vault Warden"). From home a run
+## starts first; from the shop the shop closes.
+func dev_fight(place: String, stage: int, p: int, ids: Array) -> void:
+	if codex.is_open():
+		codex.toggle()
+	if storage.is_open():
+		storage.toggle()
+	if state == State.HOME:
+		_start_run()
+	if state == State.SHOP:
+		_clear_shop()
+		_end_scrying()
+		overlay.gong = {}
+		overlay.dice = {}
+		overlay.chute = {}
+		overlay.door = {}
+		overlay.lift = false
+	prestige = p
+	ItemDefs.run_prestige = p
+	round_num = p * EnemyDefs.STAGES + clampi(stage, 1, EnemyDefs.STAGES) - 1
+	secret_next = false
+	secret_stage = ""
+	var defs: Array = []
+	for id in ids:
+		if id == "Vault Warden":
+			defs.append(EnemyDefs.scale_def(EnemyDefs.WARDEN.duplicate(true), p))
+		elif id == "Errata":
+			defs.append(_guardian("Ink Margin", p))  # (a misprint of the last foe fought)
+		elif EnemyDefs.ENEMIES.has(id):
+			defs.append(EnemyDefs.scaled(id, p))
+	if defs.is_empty():
+		return
+	_next_plan = {"round": round_num, "prestige": p, "place": place, "defs": defs, "vault": false, "hidden": ""}
+	_start_fight()
+
+
+## Dev menu: an item made to order, dropped into the room, yours. A fixed-modifier piece (a
+## legendary) keeps its own and takes the extra `mods` on top. `n` spreads several out.
+func dev_spawn(d: Dictionary, mods: Array, n: int = 0) -> Item:
+	var it := _spawn(d, Vector2(640 + (n % 5 - 2) * 70.0, 200 - int(n / 5) * 40.0))
+	for m in mods:
+		if not it.has_mod(m) and ItemDefs.MODIFIERS.has(m):
+			it.add_mod(m)
+	_discover(it.def)
+	return it
 
 
 ## The storage cupboard in the corner at home (a prop: props.gd "storage").
@@ -3079,7 +3132,7 @@ func _on_punched(at: Vector2) -> void:
 			Sfx.play("deny")
 		return
 	var kp := _keyhole_screen()
-	if kp.is_finite() and at.distance_to(kp) <= 24.0:
+	if kp.is_finite() and at.distance_to(kp) <= 24.0 and not _all_regions().any(func(r: Dictionary) -> bool: return at.distance_to(r.center) <= r.radius + 6.0):  # (a foe in front of it takes the punch)
 		popups.word(kp + Vector2(0, -30), "LOCKED", Color(0.95, 0.8, 0.45))  # (a fist won't open it)
 		Sfx.play("clack", -6.0, 1.5)
 		return
