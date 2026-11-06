@@ -77,8 +77,36 @@ func refresh() -> void:
 		_list.add_child(row)
 		if i == studio.cue_index:
 			picked_row = row
+	# what other foes perform for this one: listed small, not to be recorded here
+	var shared: Array = studio.shared_cues
+	if not shared.is_empty():
+		var head := HHStyle.label("SHARED  ·  performed by another foe, baked to fit this one", HHStyle.SIZE_SMALL, HHStyle.TEXT_FAINT, HHStyle.bold())
+		head.custom_minimum_size = Vector2(0, 52)
+		head.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+		_list.add_child(head)
+		for c in shared:
+			var line := HBoxContainer.new()
+			line.custom_minimum_size = Vector2(0, 40)
+			line.add_theme_constant_override("separation", 18)
+			var g := HHStyle.label("✓" if c.recorded else "·", HHStyle.SIZE_SMALL, HHStyle.OK if c.recorded else HHStyle.TEXT_FAINT, HHStyle.bold())
+			g.custom_minimum_size = Vector2(48, 0)
+			g.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			line.add_child(g)
+			var n := HHStyle.label(StudioSlate.clip_title(c), HHStyle.SIZE_SMALL, HHStyle.TEXT_DIM)
+			n.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			n.clip_text = true
+			line.add_child(n)
+			line.add_child(HHStyle.label("from " + _who(str(c.owner)), HHStyle.SIZE_SMALL, HHStyle.TEXT_FAINT))
+			_list.add_child(line)
 	if picked_row:
 		_keep_in_view.call_deferred(picked_row)
+
+
+static func _who(slug: String) -> String:
+	for pair in HoardsmanCues.foes():
+		if HoardsmanCues.slug(pair[1]) == slug:
+			return str(pair[1].name)
+	return slug
 
 
 ## Scroll just enough to show the picked row (and its group's heading), once it's laid out.

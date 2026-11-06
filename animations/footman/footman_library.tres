@@ -1,0 +1,24 @@
+[gd_resource type="AnimationLibrary" format=3]
+
+[ext_resource type="Animation" path="res://animations/footman/act_cut_ml.res" id="1_52un1"]
+[ext_resource type="Animation" path="res://animations/footman/act_broken.res" id="1_ffm00"]
+[ext_resource type="Animation" path="res://animations/footman/idle_steady.res" id="1_qvieg"]
+[ext_resource type="Animation" path="res://animations/footman/act_cut_tc.res" id="2_axplw"]
+[ext_resource type="Animation" path="res://animations/footman/act_cut_mr.res" id="2_kb484"]
+[ext_resource type="Animation" path="res://animations/footman/act_flinch.res" id="4_sk580"]
+[ext_resource type="Animation" path="res://animations/footman/act_slash_high_r.res" id="4_y8ag5"]
+[ext_resource type="Animation" path="res://animations/footman/act_death.res" id="5_sro8p"]
+[ext_resource type="Animation" path="res://animations/footman/act_stagger.res" id="6_tf4f8"]
+
+[resource]
+_data = {
+&"act_broken": ExtResource("1_ffm00"),
+&"act_cut_ml": ExtResource("1_52un1"),
+&"act_cut_mr": ExtResource("2_kb484"),
+&"act_cut_tc": ExtResource("2_axplw"),
+&"act_death": ExtResource("5_sro8p"),
+&"act_flinch": ExtResource("4_sk580"),
+&"act_slash_high_r": ExtResource("4_y8ag5"),
+&"act_stagger": ExtResource("6_tf4f8"),
+&"idle_steady": ExtResource("1_qvieg")
+}

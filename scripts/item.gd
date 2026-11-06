@@ -48,7 +48,15 @@ const INHERITED_MODS := ["heavy", "weightless", "reinforced", "bouncy", "spiked"
 # that's only oiled has nothing to eat: it burns BURN_LIMIT seconds, then it's out for good.
 const BURN_LIMIT := 8.0
 const ELEMENT_HOPS := 8  # cold and heat pass on through this many things from where they started
+# Charge runs out sooner: one electrified thing charges what it touches, and what that
+# touches, this many things deep and no further (so one live source doesn't light up the
+# whole hoard, and the Lightning Rod has only so much to draw on)
+const CHARGE_HOPS := 4
 const NO_HOPS := 99
+# Shop stock and its shelves (and the cups on the trophy rack at home) sit on a physics layer
+# of their own: the hoard passes through them (nothing you own knocks them about, piles up on
+# them or swings into them), and only the hand's reach looks there (Hand.REACH_MASK)
+const SHOP_LAYER := 4
 const BURN_SHARE := 0.15
 const BURN_DAMAGE := 1.0
 # and it leaps: flame reaches this far (px) from a burning cell to the next thing, further up
@@ -146,6 +154,7 @@ var cold := 0.0
 # and it stops passing on after ELEMENT_HOPS. Fire catching from fire isn't held back.
 var cold_hops := NO_HOPS
 var heat_hops := NO_HOPS
+var charge_hops := NO_HOPS  # how many things away the charge came from (0: its own)
 var burn_time := 0.0
 var soak := {}  # liquid -> how much has soaked in (coatings take hold past a threshold)
 var _shattered := false
@@ -707,9 +716,7 @@ func rescale(factor: float) -> void:
 	if cells.is_empty() or is_equal_approx(f, 1.0):
 		return
 	def = def.duplicate(true)
-	def.size = new_size
-	if def.has("swing_damage") and ItemDefs.DEFS.has(def.get("id", "")):
-		def.swing_damage = float(ItemDefs.DEFS[def.id].swing_damage) * new_size * (ItemDefs.ASCEND_DAMAGE if def.get("ascended", false) else 1.0)
+	def.size = new_size  # (a weapon's damage follows its pixels: see hit_damage)
 	if def.kind == "coin" and ItemDefs.DEFS.has(def.get("id", "")):
 		# more gold or less: a coin's worth goes with its area (never below one)
 		def.value = maxi(1, roundi(float(ItemDefs.DEFS[def.id].value) * new_size * new_size))
@@ -745,6 +752,20 @@ func rescale(factor: float) -> void:
 	_rebuild_shapes()
 	_recompute_mass()
 	queue_redraw()
+
+
+## Set apart from the hoard (SHOP_LAYER): shop stock on its shelf, a cup on the trophy rack.
+## Nothing you own bumps into it, but the hand still reaches it. Off: an ordinary thing again.
+func set_apart(on: bool) -> void:
+	if on:
+		collision_layer = SHOP_LAYER
+		collision_mask = 0  # (it's frozen on its shelf: it needn't feel anything)
+	elif def.get("phases", false):
+		collision_layer = 0
+		collision_mask = 2
+	else:
+		collision_layer = 1
+		collision_mask = 3
 
 
 ## The nearest bit of this item to a point, if it's within reach (magnetic catch). INF if not.
@@ -876,6 +897,11 @@ func _update_elements(delta: float) -> void:
 		heat_hops = 0
 	elif heat <= 0.0:
 		heat_hops = NO_HOPS
+	# (charge set on it outright, by a storm, a gauntlet or a potion, is a source too)
+	if has_mod("electrified") or storm_time > 0.0 or (charge > 0.1 and charge_hops == NO_HOPS):
+		charge_hops = 0
+	elif charge <= 0.1:
+		charge_hops = NO_HOPS
 	if conductive and heat > 0.6 and cold > 0.25 and not has_mod("tempered"):
 		add_mod("tempered")  # quenched while red-hot: the metal comes out tougher
 		heat = 0.2
@@ -900,10 +926,12 @@ func _update_elements(delta: float) -> void:
 		touching.append(o)
 		# push to the neighbour and pull from it, so contact works even when only one
 		# side reports it (frozen shop stock, for example)
-		if charge > 0.1 and o.conductive and o.charge < charge * 0.9:
+		if charge > 0.1 and o.conductive and o.charge < charge * 0.9 and charge_hops < CHARGE_HOPS:
 			o.charge = charge * 0.9
-		elif o.charge > 0.1 and conductive and charge < o.charge * 0.9:
+			o.charge_hops = mini(o.charge_hops, charge_hops + 1)
+		elif o.charge > 0.1 and conductive and charge < o.charge * 0.9 and o.charge_hops < CHARGE_HOPS:
 			charge = o.charge * 0.9
+			charge_hops = mini(charge_hops, o.charge_hops + 1)
 		if is_burning() and o.can_catch():
 			o.ignite(dt * 4.0)
 		elif o.is_burning() and can_catch():
@@ -1104,6 +1132,7 @@ func fuse(o: Item) -> bool:
 	cold = maxf(cold, o.cold)
 	cold_hops = mini(cold_hops, o.cold_hops)
 	heat_hops = mini(heat_hops, o.heat_hops)
+	charge_hops = mini(charge_hops, o.charge_hops)
 	Item._shade(cells)
 	max_total = 0.0
 	for c in cells:
@@ -1486,6 +1515,36 @@ func start_swing(dir: float, power: float, haste: float = 1.0, part: Dictionary 
 	return true
 
 
+## What a full-strength swing of this weapon lands for, before swing speed, rings, infusions
+## and the rest: its pixels, each weighted by its material and by how whole it still is,
+## times its kind's punch per pixel (ItemDefs.damage_per_pixel). `wd`: the weapon (a glued
+## thing's: the weapon part swung, whose pixels are the only ones that count).
+func hit_damage(wd: Dictionary = {}) -> float:
+	if wd.is_empty():
+		wd = swing_part if not swing_part.is_empty() else def
+	var part := _part_index(wd)
+	var px := 0.0
+	for c in cells:
+		var cell: Dictionary = cells[c]
+		if part >= 0 and int(cell.get("part", 0)) != part:
+			continue
+		px += float(Materials.get_mat(cell.mat).sharp) * clampf(cell.hp / cell.max, 0.0, 1.0)
+	return ItemDefs.damage_per_pixel(wd) * px * ItemDefs.WEAPON_DAMAGE
+
+
+## Which of a glued thing's parts `wd` is (-1: not glued, or not one of them: every pixel).
+func _part_index(wd: Dictionary) -> int:
+	if not def.has("parts"):
+		return -1
+	for i in def.parts.size():
+		if is_same(def.parts[i], wd):
+			return i
+	for i in def.parts.size():
+		if def.parts[i].get("id", "") == wd.get("id", "") and def.parts[i].kind == wd.get("kind", ""):
+			return i
+	return -1
+
+
 ## Average condition of the main-material cells (a dented blade hits softer).
 func edge_condition() -> float:
 	var total := 0.0
@@ -1562,7 +1621,7 @@ func smash(at: Vector2, by: Item) -> void:
 	var bite := clampf(ratio - 0.5, 0.0, 3.0)
 	if wmat == "prestigium":
 		bite = ratio * 3.0 - 0.5  # the keenest there is: no cap, and a reliquary gives way
-	var amount := float(wd.get("swing_damage", 4.0)) * SMASH * bite * by.heft()
+	var amount := by.hit_damage(wd) / ItemDefs.WEAPON_DAMAGE * SMASH * bite * by.heft()
 	var weights := {}
 	var total := 0.0
 	for o in cells:
@@ -1659,6 +1718,7 @@ func _spawn_piece(sub: Dictionary, extra_vel: Vector2) -> void:
 	piece.cold = cold * 0.7
 	piece.heat_hops = heat_hops
 	piece.cold_hops = cold_hops
+	piece.charge_hops = charge_hops
 	piece.charred = charred
 	piece.burn_time = burn_time
 	piece.transform = transform

@@ -1,0 +1,30 @@
+[gd_resource type="AnimationLibrary" format=3]
+
+[ext_resource type="Animation" path="res://animations/castellan/act_stagger.res" id="1_8b773"]
+[ext_resource type="Animation" path="res://animations/castellan/act_broken.res" id="1_84mp8"]
+[ext_resource type="Animation" path="res://animations/castellan/act_flinch.res" id="1_katjd"]
+[ext_resource type="Animation" path="res://animations/castellan/act_death.res" id="2_ftvk7"]
+[ext_resource type="Animation" path="res://animations/castellan/act_combo_overhead_l.res" id="2_icphm"]
+[ext_resource type="Animation" path="res://animations/castellan/act_combo_tower_slam.res" id="3_77x3k"]
+[ext_resource type="Animation" path="res://animations/castellan/act_overhead_l.res" id="4_ikqk2"]
+[ext_resource type="Animation" path="res://animations/castellan/act_overhead_r.res" id="5_mcxkl"]
+[ext_resource type="Animation" path="res://animations/castellan/act_thrust.res" id="7_8qr1y"]
+[ext_resource type="Animation" path="res://animations/castellan/act_shield_bash.res" id="7_47mgd"]
+[ext_resource type="Animation" path="res://animations/castellan/act_tower_slam.res" id="9_4yfeu"]
+[ext_resource type="Animation" path="res://animations/castellan/idle_guard.res" id="9_mae8h"]
+
+[resource]
+_data = {
+&"act_broken": ExtResource("1_84mp8"),
+&"act_combo_overhead_l": ExtResource("2_icphm"),
+&"act_combo_tower_slam": ExtResource("3_77x3k"),
+&"act_death": ExtResource("2_ftvk7"),
+&"act_flinch": ExtResource("1_katjd"),
+&"act_overhead_l": ExtResource("4_ikqk2"),
+&"act_overhead_r": ExtResource("5_mcxkl"),
+&"act_shield_bash": ExtResource("7_47mgd"),
+&"act_stagger": ExtResource("1_8b773"),
+&"act_thrust": ExtResource("7_8qr1y"),
+&"act_tower_slam": ExtResource("9_4yfeu"),
+&"idle_guard": ExtResource("9_mae8h")
+}

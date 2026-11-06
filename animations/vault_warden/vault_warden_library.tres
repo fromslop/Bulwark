@@ -1,0 +1,26 @@
+[gd_resource type="AnimationLibrary" format=3]
+
+[ext_resource type="Animation" path="res://animations/vault_warden/act_broken.res" id="1_2ffx8"]
+[ext_resource type="Animation" path="res://animations/vault_warden/act_slash_high_r.res" id="1_6wvut"]
+[ext_resource type="Animation" path="res://animations/vault_warden/act_flinch.res" id="1_e2ukq"]
+[ext_resource type="Animation" path="res://animations/vault_warden/idle_steady.res" id="1_l2f2o"]
+[ext_resource type="Animation" path="res://animations/vault_warden/act_death.res" id="2_13eta"]
+[ext_resource type="Animation" path="res://animations/vault_warden/act_stagger.res" id="2_oi8iu"]
+[ext_resource type="Animation" path="res://animations/vault_warden/act_overhead_l.res" id="4_ihpex"]
+[ext_resource type="Animation" path="res://animations/vault_warden/act_slash_high_l.res" id="4_jq1h3"]
+[ext_resource type="Animation" path="res://animations/vault_warden/act_overhead_r.res" id="5_o34ac"]
+[ext_resource type="Animation" path="res://animations/vault_warden/act_thrust.res" id="9_6pq56"]
+
+[resource]
+_data = {
+&"act_broken": ExtResource("1_2ffx8"),
+&"act_death": ExtResource("2_13eta"),
+&"act_flinch": ExtResource("1_e2ukq"),
+&"act_overhead_l": ExtResource("4_ihpex"),
+&"act_overhead_r": ExtResource("5_o34ac"),
+&"act_slash_high_l": ExtResource("4_jq1h3"),
+&"act_slash_high_r": ExtResource("1_6wvut"),
+&"act_stagger": ExtResource("2_oi8iu"),
+&"act_thrust": ExtResource("9_6pq56"),
+&"idle_steady": ExtResource("1_l2f2o")
+}

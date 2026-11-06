@@ -368,17 +368,8 @@ func _secrets() -> void:
 	_check(main.setting() != "Ink Margin" and main.secret_stage == "Ink Margin", "a boss fight should keep the secret waiting")
 	main.secret_stage = ""
 	main.round_num = 1
-	# the Housecat has a life to spare
-	main._start_fight()
-	await physics_frame
-	var cat := Enemy.new()
-	cat.setup(EnemyDefs.scaled("Housecat", 0), main.camera)
-	main.world3d.add_child(cat)
-	cat.take_hit(cat.max_hp * 2.0, "torso", false)
-	_check(cat.state != "dead" and cat.hp > 0.0, "the Housecat should land on its feet the first time")
-	cat.take_hit(cat.max_hp * 2.0, "torso", false)
-	_check(cat.state == "dead", "but not twice")
-	cat.queue_free()
+	main.secret_stage = ""
+	main.round_num = 1
 	await _chains()
 	# the Astronomer's unmoor lets go of the weight of everything you own
 	await _clear()
@@ -390,46 +381,6 @@ func _secrets() -> void:
 
 ## Each secret place's chain, step by step.
 func _chains() -> void:
-	# Gilded Gullet: 40 gold down the chute coughs up a tooth; the tooth to the gong
-	main.secret_stage = ""
-	main.state = main.State.SHOP
-	main._chute_gold = 0
-	main._tooth_given = false
-	main._chute_ate_gold(25)
-	var teeth: Array = main.get_tree().get_nodes_in_group("items").filter(func(n: Node) -> bool: return n is Item and n.def.get("id", "") == "gilded_tooth")
-	_check(teeth.is_empty(), "25 gold shouldn't be enough for the chute")
-	main._chute_ate_gold(20)
-	teeth = main.get_tree().get_nodes_in_group("items").filter(func(n: Node) -> bool: return n is Item and n.def.get("id", "") == "gilded_tooth")
-	_check(teeth.size() == 1, "40 gold down the chute should cough up a Gilded Tooth")
-	if teeth.size() == 1:
-		main._gong_struck = true  # don't actually leave the shop here
-		main._tooth_to_gong(teeth[0])
-	_check(main.secret_stage == "Gilded Gullet", "the tooth on the gong should open the Gilded Gullet")
-	main.state = main.State.COMBAT
-	main._gong_struck = false
-	# the Coin Golem eats coin in its blows and heals on it
-	main.secret_stage = ""
-	await _clear()
-	var golem := Enemy.new()
-	golem.setup(EnemyDefs.scaled("Coin Golem", 0), main.camera)
-	main.world3d.add_child(golem)
-	golem.hp = golem.max_hp * 0.5
-	main._spawn_coins(5, Vector2(640, 500), 0.0)
-	await physics_frame
-	var zone := PackedVector2Array([Vector2(0, 300), Vector2(1280, 300), Vector2(1280, 720), Vector2(0, 720)])
-	var before: float = golem.hp
-	main._swallow_coins(zone, golem)
-	_check(golem.hp > before and main.coin_total() == 0, "the Coin Golem should swallow coin and heal on it")
-	golem.queue_free()
-	# Giant's Table: through an opened brick's hole goes something shrunk twice
-	main.props.props.clear()
-	main.props._add("brick", Vector2(400, 150), 18.0)
-	main.props.props[0].used = true
-	var tiny := _place("dagger", "steel", Vector2(400, 150))
-	tiny.rescale(0.65)
-	tiny.rescale(0.65)
-	main.props.feed([tiny], 0.05)
-	_check(main.secret_stage == "Giant's Table", "something shrunk twice through the brick's hole should open the Giant's Table")
 	# Clockwork Orrery: two stars, then the one that waits, reached by something weightless
 	main.secret_stage = ""
 	main.props.props.clear()
@@ -614,18 +565,18 @@ func _grip_and_smelt() -> void:
 	_check(sword.swing_time > 0.0 and str(sword.swing_part.get("title", "")) == "Longsword", "Space on the sword part should swing it as a longsword")
 	hand.held = null
 	sword.held = false
-	# the hearth: junk left in the fire melts down, and enough of it makes a coin purse
+	# the hearth: junk left in the fire melts down, and enough of it makes a coin
 	await _clear()
 	main.props.setup("Homestead", 0)
 	var hearth: Dictionary = main.props.props.filter(func(pr: Dictionary) -> bool: return pr.kind == "hearth")[0]
-	main.save.stats.smelt = main.SMELT_PURSE - 0.5
+	main.save.stats.smelt = 0.95
+	var coins_before: int = main.coin_total()
 	var junk: Item = main._spawn(ItemDefs.make("pauldron", "iron"), hearth.pos)
 	for i in 30:
 		main.props.feed([junk], 0.05)
 	await physics_frame
-	var purses: Array = main.get_tree().get_nodes_in_group("items").filter(func(n: Node) -> bool: return n is Item and n.def.get("id", "") == "coin_purse")
 	_check(not is_instance_valid(junk) or junk.is_queued_for_deletion(), "a pauldron left in the hearth should melt down")
-	_check(purses.size() == 1, "melting enough junk should pop out a Coin Purse")
+	_check(main.coin_total() > coins_before, "melting enough junk should make a coin (%d -> %d)" % [coins_before, main.coin_total()])
 	# wood thrown on the fire burns away and stokes it; wood that just rolls up to it is left be
 	var resting: Item = main._spawn(ItemDefs.make("club", "wood"), hearth.pos)
 	var thrown: Item = main._spawn(ItemDefs.make("club", "wood"), hearth.pos + Vector2(10, 0))

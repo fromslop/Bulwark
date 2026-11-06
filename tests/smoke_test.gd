@@ -479,6 +479,7 @@ func _pay_shelf() -> void:
 	await process_frame
 	main._on_buy_attempt(paid_item, paid_item.global_position)
 	_check(paid_item.owned and main.hand.held == paid_item, "picking up shop stock with enough coins should buy it into your hand")
+	_check(paid_item.collision_layer == 1 and paid_item.collision_mask == 3, "bought, it should collide with the hoard again")
 	await process_frame
 	_check(main.coin_total() == 0, "buying should take the coins out of the pile (left %d)" % main.coin_total())
 	main.hand.release()
@@ -604,6 +605,15 @@ func _test_shop_layout() -> void:
 	for i in [5, 6]:
 		_check(ItemDefs.UPGRADES[main.shelves[i].item.def.upgrade].get("ring", false), "ring shelves should hold rings")
 	_check(main.shelves[5].item.def.upgrade != main.shelves[6].item.def.upgrade, "the two ring shelves should hold different rings")
+	# the shop stands apart from the hoard: its shelves and stock are on their own layer, which
+	# nothing you own collides with, but the hand can still reach (to inspect and to buy)
+	var own: Item = main._spawn(ItemDefs.make("rock", "stone"), Vector2(-400, 0))
+	for sh in main.shelves:
+		_check(sh.body.collision_layer == Item.SHOP_LAYER and sh.item.collision_layer == Item.SHOP_LAYER, "shop shelves and stock should sit on the shop layer")
+	_check(own.collision_mask & Item.SHOP_LAYER == 0, "the hoard shouldn't collide with the shop's shelves or stock")
+	_check(main.hand.item_under(first.to_global(first.cell_pos(first.cells.keys()[0]))) == first, "the hand should still reach shop stock")
+	_check(main.shelves[0].rect.position.y == main.SHELF_Y, "the shelves should hang at SHELF_Y")
+	own.queue_free()
 	# potions are rare in the gear pool
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 3
@@ -626,7 +636,14 @@ func _test_reroll() -> void:
 	await process_frame
 	_check(not is_instance_valid(first) or first.is_queued_for_deletion(), "punching the dice should replace the stock")
 	_check(main.coin_total() == 10 - cost, "a reroll should cost %d coins" % cost)
-	_check(main.reroll_cost() == cost + 1, "each reroll should cost one more")
+	_check(main.reroll_cost() > cost, "each reroll should cost more than the last")
+	var keep: int = main.rerolls
+	var costs := []
+	for n in 6:
+		main.rerolls = n
+		costs.append(main.reroll_cost())
+	main.rerolls = keep
+	_check(costs == [3, 5, 7, 14, 28, 56], "rerolls should cost 3, 5, 7, then double each time (%s)" % [costs])
 	main.free_rerolls = 1
 	_check(main.reroll_cost() == 0, "a horseshoe should make a reroll free")
 	main.free_rerolls = 0

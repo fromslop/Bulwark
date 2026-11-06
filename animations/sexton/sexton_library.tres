@@ -1,0 +1,30 @@
+[gd_resource type="AnimationLibrary" format=3]
+
+[ext_resource type="Animation" path="res://animations/sexton/idle_heavy.res" id="1_1c8pb"]
+[ext_resource type="Animation" path="res://animations/sexton/act_broken.res" id="1_40gdx"]
+[ext_resource type="Animation" path="res://animations/sexton/act_dig.res" id="1_jogaf"]
+[ext_resource type="Animation" path="res://animations/sexton/act_toll.res" id="1_l7wn3"]
+[ext_resource type="Animation" path="res://animations/sexton/act_bury.res" id="1_m7qcy"]
+[ext_resource type="Animation" path="res://animations/sexton/act_peal.res" id="1_wujcr"]
+[ext_resource type="Animation" path="res://animations/sexton/act_toll_echo.res" id="2_3olsy"]
+[ext_resource type="Animation" path="res://animations/sexton/act_combo_dig.res" id="2_bftqa"]
+[ext_resource type="Animation" path="res://animations/sexton/act_combo_peal.res" id="3_gjhck"]
+[ext_resource type="Animation" path="res://animations/sexton/act_knell.res" id="3_mem3h"]
+[ext_resource type="Animation" path="res://animations/sexton/act_flinch.res" id="5_yabbe"]
+[ext_resource type="Animation" path="res://animations/sexton/act_stagger.res" id="8_7npji"]
+
+[resource]
+_data = {
+&"act_broken": ExtResource("1_40gdx"),
+&"act_bury": ExtResource("1_m7qcy"),
+&"act_combo_dig": ExtResource("2_bftqa"),
+&"act_combo_peal": ExtResource("3_gjhck"),
+&"act_dig": ExtResource("1_jogaf"),
+&"act_flinch": ExtResource("5_yabbe"),
+&"act_knell": ExtResource("3_mem3h"),
+&"act_peal": ExtResource("1_wujcr"),
+&"act_stagger": ExtResource("8_7npji"),
+&"act_toll": ExtResource("1_l7wn3"),
+&"act_toll_echo": ExtResource("2_3olsy"),
+&"idle_heavy": ExtResource("1_1c8pb")
+}

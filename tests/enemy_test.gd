@@ -26,7 +26,7 @@ func _become(id: String, prestige: int = 0) -> Enemy:
 	Looks.choice.enemy = 0  # Character
 	main._clear_enemies()
 	var e := Enemy.new()
-	e.setup(EnemyDefs.scaled(id, prestige), main.camera)
+	e.setup(EnemyDefs.scale_def(EnemyDefs.WARDEN.duplicate(true), prestige) if id == "Warden" else EnemyDefs.scaled(id, prestige), main.camera)  # ("Warden": the Vault Warden)
 	main.world3d.add_child(e)
 	e.strike.connect(main._resolve_attack.bind(e))
 	e.died.connect(main._on_enemy_died)
@@ -234,24 +234,63 @@ func _swing_at(e: Enemy, mods: Array = []) -> Array:
 ## A Knight on guard takes nothing from a blow, and the blow wears the weapon down; a
 ## Guardbreaker knocks the guard aside and goes through.
 func _test_guard() -> void:
+	# the knights guard on the wind-up only: open between attacks and as the blow comes down
+	_check(not _become("Rusted").data.get("windup_guard", false), "the Rusted shouldn't guard")
+	for id in ["Knight", "Warden"]:
+		var kn := _become(id)
+		_check(not kn.data.has("guard_stance"), "the %s shouldn't stand on guard between attacks" % id)
+		kn.state = "idle"
+		_check(not kn.is_guarding(), "the %s should be open between attacks" % id)
+		kn.active = true
+		kn._begin_attack()
+		kn.active = false
+		_check(kn.state == "windup" and kn.is_guarding(), "the %s should guard as it winds up (%s)" % [id, kn.state])
+		var held := _swing_at(kn)
+		_check(held[0] == 0.0, "a blow on the %s's wind-up should glance off (%.1f)" % [id, held[0]])
+		kn._strike()
+		_check(not kn.is_guarding(), "the %s should drop its guard as it strikes" % id)
+	var kb := _become("Knight")
+	kb.active = true
+	kb._begin_attack()
+	kb.active = false
+	var knocked := _swing_at(kb, ["guardbreaker"])
+	_check(knocked[0] > 0.0 and not kb.is_guarding(), "a Guardbreaker should knock a wind-up guard aside and hit (%.1f)" % knocked[0])
 	var k := _become("Knight")
-	_check(k.data.has("guard_stance"), "the Knight should have a guard stance")
+	var c := _become("Castellan")
+	c.state = "idle"
+	_check(c.is_guarding(), "the Castellan should be on guard whenever it's standing ready")
+	c.state = "windup"
+	_check(not c.is_guarding(), "the Castellan should drop its guard to swing")
+	c.state = "idle"
+	c.off_balance = 1.0
+	_check(not c.is_guarding(), "a Castellan knocked off balance should be open")
+	k = _become("Knight")
 	var open := _swing_at(k)
-	k._begin_guard()
-	_check(k.is_guarding(), "a Knight should be able to stand on guard")
+	k.active = true
+	k._begin_attack()
+	k.active = false
 	var guarded := _swing_at(k)
 	_check(guarded[0] == 0.0, "a blow on a raised guard should do no damage (%.1f)" % guarded[0])
 	_check(guarded[1] > open[1] * 2.0, "a blow on a guard should wear the weapon far more than an open hit (%.1f vs %.1f)" % [guarded[1], open[1]])
+	k = _become("Knight")
+	k.active = true
+	k._begin_attack()
+	k.active = false
 	var broke := _swing_at(k, ["guardbreaker"])
 	_check(broke[0] > open[0] and not k.is_guarding(), "a Guardbreaker should knock the guard aside and hit harder (%.1f vs %.1f)" % [broke[0], open[0]])
-	k._begin_guard()
-	k.guard_time = 0.05
-	k._guarded_last = true
+	# the guard lasts exactly as long as the wind-up: down the moment it strikes
+	k = _become("Knight")
 	k.active = true  # (the state machine only runs on an active foe)
-	for i in 10:
-		k._process(0.02)
+	k._begin_attack()
+	var guarded_frames := 0
+	for i in 400:
+		k._process(1.0 / 60.0)
+		if k.state != "windup":
+			break
+		if k.is_guarding():
+			guarded_frames += 1
 	k.active = false
-	_check(not k.is_guarding(), "a guard should come down after a while")
+	_check(guarded_frames > 10 and not k.is_guarding(), "a Knight should guard through its wind-up and drop it as it strikes (%d frames, %s)" % [guarded_frames, k.state])
 
 
 func _test_reactions() -> void:

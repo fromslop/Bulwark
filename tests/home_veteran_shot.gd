@@ -23,7 +23,7 @@ func _process(_d: float) -> bool:
 		s.stats.kills = 112
 		s.stats.bosses = 6
 		s.prestige_best = 3
-		s.found.guardians = ["Coin Golem", "Housecat", "The Astronomer", "Errata", "The Smelter"]
+		s.found.guardians = ["The Astronomer", "Errata", "The Smelter"]
 		s.trophies = [["Castellan", 0], ["Castellan", 0], ["Castellan", 1], ["The Sexton", 1], ["Castellan", 2], ["The Sexton", 3]]
 		main._go_home()
 		main.hand.pinned = Vector2(1250, 700)

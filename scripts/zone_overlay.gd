@@ -11,6 +11,7 @@ var exposed: Array = []    # screen circles where armour was stripped
 var shelves: Array = []    # {rect, price, paid}: paid lights up the price pips
 var gong: Dictionary = {}  # {pos, radius}
 var dice: Dictionary = {}  # {pos, radius}: punch to reroll
+var keyhole: Dictionary = {}  # {pos, used}: a small brass keyhole hidden in this stage's wall (main.gd)
 var chute: Dictionary = {}  # {pos, radius}: the shop's scrap chute
 var door: Dictionary = {}  # {pos, radius}: after a boss, the way home (punch it holding something)
 var racks: Array = []      # home: {pos, kind, item} slots where kept gear hangs
@@ -242,6 +243,21 @@ func _draw() -> void:
 		draw_rect(Rect2(s.pos - Vector2.ONE * s.size * 0.5, Vector2.ONE * s.size), col)
 
 
+## A brass escutcheon the size of a thumbnail, its keyhole cut through it; turned, the hole
+## glows gold.
+func _draw_keyhole() -> void:
+	var p: Vector2 = keyhole.pos
+	var brass := Color(0.62, 0.48, 0.24)
+	var plate := Rect2(p - Vector2(5, 7), Vector2(10, 14))
+	draw_rect(plate.grow(1.0), Color(0.12, 0.09, 0.05, 0.9))
+	draw_rect(plate, brass)
+	draw_rect(Rect2(plate.position, Vector2(plate.size.x, 2)), brass.lightened(0.3))  # catching the light along its top
+	draw_circle(p + Vector2(0, 2), 1.5, Color(0.65, 0.5, 0.25))  # (a pin either end)
+	var hole := Color(1.0, 0.85, 0.4) if keyhole.get("used", false) else Color(0.03, 0.02, 0.01)
+	draw_circle(p + Vector2(0, -2), 2.0, hole)
+	draw_rect(Rect2(p + Vector2(-1, -1), Vector2(2, 5)), hole)
+
+
 func _draw_dice() -> void:
 	var p: Vector2 = dice.pos
 	for k in 2:
@@ -252,10 +268,22 @@ func _draw_dice() -> void:
 		var pips: Array = [[Vector2(-5, -5), Vector2(5, 5)], [Vector2(-5, -5), Vector2(0, 0), Vector2(5, 5)]][k]
 		for q in pips:
 			draw_circle(c + q, 2.2, Color(0.15, 0.1, 0.08))
-	# the price, as coin pips under the dice (none when a horseshoe makes it free)
-	var x := p.x - 4.0 * dice_price
-	for i in dice_price:
-		draw_circle(Vector2(x + i * 9, p.y + 22), 3.0, Color(0.95, 0.75, 0.22) if dice_paid > i else Color(0.35, 0.28, 0.12))
+	# the price under the dice, as a coin and a number: gold when your pile covers it, a dull
+	# red when it doesn't, FREE when a horseshoe pays
+	# (to the left of the dice: the gong's bracket hangs below them)
+	var font := ThemeDB.fallback_font
+	var right := p.x - 30.0
+	var at := Vector2(right, p.y + 6)
+	if dice_price <= 0:
+		draw_string(font, Vector2(right - 60, at.y), "FREE", HORIZONTAL_ALIGNMENT_RIGHT, 60, 13, Color(0.55, 0.95, 0.55))
+		return
+	var label := str(dice_price)
+	var tw := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
+	var x := right - tw - 14.0
+	var can := dice_paid >= dice_price
+	draw_circle(Vector2(x + 5, at.y - 5), 5.0, Color(0.95, 0.75, 0.22) if can else Color(0.45, 0.36, 0.16))
+	draw_circle(Vector2(x + 5, at.y - 5), 5.0, Color(0.3, 0.2, 0.05), false, 1.0)
+	draw_string(font, Vector2(x + 14, at.y), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(1.0, 0.85, 0.35) if can else Color(0.9, 0.4, 0.3))
 
 
 func _draw_shop() -> void:
@@ -313,6 +341,8 @@ func _draw_shop() -> void:
 			draw_circle(Vector2(x, y), 3.0, Color(0.95, 0.75, 0.22) if lit else Color(0.35, 0.28, 0.12))
 			counted += 1
 			x += 9.0
+	if not keyhole.is_empty():
+		_draw_keyhole()
 	if not dice.is_empty():
 		_draw_dice()
 	if not chute.is_empty():

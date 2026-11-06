@@ -1,0 +1,24 @@
+[gd_resource type="AnimationLibrary" format=3]
+
+[ext_resource type="Animation" path="res://animations/halberdier/act_stagger.res" id="1_6s6jr"]
+[ext_resource type="Animation" path="res://animations/halberdier/act_broken.res" id="1_pb3y3"]
+[ext_resource type="Animation" path="res://animations/halberdier/act_flinch.res" id="1_w68hy"]
+[ext_resource type="Animation" path="res://animations/halberdier/act_death.res" id="2_gbwiq"]
+[ext_resource type="Animation" path="res://animations/halberdier/act_butt.res" id="2_gq0mx"]
+[ext_resource type="Animation" path="res://animations/halberdier/act_hook.res" id="4_ig6ih"]
+[ext_resource type="Animation" path="res://animations/halberdier/act_pike.res" id="4_ngyet"]
+[ext_resource type="Animation" path="res://animations/halberdier/act_reap.res" id="4_vown8"]
+[ext_resource type="Animation" path="res://animations/halberdier/idle_steady.res" id="5_vrr2l"]
+
+[resource]
+_data = {
+&"act_broken": ExtResource("1_pb3y3"),
+&"act_butt": ExtResource("2_gq0mx"),
+&"act_death": ExtResource("2_gbwiq"),
+&"act_flinch": ExtResource("1_w68hy"),
+&"act_hook": ExtResource("4_ig6ih"),
+&"act_pike": ExtResource("4_ngyet"),
+&"act_reap": ExtResource("4_vown8"),
+&"act_stagger": ExtResource("1_6s6jr"),
+&"idle_steady": ExtResource("5_vrr2l")
+}

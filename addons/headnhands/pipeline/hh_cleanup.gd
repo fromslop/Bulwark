@@ -42,7 +42,10 @@ static func run(take: HHTake, recipe: HHCleanupRecipe = null, rate := 90.0) -> D
 	_deadzones(frames, recipe)
 	if recipe.loop:
 		frames = _close_loop(frames, rate, recipe, report)
-	return {"take": _to_take(take, frames, rate, recipe), "report": report}
+	var out := _to_take(take, frames, rate, recipe)
+	for k in take.marks:
+		out.marks[k] = float(take.marks[k]) - float(report.trim[0])  # (marks follow the trim)
+	return {"take": out, "report": report}
 
 
 # Evenly spaced frames from the take's (uneven) samples.

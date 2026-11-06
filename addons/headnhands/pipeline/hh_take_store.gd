@@ -16,8 +16,11 @@ static func list(dir := "") -> PackedStringArray:
 		dir = takes_dir
 	var out := PackedStringArray()
 	_collect(dir, out)
-	out.sort()
-	return out
+	# (in natural order, so take _2 comes before _10: baking every take in this order leaves
+	# each clip from its latest take)
+	var sorted := Array(out)
+	sorted.sort_custom(func(a: String, b: String) -> bool: return a.naturalnocasecmp_to(b) < 0)
+	return PackedStringArray(sorted)
 
 
 static func _collect(dir: String, out: PackedStringArray) -> void:
@@ -73,6 +76,32 @@ static func new_path(sub_dir := "") -> String:
 		path = dir.path_join("take_%s_%d.res" % [stamp, n])
 		n += 1
 	return path
+
+
+## Keeps only one take of a clip: `newest` (a take file in the folder) stays, every other
+## take of the same clip there (<clip>.res, <clip>_2.res...) goes to the system's recycle
+## bin, and the one kept is renamed to <clip>.res, so the next take is <clip>_2 and the
+## numbers say which is newest again. Returns where the kept take is now. (If the bin can't
+## take a file, it's left where it is and the kept one keeps its name.)
+static func keep_only(newest: String, clip: String) -> String:
+	var dir := newest.get_base_dir()
+	var cleared := true
+	for f in DirAccess.get_files_at(dir):
+		if f == newest.get_file() or not (f.ends_with(".res") or f.ends_with(".tres")):
+			continue
+		var base := f.get_basename()
+		if base == clip or (base.begins_with(clip + "_") and base.trim_prefix(clip + "_").is_valid_int()):
+			if OS.move_to_trash(ProjectSettings.globalize_path(dir.path_join(f))) != OK:
+				cleared = false
+	var keep := dir.path_join(clip + "." + newest.get_extension())
+	if keep == newest or not cleared:
+		return newest
+	if DirAccess.rename_absolute(ProjectSettings.globalize_path(newest), ProjectSettings.globalize_path(keep)) != OK:
+		return newest
+	if ResourceLoader.has_cached(newest):
+		var r: Resource = ResourceLoader.load(newest, "", ResourceLoader.CACHE_MODE_REUSE)
+		r.take_over_path(keep)  # (a cached copy of the replaced take mustn't stand in for this one)
+	return keep
 
 
 # One line describing a bake report, for printing.

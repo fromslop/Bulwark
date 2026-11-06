@@ -1,0 +1,24 @@
+[gd_resource type="AnimationLibrary" format=3]
+
+[ext_resource type="Animation" path="res://animations/lamplighter/act_arc_lash.res" id="1_8fxca"]
+[ext_resource type="Animation" path="res://animations/lamplighter/idle_bounce.res" id="1_033fg"]
+[ext_resource type="Animation" path="res://animations/lamplighter/act_lantern_swing.res" id="2_j4fnk"]
+[ext_resource type="Animation" path="res://animations/lamplighter/act_cut_tl.res" id="2_mktgs"]
+[ext_resource type="Animation" path="res://animations/lamplighter/act_cut_mr.res" id="2_rklwr"]
+[ext_resource type="Animation" path="res://animations/lamplighter/act_broken.res" id="2_skgct"]
+[ext_resource type="Animation" path="res://animations/lamplighter/act_flinch.res" id="4_ls1l3"]
+[ext_resource type="Animation" path="res://animations/lamplighter/act_spark.res" id="5_e6ir2"]
+[ext_resource type="Animation" path="res://animations/lamplighter/act_stagger.res" id="7_gvsyo"]
+
+[resource]
+_data = {
+&"act_arc_lash": ExtResource("1_8fxca"),
+&"act_broken": ExtResource("2_skgct"),
+&"act_cut_mr": ExtResource("2_rklwr"),
+&"act_cut_tl": ExtResource("2_mktgs"),
+&"act_flinch": ExtResource("4_ls1l3"),
+&"act_lantern_swing": ExtResource("2_j4fnk"),
+&"act_spark": ExtResource("5_e6ir2"),
+&"act_stagger": ExtResource("7_gvsyo"),
+&"idle_bounce": ExtResource("1_033fg")
+}

@@ -23,11 +23,12 @@ static func carry_over() -> void:
 			DirAccess.copy_absolute(src, dst)
 
 var home: Array = []  # packed items: see pack()
+var storage: Array = []  # packed items put away in the storage cupboard at home (Storage)
 var found := {"items": [], "modifiers": [], "foes": [], "places": [], "reactions": [], "secrets": [], "guardians": []}  # guardians: secret places' foes beaten (the relic shelf at home)
 var prestige_best := 0
 ## Lifetime tallies, shown around the home (the tally on the wall, the trophy shelf...).
-var stats := {"runs": 0, "deaths": 0, "bosses": 0, "kills": 0, "best_hit": 0, "smelt": 0.0}
-var trophies: Array = []  # every boss felled: [name, prestige]: a cup each on the shelf at home
+var stats := {"runs": 0, "deaths": 0, "bosses": 0, "kills": 0, "best_hit": 0, "smelt": 0.0, "melted_cups": 0}
+var trophies: Array = []  # every boss felled whose cup you still have: [name, prestige]: on the rack at home
 
 
 static func load_file() -> SaveData:
@@ -48,6 +49,7 @@ static func load_file() -> SaveData:
 		DirAccess.copy_absolute(ProjectSettings.globalize_path(PATH), ProjectSettings.globalize_path(PATH + ".damaged"))
 	if data is Dictionary:
 		s.home = data.get("home", [])
+		s.storage = data.get("storage", [])
 		s.prestige_best = int(data.get("prestige_best", 0))
 		var fd: Dictionary = data.get("found", {})
 		for k in s.found:
@@ -56,7 +58,7 @@ static func load_file() -> SaveData:
 		for k in s.stats:
 			s.stats[k] = float(st.get(k, 0.0)) if k == "smelt" else int(st.get(k, 0))
 		s.trophies = data.get("trophies", [])
-		while s.trophies.size() < int(s.stats.bosses):
+		while s.trophies.size() + int(s.stats.melted_cups) < int(s.stats.bosses):
 			s.trophies.append(["", 0])  # (bosses felled before the shelf was kept: plain cups)
 	return s
 
@@ -77,7 +79,7 @@ func write() -> void:
 	var f := FileAccess.open(tmp, FileAccess.WRITE)
 	if f == null:
 		return
-	f.store_string(var_to_str({"home": home, "found": found, "prestige_best": prestige_best, "stats": stats, "trophies": trophies}))
+	f.store_string(var_to_str({"home": home, "storage": storage, "found": found, "prestige_best": prestige_best, "stats": stats, "trophies": trophies}))
 	f.close()
 	DirAccess.rename_absolute(ProjectSettings.globalize_path(tmp), ProjectSettings.globalize_path(PATH))  # (whole or not at all)
 
@@ -139,7 +141,7 @@ static func unpack(e: Dictionary) -> Dictionary:
 			d.shape = e.shape
 		d.size = float(e.get("size", 1.0))
 		if d.has("swing_damage"):
-			d.swing_damage = float(ItemDefs.DEFS[e.id].swing_damage) * d.size
+			d.swing_damage = float(ItemDefs.DEFS[e.id].swing_damage)  # (its size counts through its pixels)
 			if d.get("ascended", false):
 				d.swing_damage *= ItemDefs.ASCEND_DAMAGE
 	if e.has("custom_name"):

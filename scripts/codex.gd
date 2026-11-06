@@ -50,8 +50,8 @@ const ELEMENT_SOURCES := {
 }
 const ATTACK_NAMES := {"slash_high_r": "High slash, from the right", "slash_high_l": "High slash, from the left",
 	"slash_low": "Low slash", "overhead_l": "Overhead, left", "overhead_r": "Overhead, right", "thrust": "Thrust",
-	"sweep": "Rising sweep", "slam": "Slam", "coin_toss": "Gold bar", "swipe_l": "Swipe, left", "swipe_r": "Swipe, right",
-	"pounce": "Pounce", "tail_lash": "Tail lash", "comet": "Comet", "orbit": "Orbit", "unmoor": "Unmooring",
+	"sweep": "Rising sweep", "slam": "Slam", 
+	"comet": "Comet", "orbit": "Orbit", "unmoor": "Unmooring",
 	"chop_l": "Chop, left", "chop_r": "Chop, right", "hew": "Hew", "fell": "Fell", "ground_pound": "Ground pound",
 	"maul_low_l": "Low maul, left", "maul_low_r": "Low maul, right", "cut_tl": "Cut, top left", "cut_tr": "Cut, top right",
 	"cut_ml": "Cut, middle left", "cut_mr": "Cut, middle right", "cut_tc": "Cut, top centre", "jab": "Jab", "lunge": "Lunge",
@@ -293,7 +293,9 @@ func _build_entries() -> Array:
 	var out: Array = []
 	match TABS[tab]:
 		"GEAR":
-			var ids := ItemDefs.DEFS.keys().filter(func(k: String) -> bool: return ItemDefs.DEFS[k].kind not in ["coin", "menu"])
+			var ids := ItemDefs.DEFS.keys().filter(func(k: String) -> bool:
+				return ItemDefs.DEFS[k].kind not in ["coin", "menu", "trophy"] \
+					and (not ItemDefs.DEFS[k].get("retired", false) or save.knows("items", k)))  # (retired: only if already found)
 			ids.sort_custom(func(a: String, b: String) -> bool:
 				var ra := ItemDefs.rarity_of(a)
 				var rb := ItemDefs.rarity_of(b)
@@ -326,7 +328,7 @@ static func reaction_key(a: String, b: String) -> String:
 	return a + "+" + b if Main.REACTIONS.has(a + "+" + b) else b + "+" + a
 
 
-## "the Housecat", but "The Astronomer" as it is.
+## "the Knight", but "The Astronomer" as it is.
 static func the(name: String) -> String:
 	return name if name.begins_with("The ") else "the " + name
 
@@ -1014,27 +1016,23 @@ class Page:
 		if mdesc != "" and not e[4] in ["ring", "upgrade"]:
 			draw_string(font, Vector2(x, y + 8), "%s: %s" % [codex._gear_material(e).capitalize(), mdesc], HORIZONTAL_ALIGNMENT_LEFT, w, 11, _b.dim)
 			y += 18
-		# numbers
+		# numbers: a fresh one in the material shown (damage: a full swing, before rings)
 		var rows: Array = []
 		if d.has("swing_damage"):
-			rows.append(["Damage", float(d.swing_damage) / 40.0, "%d" % int(d.swing_damage)])
-			rows.append(["Swing speed", float(d.get("swing_speed", 10.0)) / 14.0, "%.0f" % float(d.get("swing_speed", 10.0))])
-			rows.append(["Recovery", 1.0 - clampf((float(d.get("cooldown", 1.0)) - 0.5) / 1.8, 0.0, 1.0), "%.1fs" % float(d.get("cooldown", 1.0))])
+			var dmg: float = ItemDefs.fresh_damage(e[0], codex._gear_material(e)) if ItemDefs.DEFS.has(e[0]) else float(d.swing_damage) * ItemDefs.WEAPON_DAMAGE
+			rows.append(["Damage", "%d" % roundi(dmg)])
+			rows.append(["Swing speed", "%.0f" % float(d.get("swing_speed", 10.0))])
+			rows.append(["Recovery", "%.1fs" % float(d.get("cooldown", 1.0))])
 		if e[4] in ["shield", "weapon"]:
 			var mat := Materials.get_mat(codex._gear_material(e))
-			rows.append(["Blocks", float(mat.block), "%d%%" % roundi(float(mat.block) * 100.0)])
-			rows.append(["Toughness", clampf(float(mat.hp) / 26.0, 0.05, 1.0), "%.0f" % float(mat.hp)])
+			rows.append(["Blocks", "%d%%" % roundi(float(mat.block) * 100.0)])
+			rows.append(["Toughness", "%.0f" % float(mat.hp)])
 		if d.has("heal"):
-			rows.append(["Heals", float(d.heal) / 50.0, "%d" % int(d.heal)])
+			rows.append(["Heals", "%d" % int(d.heal)])
 		var price: int = int(d.get("price", d.get("cost", 0)))
 		if price > 0:
-			rows.append(["Price", clampf(price / 15.0, 0.0, 1.0), "%d" % price])
-		for row in rows:
-			draw_string(font, Vector2(x, y + 11), row[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 11, _b.dim)
-			_bar(Rect2(x + 90, y + 2, w - 150, 10), clampf(row[1], 0.0, 1.0), _b.accent)
-			draw_string(font, Vector2(x + w - 50, y + 11), row[2], HORIZONTAL_ALIGNMENT_RIGHT, 50, 11, _b.ink)
-			y += 17
-		y += 8
+			rows.append(["Price", "%d" % price])
+		y += _ledger_figures(Vector2(x, y), w, 2, rows) + 8
 		var txt: String = e[3]
 		if d.has("ascended_effect"):
 			txt += "\n" + str(d.ascended_effect)
@@ -1394,6 +1392,20 @@ class Page:
 		_counter("%d of %d met" % [known, es.size()])
 		_foe_detail()
 
+	## Figures in the book's hand: a grid of [label, number], the label small on the left, the
+	## number on the right of its cell, each cell ruled off underneath. Returns the height.
+	func _ledger_figures(at: Vector2, w: float, cols: int, rows: Array) -> float:
+		var gap := 14.0
+		var cw := (w - gap * (cols - 1)) / cols
+		var rh := 19.0
+		for i in rows.size():
+			var cx := at.x + (i % cols) * (cw + gap)
+			var cy := at.y + int(i / cols) * rh
+			draw_string(font, Vector2(cx, cy + 12), rows[i][0], HORIZONTAL_ALIGNMENT_LEFT, -1, 11, _b.dim)
+			draw_string(font, Vector2(cx, cy + 13), rows[i][1], HORIZONTAL_ALIGNMENT_RIGHT, cw, 14, _b.ink)
+			draw_line(Vector2(cx, cy + 17), Vector2(cx + cw, cy + 17), Color(_b.ink, 0.15), 1.0)
+		return ceili(float(rows.size()) / cols) * rh
+
 	func _foe_detail() -> void:
 		var e := codex.entry(codex.selected[2])
 		if e.is_empty():
@@ -1417,16 +1429,10 @@ class Page:
 			draw_string(font, Vector2(win.end.x - 200, win.position.y + 16), "%s   %d lanes   %.1fs" % [str(Codex.ATTACK_NAMES.get(codex._replay.id, codex._replay.id)), (codex._replay.lanes as Array).size(), wind], HORIZONTAL_ALIGNMENT_RIGHT, 194, 11, Color(1, 0.95, 0.85))
 			y += 6
 		# its measure
-		var stats := [["Health", float(d.hp) / 400.0], ["Armour", float(d.armor)], ["Speed", float(d.speed) / 1.4],
-			["Strength", float(d.get("power", 1.0)) / 1.2], ["Poise", float(d.poise) / 80.0]]
-		for i in stats.size():
-			var s: Array = stats[i]
-			var cx := x + (i % 3) * (w / 3.0)
-			var cy := y + int(i / 3) * 16
-			draw_string(font, Vector2(cx, cy + 10), s[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 10, _b.dim)
-			_bar(Rect2(cx + 56, cy + 2, w / 3.0 - 66, 8), clampf(s[1], 0.0, 1.0), _b.accent, 6)
-		draw_string(font, Vector2(x + 2 * (w / 3.0), y + 26), "Bounty  %d" % int(d.get("reward", 0)), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, _b.ink)
-		y += 36
+		var stats := [["Health", "%d" % roundi(float(d.hp))], ["Armour", Tooltip.Drawn.pct(float(d.armor))],
+			["Speed", Tooltip.Drawn.times(float(d.speed))], ["Strength", Tooltip.Drawn.times(float(d.get("power", 1.0)))],
+			["Poise", "%d" % roundi(float(d.poise))], ["Bounty", "%d" % int(d.get("reward", 0))]]
+		y += _ledger_figures(Vector2(x, y), w, 3, stats) + 4
 		y += _text(Vector2(x, y + 10), str(d.get("bio", "")), w, 11, _b.ink, 2) + 4
 		# every attack: click one to see it swung
 		draw_string(font, Vector2(x, y + 12), "ATTACKS  ·  click one to see it", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, _b.accent)
@@ -1520,13 +1526,13 @@ class Page:
 	# --- Wall Map ------------------------------------------------------------------------
 
 	## The way down drawn as a map: home at the top, the stages below it, the deep places off
-	## the side, the vault behind its lever, the secret places in the torn corners.
+	## the side, the vault behind its keyhole, the secret places in the torn corners.
 	const SPOTS := {"Homestead": Vector2(0.5, 0.07),
 		"Dungeon Cell": Vector2(0.3, 0.24), "Corridor": Vector2(0.7, 0.24),
 		"Cistern": Vector2(0.3, 0.44), "Catacombs": Vector2(0.7, 0.44),
 		"Crypt Chapel": Vector2(0.22, 0.64), "Forge": Vector2(0.5, 0.66), "Ossuary": Vector2(0.78, 0.64), "Star Chamber": Vector2(0.5, 0.84),
 		"Hidden Vault": Vector2(0.9, 0.34),
-		"Gilded Gullet": Vector2(0.09, 0.9), "Giant's Table": Vector2(0.91, 0.9), "Clockwork Orrery": Vector2(0.09, 0.12), "Ink Margin": Vector2(0.91, 0.12),
+		"Clockwork Orrery": Vector2(0.09, 0.12), "Ink Margin": Vector2(0.91, 0.12),
 		"Molten Core": Vector2(0.72, 0.9)}
 
 	func _map() -> void:
@@ -1635,7 +1641,7 @@ class Page:
 		if (Backdrop.TIERS.late as Array).has(nm):
 			return "The fifth stage, and deeper runs"
 		if nm == "Hidden Vault":
-			return "Behind a hidden lever"
+			return "Behind a hidden keyhole"
 		return "A secret place"
 
 	func _place_foes(nm: String) -> String:

@@ -1,0 +1,20 @@
+[gd_resource type="AnimationLibrary" format=3]
+
+[ext_resource type="Animation" path="res://animations/headsman/act_behead.res" id="1_amv7d"]
+[ext_resource type="Animation" path="res://animations/headsman/act_broken.res" id="1_gnnge"]
+[ext_resource type="Animation" path="res://animations/headsman/act_flinch.res" id="1_tlbq1"]
+[ext_resource type="Animation" path="res://animations/headsman/act_cleave.res" id="2_il02x"]
+[ext_resource type="Animation" path="res://animations/headsman/act_stagger.res" id="3_gwo22"]
+[ext_resource type="Animation" path="res://animations/headsman/idle_heavy.res" id="3_rqerl"]
+[ext_resource type="Animation" path="res://animations/headsman/act_low_cleave.res" id="4_5cius"]
+
+[resource]
+_data = {
+&"act_behead": ExtResource("1_amv7d"),
+&"act_broken": ExtResource("1_gnnge"),
+&"act_cleave": ExtResource("2_il02x"),
+&"act_flinch": ExtResource("1_tlbq1"),
+&"act_low_cleave": ExtResource("4_5cius"),
+&"act_stagger": ExtResource("3_gwo22"),
+&"idle_heavy": ExtResource("3_rqerl")
+}

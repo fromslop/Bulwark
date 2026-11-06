@@ -7,14 +7,6 @@ extends RefCounted
 ## home lists them: a riddle for the ones not yet found, the plain chain once they have been.
 
 const STAGES := {
-	"Gilded Gullet": {"foe": "Coin Golem",
-		"hint": "Feed the chute what it shouldn't eat. Let the gong taste what it coughs up.",
-		"how": "Feed 40 gold down the shop's chute in one visit: it coughs up a Gilded Tooth. Touch the tooth to the gong.",
-		"blurb": "Down the gong's throat. Walls of stacked coin, gold teeth, gold rain, and something that eats it."},
-	"Giant's Table": {"foe": "Housecat",
-		"hint": "Small enough to fit where a brick once was.",
-		"how": "Open a loose brick, then push something shrunk twice with Pixie Dust into the hole.",
-		"blurb": "You're the size of a crumb on a kitchen table. The cheese is a mountain. The cat has noticed you."},
 	"Clockwork Orrery": {"foe": "The Astronomer",
 		"hint": "Two fall; the third waits. Reach it with something that weighs nothing.",
 		"how": "Catch two falling stars in one Star Chamber fight; a third hangs still. Touch it with something weightless.",
@@ -31,7 +23,7 @@ const STAGES := {
 
 ## The smaller secrets: [title, how, hint].
 const FINDS := {
-	"vault": ["Hidden Lever", "Pull the lever hidden in a wall: the next fight is in the Hidden Vault.", "Some walls have handles."],
+	"vault": ["Hidden Keyhole", "Bring the Mysterious Key to a small keyhole hidden high in a wall (never on the stage before a boss): the next fight is in the Hidden Vault.", "Some walls have locks. Keep the key."],
 	"brick": ["Loose Brick", "Punch a loose brick three times for what's stashed behind it.", "Not every brick is mortared in."],
 	"star": ["Falling Star", "Punch a falling star as it crosses the Star Chamber's sky.", "Wish on one, with a fist."],
 }

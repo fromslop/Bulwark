@@ -68,7 +68,46 @@ var clip_name := ""  # the clip playing now ("" = procedural)
 var clip_time := 0.0
 var _clip: Animation
 var _gaze := Vector3.ZERO  # the head's own aim at the cursor (pitch, yaw, lean), before any clip layer
+const CLIP_BLEND := 0.15  # seconds to crossfade the hands from one clip to the next
+const CLIP_SNAP := 0.06   # ...or into a stagger, a break or death: near enough a snap
+const GAME_CAM := Vector3(0.0, 1.45, 1.5)  # the game's camera, relative to a foe (main.gd sets it)
+## A foe with a long weapon stands further back, so its blows have room: this much of its
+## reach past a sword's (STAND_BACK_FROM), at most STAND_BACK_MAX. The recording studio's
+## swing pane stands the same distance further out (EnemyRig.tip_frame_depth), so the pane
+## is the player's screen for every foe alike, wherever its weapon's tip naturally swings.
+const STAND_BACK_FROM := 0.9
+const STAND_BACK_K := 0.72
+const STAND_BACK_MAX := 0.8
+var stand_back := 0.0  # how far back this foe stands (metres; see setup)
+const GAME_FOV := 40.0
+const TORSO_FOLLOW := 0.85  # how much of the head's travel the torso takes (it stays under it)
+var _blend_t := 0.0
+var _blend_len := CLIP_BLEND
+var _blend_from: Array = []  # the hands as they were when the clip changed (a procedural pose fades from this)
+var _from_clip: Animation  # ...or the clip they were playing, which plays on under the crossfade
+var _from_time := 0.0
+## A one-shot clip (a blow's follow-through, a stagger's recovery) plays out into the idle
+## rather than being cut where the game's own timer ends: it runs on until this long before
+## its end, then crossfades into the idle over that time.
+const CLIP_SETTLE := 0.4
+## A hit that doesn't stagger plays the foe's flinch on top of whatever it's doing: the
+## recoil in the flinch clip (from its first frame) added to the hands and head, this much
+## of it (less in a wind-up, so the blow still reads).
+const FLINCH_GAIN := 1.0
+const FLINCH_GAIN_WINDUP := 0.5
+var _flinch_t := -1.0  # how far into the flinch layer (-1: none)
+var _flinch_old_t := -1.0  # a flinch a new hit cut into, fading out under it
+var _flinch_old_w := 0.0
+const FLINCH_HANDOVER := 0.2  # seconds for a cut-into flinch to fade
+var _flinch_gain := FLINCH_GAIN  # eased between FLINCH_GAIN and FLINCH_GAIN_WINDUP as it starts and ends a wind-up
+var _combo_next := ""  # the second blow of the combo clip playing
+var _combo_t0 := -1.0
+var _aim_last := Vector3.ZERO
+var _aim_hands := Vector2(1, 0)
+var _head_rest := Vector3(0, 1.68, 0)   # where the head and torso sit at rest (after dressing:
+var _torso_rest := Vector3(0, 1.22, 0)  # a modelled foe may set its own)
 var _guarded_last := false  # (never two guards in a row: it has to swing in between)
+var _guard_knocked := false  # a wind-up guard knocked aside (Guardbreaker): open until it strikes
 var active := true
 var current: Dictionary = {}
 var progress := 0.0
@@ -133,6 +172,31 @@ func setup(d: Dictionary, cam: Camera3D) -> void:
 	speed = d.speed
 	rng.randomize()
 	_build(d.color)
+	stand_back = clampf((weapon_reach() - STAND_BACK_FROM) * STAND_BACK_K, 0.0, STAND_BACK_MAX)
+	position.z = -stand_back
+
+
+## The game's camera relative to this foe's body (GAME_CAM, plus the room its weapon needs).
+func cam_rel() -> Vector3:
+	return GAME_CAM + Vector3(0, 0, stand_back)
+
+
+## How far what the weapon hand holds reaches along the hand's +Y (its bounds' far end).
+func weapon_reach() -> float:
+	var reach := 0.3
+	var todo: Array = right_hand.get_children()
+	while not todo.is_empty():
+		var n: Node = todo.pop_back()
+		todo.append_array(n.get_children())
+		if n is MeshInstance3D:
+			# (its transform up to the hand, walked by hand: the foe may be out of the tree)
+			var t := (n as Node3D).transform
+			var p := n.get_parent()
+			while p != right_hand:
+				t = (p as Node3D).transform * t
+				p = p.get_parent()
+			reach = maxf(reach, (t * (n as MeshInstance3D).get_aabb()).end.y)
+	return reach
 
 
 ## Speed right now: an enraged Brute swings faster the more it bleeds.
@@ -153,7 +217,16 @@ func guard_up() -> bool:
 
 
 ## On guard: weapons and fists glance off it (see main's _check_weapon_hit).
+## A foe that always guards (the Castellan) is on guard whenever it's standing ready: it
+## only drops the guard to swing, or when it's knocked off balance, staggered or broken.
+## A knight guards with its blade on the wind-up ("windup_guard"): from the moment it starts
+## to wind up until the blow comes down it's on guard; it strikes open, and between attacks
+## it's open too.
 func is_guarding() -> bool:
+	if data.get("windup_guard", false):
+		return state == "windup" and off_balance <= 0.0 and not _guard_knocked
+	if data.get("always_guard", false):
+		return state == "idle" and off_balance <= 0.0
 	return state == "guarding"
 
 
@@ -175,6 +248,9 @@ func _begin_guard() -> void:
 
 ## The guard comes down (its time is up, or a Guardbreaker knocked it aside).
 func drop_guard(after: float = 0.3) -> void:
+	if state == "windup" and data.get("windup_guard", false):
+		_guard_knocked = true  # (the swing carries on, open)
+		return
 	if state != "guarding":
 		return
 	state = "idle"
@@ -205,6 +281,8 @@ func _build(_col: Color) -> void:
 	_place(right_hand, REST_R)
 	_place(left_hand, REST_L)
 	_dress()
+	_head_rest = head.position
+	_torso_rest = torso.position
 
 
 ## Swap to the design currently picked with F8, keeping any armour already knocked off.
@@ -341,8 +419,53 @@ func _load_model() -> bool:
 	_pauldrons.append(found.PauldronR)
 	if found.has("Shield"):
 		shield_arm = found.Shield
+	_swingers.clear()
+	for mname in found:
+		if String(mname).ends_with("_Bell"):  # (it hangs from its origin: see swing_parts)
+			_swingers.append({"node": found[mname], "rest": (found[mname] as Node3D).position, "fresh": true})
 	model_loaded = true
 	return true
+
+
+## Parts that hang free (a bell on a pole): each swings from where it's hung like a
+## pendulum, under gravity, off however its holder moves. Live, never baked: whatever the
+## clip or the game does with the hand, the bell follows through on its own.
+const SWING_LENGTH := 0.24  # pivot to the bell's weight, metres
+const SWING_DAMP := 1.4  # how fast a swing dies away (per second)
+var _swingers: Array = []
+
+
+func swing_parts(dt: float) -> void:
+	if _swingers.is_empty() or dt <= 0.0 or not is_inside_tree():
+		return
+	for s in _swingers:
+		var n: Node3D = s.node
+		if not is_instance_valid(n):
+			continue
+		var parent := n.get_parent() as Node3D
+		var pg := parent.global_transform
+		var k := pg.basis.get_scale().x
+		var pivot: Vector3 = pg * (s.rest as Vector3)
+		var length := SWING_LENGTH * k
+		if s.fresh or (s.bob as Vector3).distance_to(pivot) > length * 3.0:  # (first, or the foe jumped)
+			s.bob = pivot + Vector3.DOWN * length
+			s.prev = s.bob
+			s.fresh = false
+		var bob: Vector3 = s.bob
+		var moved := (bob - (s.prev as Vector3)) * exp(-SWING_DAMP * dt)
+		var next := bob + moved + Vector3(0, -9.8, 0) * dt * dt
+		var arm := next - pivot
+		next = pivot + (arm.normalized() if arm.length() > 0.0001 else Vector3.DOWN) * length
+		s.prev = bob
+		s.bob = next
+		# turned so it hangs from the pivot towards its weight, keeping its face to the holder's
+		var y := (pivot - next).normalized()
+		var z := pg.basis.x.normalized().cross(y)
+		if z.length() < 0.01:
+			z = pg.basis.z.normalized()
+		z = z.normalized()
+		var x := y.cross(z)
+		n.global_transform = Transform3D(Basis(x * k, y * k, z * k), pivot)
 
 
 static func _collect_meshes(n: Node, out: Array[MeshInstance3D]) -> void:
@@ -868,6 +991,7 @@ func _place(n: Node3D, pose: Array) -> void:
 
 
 func _process(delta: float) -> void:
+	swing_parts(delta)
 	var glow := heat * 0.6 + (0.9 + sin(Time.get_ticks_msec() * 0.03) * 0.3 if burning_time > 0.0 else 0.0)
 	if _flash > 0.0 or glow > 0.0:
 		_flash = maxf(0.0, _flash - delta * 4.0)
@@ -891,8 +1015,6 @@ func _process(delta: float) -> void:
 			_mats[i].albedo_color = _mats[i].albedo_color.lerp(Color(0.35, 0.7, 0.25), delta * 0.5)
 	if not _strings.is_empty():
 		_update_strings()
-	if state == "dead" and active:
-		_update_clip(delta)  # (a death clip, if it has one)
 	if state == "dead" or not active:
 		return
 	slow_time = maxf(0.0, slow_time - delta)
@@ -958,11 +1080,18 @@ static func reload_clips() -> void:
 	_clip_cache.clear()
 
 
-## Which clip goes with what it's doing now.
+## Which clip goes with what it's doing now. A combo plays one clip across both blows
+## (act_combo_<first>) when it has one, through the pause between them too.
 func _clip_wanted() -> String:
+	var combo := clip_name.begins_with("act_combo_") and _combo_next != ""
 	match state:
 		"windup":
-			return "act_" + str(current.get("id", ""))
+			var id := str(current.get("id", ""))
+			if combo and id == _combo_next:
+				return clip_name  # the second blow of the combo it's playing
+			if current.has("next") and clip("act_combo_" + id) != null:
+				return "act_combo_" + id
+			return "act_" + id
 		"recover":
 			return clip_name if clip_name.begins_with("act_") and clip_name != "act_guard" else ""  # the blow's follow-through
 		"guarding":
@@ -972,53 +1101,241 @@ func _clip_wanted() -> String:
 		"broken":
 			return "act_broken"
 		"dead":
-			return "act_death"
+			return ""  # it goes over like a cardboard cutout (_die): no clip
 		"idle":
+			if combo and _queued == _combo_next:
+				return clip_name  # between a combo's two blows
+			if _playing_out():
+				return clip_name  # a follow-through or a recovery, running into the idle
 			return "idle_" + str(data.get("idle", "steady"))
 	return ""
 
 
+## The one-shot clip playing (a blow, a stagger, a break) still has more than its settle
+## to go: back in the idle, it plays on rather than being cut.
+func _playing_out() -> bool:
+	return _clip != null and clip_name.begins_with("act_") and clip_name != "act_guard" \
+		and _clip.loop_mode == Animation.LOOP_NONE and clip_time < _clip.length - CLIP_SETTLE
+
+
 ## Plays the clip for what it's doing, if there is one: hands from the clip, the head the
-## cursor gaze with the clip's head motion on top.
+## cursor gaze with the clip's head motion on top. Changing clip crossfades the hands
+## (quickly: a stagger still snaps); an attack aimed at the player's hand is bent towards
+## it; a combo's second blow lands on the clip's second strike mark.
 func _update_clip(dt: float) -> void:
 	var want := _clip_wanted()
 	if want != clip_name:
 		var had := _clip != null
+		var old_clip := _clip
+		var old_time := clip_time
+		var settling := clip_name.begins_with("act_") and want.begins_with("idle_")
 		clip_name = want
 		clip_time = 0.0
 		_clip = clip(want) if want != "" else null
+		_combo_next = str(current.get("next", "")) if want.begins_with("act_combo_") else ""
+		_combo_t0 = -1.0
 		if had and _clip == null and state != "dead":
 			_settle()  # back to the procedural pose, from wherever the clip left the hands
 		if _clip == null and state == "recover":
 			clip_name = ""
+		if _clip != null:
+			# crossfade from what the hands were doing: the old clip playing on, or (from the
+			# procedural pose) where they were
+			# (changed again mid-crossfade: fade from where the hands are, not the old clip's own pose)
+			_from_clip = old_clip if had and _blend_t <= 0.0 else null
+			_blend_len = CLIP_SNAP if state in ["stagger", "broken", "dead"] else (CLIP_SETTLE if settling else CLIP_BLEND)
+			_blend_t = _blend_len
+			_blend_from = [right_hand.position, right_hand.quaternion, left_hand.position, left_hand.quaternion, head.position]
+			_from_time = old_time
 	if _clip == null:
 		return
 	var length := _clip.length
 	match state:
 		"windup":
-			clip_time = progress * strike_time(_clip)  # the blow lands when the game's strike does
+			if clip_name.begins_with("act_combo_") and str(current.get("id", "")) == _combo_next:
+				if _combo_t0 < 0.0:
+					_combo_t0 = clip_time  # the second blow's wind-up starts here in the clip
+				var s2 := float(_clip.get_meta("strike2", lerpf(_combo_t0, length, 0.7)))
+				clip_time = lerpf(_combo_t0, s2, progress)
+			else:
+				clip_time = progress * strike_time(_clip)  # the blow lands when the game's strike does
 		"guarding":
 			clip_time = clampf(1.0 - guard_time / _guard_total, 0.0, 1.0) * length
 		_:
-			clip_time += dt
+			# (a blow's follow-through at the foe's pace: a fast or enraged one recovers faster)
+			var attack_tail := clip_name.begins_with("act_") and not clip_name in ["act_stagger", "act_broken", "act_guard"]
+			clip_time += dt * (cur_speed() if attack_tail else 1.0)
 			if _clip.loop_mode != Animation.LOOP_NONE:
 				clip_time = fmod(clip_time, maxf(length, 0.001))
 			else:
 				clip_time = minf(clip_time, length)
 	if _tween and _tween.is_valid():
 		_tween.kill()  # the clip has the hands now
+	var aim := _aim_offset(dt)
+	_blend_t = maxf(0.0, _blend_t - dt)
+	var w := smoothstep(0.0, 1.0, 1.0 - _blend_t / maxf(_blend_len, 0.001))
+	if _from_clip and w < 1.0:
+		_from_time += dt
+		_from_time = fmod(_from_time, maxf(_from_clip.length, 0.001)) if _from_clip.loop_mode != Animation.LOOP_NONE else minf(_from_time, _from_clip.length)
+	var i := 0
 	for part in [["RightHand", right_hand], ["LeftHand", left_hand]]:
+		var node: Node3D = part[1]
 		var tr := _clip_tracks(_clip, part[0])
+		var pos := node.position
+		var rot := node.quaternion
 		if tr.x >= 0:
-			part[1].position = _clip.position_track_interpolate(tr.x, clip_time)
+			pos = _clip.position_track_interpolate(tr.x, clip_time) + (aim[i] as Vector3)
 		if tr.y >= 0:
-			part[1].quaternion = _clip.rotation_track_interpolate(tr.y, clip_time)
+			rot = _clip.rotation_track_interpolate(tr.y, clip_time)
+		if w < 1.0 and _blend_from.size() >= 4:
+			var from_pos: Vector3 = _blend_from[i * 2]
+			var from_rot: Quaternion = _blend_from[i * 2 + 1]
+			var ft := _clip_tracks(_from_clip, part[0]) if _from_clip else Vector2i(-1, -1)
+			if ft.x >= 0:
+				from_pos = _from_clip.position_track_interpolate(ft.x, _from_time)
+			if ft.y >= 0:
+				from_rot = _from_clip.rotation_track_interpolate(ft.y, _from_time)
+			pos = from_pos.lerp(pos, w)
+			rot = from_rot.slerp(rot, w)
+		node.position = pos
+		node.quaternion = rot
+		i += 1
 	var ht := _clip_tracks(_clip, "Head")
+	if ht.x >= 0:
+		var hp := _clip.position_track_interpolate(ht.x, clip_time)  # the recorded lean and duck...
+		if w < 1.0 and _blend_from.size() == 5:  # (crossfaded like the hands: the body doesn't jump)
+			var fh := _clip_tracks(_from_clip, "Head") if _from_clip else Vector2i(-1, -1)
+			var from_head: Vector3 = _from_clip.position_track_interpolate(fh.x, _from_time) if fh.x >= 0 else _blend_from[4]
+			hp = from_head.lerp(hp, w)
+		head.position = hp
+		follow_head_with_torso()  # ...with the body under it
 	if ht.y >= 0:
 		var rest := _clip.rotation_track_interpolate(ht.y, 0.0)
 		var now := _clip.rotation_track_interpolate(ht.y, clip_time)
-		var w: float = CLIP_HEAD.idle if state == "idle" else CLIP_HEAD.other
-		head.quaternion = head.quaternion * Quaternion.IDENTITY.slerp(rest.inverse() * now, w)
+		var hw: float = CLIP_HEAD.idle if state == "idle" else CLIP_HEAD.other
+		head.quaternion = head.quaternion * Quaternion.IDENTITY.slerp(rest.inverse() * now, hw)
+	_flinch_layer(dt)
+
+
+## A hit lands without staggering it: the flinch plays over whatever it's doing, from the
+## moment the recorded recoil starts (a take begins with the performer waiting for it). A
+## hit during a flinch starts a new one; the old one fades out under it.
+func flinch() -> void:
+	var fl := clip("act_flinch")
+	if state in ["dead", "broken", "stagger"] or fl == null:
+		return
+	if _flinch_t >= 0.0:
+		_flinch_old_t = _flinch_t
+		_flinch_old_w = 1.0
+	_flinch_t = flinch_onset(fl)
+
+
+## When a flinch clip's recoil starts: the first moment its weapon hand (or head) is moving
+## at speed, a frame or two early. Worked out once per clip.
+static func flinch_onset(fl: Animation) -> float:
+	if fl.has_meta("onset"):
+		return fl.get_meta("onset")
+	var at := 0.0
+	var parts := [_clip_tracks(fl, "RightHand"), _clip_tracks(fl, "Head")]
+	var t := 1.0 / 30.0
+	while t < fl.length * 0.6 and at == 0.0:
+		for tr in parts:
+			if tr.x < 0:
+				continue
+			var v := fl.position_track_interpolate(tr.x, t).distance_to(fl.position_track_interpolate(tr.x, t - 1.0 / 30.0)) * 30.0
+			var turn := 0.0
+			if tr.y >= 0:
+				turn = fl.rotation_track_interpolate(tr.y, t).angle_to(fl.rotation_track_interpolate(tr.y, t - 1.0 / 30.0)) * 30.0
+			if v > 0.25 or turn > 1.5:  # (a quarter metre a second, or most of a turn a second)
+				at = maxf(t - 0.06, 0.0)
+				break
+		t += 1.0 / 30.0
+	fl.set_meta("onset", at)
+	return at
+
+
+## The flinch clip's recoil (each hand and the head, from where they are in its first frame),
+## added on top of the hands and head as they are this frame, easing in fast and out slowly.
+func _flinch_layer(dt: float) -> void:
+	var fl := clip("act_flinch")
+	if fl == null or state in ["dead", "broken", "stagger"]:
+		_flinch_t = -1.0
+		_flinch_old_t = -1.0
+		return
+	_flinch_gain = lerpf(_flinch_gain, FLINCH_GAIN_WINDUP if state == "windup" else FLINCH_GAIN, 1.0 - exp(-8.0 * dt))
+	var gain := _flinch_gain
+	if _flinch_old_t >= 0.0:
+		_flinch_old_w -= dt / FLINCH_HANDOVER
+		if _flinch_old_w <= 0.0 or _flinch_old_t > fl.length:
+			_flinch_old_t = -1.0
+		else:
+			_add_flinch(fl, _flinch_old_t, gain * smoothstep(0.0, 1.0, _flinch_old_w))
+			_flinch_old_t += dt
+	if _flinch_t >= 0.0:
+		if _flinch_t > fl.length:
+			_flinch_t = -1.0
+		else:
+			_add_flinch(fl, _flinch_t, gain)
+			_flinch_t += dt
+	follow_head_with_torso()
+
+
+## One flinch's recoil at `t` into its clip, `w` of it (eased in from its onset, out at its end).
+func _add_flinch(fl: Animation, t: float, w: float) -> void:
+	var t0 := flinch_onset(fl)
+	var env := w * smoothstep(t0, t0 + 0.05, t) * (1.0 - smoothstep(lerpf(t0, fl.length, 0.45), fl.length, t))
+	for part in [["RightHand", right_hand], ["LeftHand", left_hand], ["Head", head]]:
+		var tr := _clip_tracks(fl, part[0])
+		var node: Node3D = part[1]
+		if tr.x >= 0:
+			node.position += (fl.position_track_interpolate(tr.x, t) - fl.position_track_interpolate(tr.x, t0)) * env
+		if tr.y >= 0 and part[0] != "Head":  # (the head keeps its gaze: only its recoil moves it)
+			var d := fl.rotation_track_interpolate(tr.y, t) * fl.rotation_track_interpolate(tr.y, t0).inverse()
+			node.quaternion = (Quaternion.IDENTITY.slerp(d, env) * node.quaternion).normalized()
+
+
+## The torso travels with the head (leaning, ducking, rearing back) so it stays under it.
+## It doesn't turn: it keeps squared up to the player.
+func follow_head_with_torso() -> void:
+	torso.position = _torso_rest + (head.position - _head_rest) * TORSO_FOLLOW
+
+
+## How far to bend the hands of a blow aimed at the player's hand: a clip is performed at
+## the attack's usual spot, so it's moved by however far the game moved the field (the
+## hand's there now), building up over the wind-up and easing off after the blow.
+## [right hand, left hand] offsets.
+func _aim_offset(dt: float) -> Array:
+	if state == "windup" and (current.get("track", false) or current.has("chase")):
+		var id := str(current.get("id", ""))
+		var from := zone_point(_centre(EnemyDefs.ATTACKS[id].zone if EnemyDefs.ATTACKS.has(id) else current.zone), 0.5, cam_rel())
+		var to := zone_point(_centre(current.zone), 0.5, cam_rel())
+		var pose: Dictionary = POSES.get(current.get("pose", ""), {})
+		var off_hand: bool = pose.get("shield", false)
+		var both: bool = pose.get("l", false) or pose.get("mirror", false)
+		_aim_hands = Vector2(0.0 if off_hand else 1.0, 1.0 if off_hand or both else 0.0)
+		_aim_last = (to - from) * smoothstep(0.0, 1.0, progress)
+	elif state == "recover":
+		_aim_last = _aim_last.move_toward(Vector3.ZERO, dt * 1.5)
+	else:
+		_aim_last = Vector3.ZERO
+	return [_aim_last * _aim_hands.x, _aim_last * _aim_hands.y]
+
+
+static func _centre(zone: Array) -> Vector2:
+	var c := Vector2.ZERO
+	for p in zone:
+		c += p
+	return c / maxf(zone.size(), 1.0)
+
+
+## Where a point of the player's screen (0..1 each way) lands in front of a foe, in its own
+## space: on a plane `depth` metres in front of it, seen from the game's camera (main.gd
+## frames foes from GAME_CAM with a GAME_FOV vertical field of view, at 16:9).
+static func zone_point(p: Vector2, depth := 0.5, cam := GAME_CAM) -> Vector3:
+	var ty := tan(deg_to_rad(GAME_FOV * 0.5))
+	var ndc := Vector2(p.x * 2.0 - 1.0, 1.0 - p.y * 2.0)
+	var d := cam.z - depth
+	return Vector3(ndc.x * ty * (16.0 / 9.0) * d, cam.y + ndc.y * ty * d, depth)
 
 
 ## When a clip's blow lands: its "strike" mark (the recording suite sets it), or CLIP_STRIKE.
@@ -1282,6 +1599,7 @@ func _begin_attack(forced: String = "", windup: float = -1.0) -> void:
 	_timer = _windup_total
 	progress = 0.0
 	state = "windup"
+	_guard_knocked = false  # (every wind-up comes with its guard up)
 	var pose: Dictionary = POSES[current.pose]
 	_move(pose, "wind", _windup_total * 0.85, Tween.EASE_OUT)
 	Sfx.play("windup", -14.0, 0.7 * (1.2 if is_enraged() else 1.0))
@@ -1485,6 +1803,8 @@ func take_hit(dmg: float, region: String = "torso", can_stagger: bool = true, st
 	var poise: float = data.poise * (0.5 if region == "right_hand" else 1.0)
 	if can_stagger and state == "windup" and dmg >= poise:
 		stagger()
+	else:
+		flinch()
 
 
 ## The swing was stopped cold: the enemy reels, leaving an opening (longer for the nervous).

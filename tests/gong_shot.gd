@@ -5,7 +5,7 @@ extends SceneTree
 
 var main: Node
 var f := 0
-var cases := [[0, ""], [3, ""], [1, "Giant's Table"]]  # [round, secret]
+var cases := [[0, ""], [3, ""], [1, "Clockwork Orrery"]]  # [round, secret]
 var i := 0
 
 

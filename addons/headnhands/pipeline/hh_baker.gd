@@ -9,6 +9,10 @@ extends RefCounted
 
 ## Cleanup works at this rate before the rig samples it at the clip's fps.
 const CLEAN_RATE := 90.0
+## The rig is driven this many times per clip frame (at about the headset's rate): its
+## springs then move as they did live, while you performed, not stiffer. (At a clip's 30 fps
+## a spring's stability clamp all but snaps fast springs, a 12 Hz grip or a 3 Hz hand.)
+const SUBSTEPS := 3
 
 
 # Returns {"animation": Animation, "report": Dictionary}.
@@ -25,6 +29,11 @@ static func bake(take: HHTake, rig: HHRig, recipe: HHCleanupRecipe = null) -> Di
 	# A looping clip's last frame flows into its first, so its length is one
 	# frame longer than its last sample.
 	var period := clean.duration() + (1.0 / CLEAN_RATE if recipe.loop else 0.0)
+	# Fitted marks: clip time -> take time, piecewise straight between pinned marks.
+	var anchors := [] if recipe.loop else fit_anchors(clean, recipe)
+	if not anchors.is_empty():
+		var last: Vector2 = anchors.back()
+		period = last.x + maxf(clean.duration() - last.y, 0.0)
 	var count := maxi(2, int(round(period * fps)) + (0 if recipe.loop else 1))
 
 	rig.begin(take.eye_height)
@@ -32,7 +41,8 @@ static func bake(take: HHTake, rig: HHRig, recipe: HHCleanupRecipe = null) -> Di
 		# Warm-up lap: springs end the lap in the state they start the next
 		# one, so the baked loop has no pop at the seam.
 		for i in count:
-			rig.drive(clean.sample(i * dt), dt)
+			for j in SUBSTEPS:
+				rig.drive(clean.sample(minf(fposmod((i + float(j + 1 - SUBSTEPS) / SUBSTEPS) * dt, period), clean.duration())), dt / SUBSTEPS)
 
 	var nodes := rig.baked_nodes()
 	var props := rig.baked_properties()
@@ -48,7 +58,10 @@ static func bake(take: HHTake, rig: HHRig, recipe: HHCleanupRecipe = null) -> Di
 		vals.append([])
 
 	for i in count:
-		rig.drive(clean.sample(minf(i * dt, clean.duration())), dt)
+		for j in SUBSTEPS:  # (the last lands on this frame's time)
+			var ct := (i + float(j + 1 - SUBSTEPS) / SUBSTEPS) * dt
+			var tt := minf(fposmod(ct, period), clean.duration()) if recipe.loop else clampf(warp(anchors, ct), 0.0, clean.duration())
+			rig.drive(clean.sample(tt), dt / SUBSTEPS)
 		for k in nodes.size():
 			var node := nodes[k]
 			pos[k].append(node.position)
@@ -77,12 +90,60 @@ static func bake(take: HHTake, rig: HHRig, recipe: HHCleanupRecipe = null) -> Di
 		var path := "%s:%s" % [node_path(rig, props[k][0]), props[k][1]]
 		tracks += _add_track(anim, Animation.TYPE_VALUE, path, vals[k], dt * retime)
 
+	for k in clean.marks:
+		anim.set_meta(k, unwarp(anchors, float(clean.marks[k])) * retime)  # where each mark landed
+	report["marks"] = clean.marks.keys()
 	report["frames"] = count
 	report["fps"] = fps
 	report["length"] = anim.length
 	report["tracks"] = tracks
 	report["loop"] = recipe.loop
 	return {"animation": anim, "report": report}
+
+
+# The pinned marks the recipe asks for that the take has: [Vector2(clip time, take
+# time)], in order. Empty: no fitting (the clip plays at the take's own pace).
+static func fit_anchors(clean: HHTake, recipe: HHCleanupRecipe) -> Array:
+	var out := []
+	for k in recipe.fit_marks:
+		if clean.marks.has(k):
+			out.append(Vector2(float(recipe.fit_marks[k]), float(clean.marks[k])))
+	out.sort_custom(func(a: Vector2, b: Vector2) -> bool: return a.x < b.x)
+	if out.size() == 1 and out[0].x > 0.0:
+		out.push_front(Vector2(0.0, maxf(out[0].y - out[0].x, 0.0)))  # (one mark: just shift)
+	return out
+
+
+# Clip time -> take time.
+static func warp(anchors: Array, c: float) -> float:
+	if anchors.is_empty():
+		return c
+	var first: Vector2 = anchors[0]
+	if c <= first.x:
+		return first.y - (first.x - c)
+	for i in range(1, anchors.size()):
+		var a: Vector2 = anchors[i - 1]
+		var b: Vector2 = anchors[i]
+		if c <= b.x:
+			return lerpf(a.y, b.y, (c - a.x) / maxf(b.x - a.x, 0.0001))
+	var last: Vector2 = anchors.back()
+	return last.y + (c - last.x)
+
+
+# Take time -> clip time (where a moment of the take lands in the clip).
+static func unwarp(anchors: Array, t: float) -> float:
+	if anchors.is_empty():
+		return t
+	var first: Vector2 = anchors[0]
+	if t <= first.y:
+		return first.x - (first.y - t)
+	for i in range(1, anchors.size()):
+		var a: Vector2 = anchors[i - 1]
+		var b: Vector2 = anchors[i]
+		if t <= b.y:
+			return lerpf(a.x, b.x, (t - a.y) / maxf(b.y - a.y, 0.0001))
+	var last: Vector2 = anchors.back()
+	return last.x + (t - last.y)
 
 
 # Bakes a take for a character and saves the clip into that character's library.

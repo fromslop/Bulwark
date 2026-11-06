@@ -18,6 +18,7 @@ signal released(item: Item)
 signal hurt_taken(amount: float)  # what actually reached the hand, after rings
 
 const STIFFNESS := 280.0
+const REACH_MASK := 1 | Item.SHOP_LAYER  # what the hand can grab or inspect: your things and the shop's stock
 const DAMPING := 32.0
 const MAX_FORCE := 210000.0
 const ROTATE_SPEED := 5.0
@@ -173,7 +174,7 @@ func _unhandled_input(e: InputEvent) -> void:
 func item_under(p: Vector2) -> Item:
 	var q := PhysicsPointQueryParameters2D.new()
 	q.position = p
-	q.collision_mask = 1
+	q.collision_mask = REACH_MASK
 	for h in get_world_2d().direct_space_state.intersect_point(q, 8):
 		if h.collider is Item:
 			return h.collider
@@ -190,7 +191,7 @@ func item_near(p: Vector2) -> Item:
 	circle.radius = GRAB_REACH
 	q.shape = circle
 	q.transform = Transform2D(0.0, p)
-	q.collision_mask = 1
+	q.collision_mask = REACH_MASK
 	var best: Item = null
 	var best_d := INF
 	for h in get_world_2d().direct_space_state.intersect_shape(q, 16):
@@ -228,6 +229,8 @@ func grab(it: Item, p: Vector2) -> void:
 	if it.has_meta("slotted"):
 		it.set_meta("slotted", false)  # off its rack
 		it.freeze = false
+		if it.owned and it.collision_layer == Item.SHOP_LAYER:
+			it.set_apart(false)  # (a cup off the trophy rack: an ordinary thing again)
 	var c := it.cell_at_global(p)
 	if not it.cells.has(c):
 		c = it.nearest_cell(p)  # a near miss: take hold of the closest bit

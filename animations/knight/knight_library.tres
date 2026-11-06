@@ -1,0 +1,32 @@
+[gd_resource type="AnimationLibrary" format=3]
+
+[ext_resource type="Animation" path="res://animations/knight/act_flinch.res" id="1_lt0i4"]
+[ext_resource type="Animation" path="res://animations/knight/act_broken.res" id="1_qpnb3"]
+[ext_resource type="Animation" path="res://animations/knight/act_stagger.res" id="1_ufp4c"]
+[ext_resource type="Animation" path="res://animations/knight/act_combo_overhead_l.res" id="2_2fkws"]
+[ext_resource type="Animation" path="res://animations/knight/act_death.res" id="2_lbn4j"]
+[ext_resource type="Animation" path="res://animations/knight/act_combo_overhead_r.res" id="3_4psru"]
+[ext_resource type="Animation" path="res://animations/knight/act_combo_slash_high_r.res" id="4_anj2n"]
+[ext_resource type="Animation" path="res://animations/knight/act_overhead_l.res" id="4_kefmf"]
+[ext_resource type="Animation" path="res://animations/knight/act_slash_high_r.res" id="4_pkegj"]
+[ext_resource type="Animation" path="res://animations/knight/act_overhead_r.res" id="5_0hfqh"]
+[ext_resource type="Animation" path="res://animations/knight/idle_steady.res" id="5_0wyu7"]
+[ext_resource type="Animation" path="res://animations/knight/act_guard.res" id="7_gytmp"]
+[ext_resource type="Animation" path="res://animations/knight/act_thrust.res" id="8_rpphx"]
+
+[resource]
+_data = {
+&"act_broken": ExtResource("1_qpnb3"),
+&"act_combo_overhead_l": ExtResource("2_2fkws"),
+&"act_combo_overhead_r": ExtResource("3_4psru"),
+&"act_combo_slash_high_r": ExtResource("4_anj2n"),
+&"act_death": ExtResource("2_lbn4j"),
+&"act_flinch": ExtResource("1_lt0i4"),
+&"act_guard": ExtResource("7_gytmp"),
+&"act_overhead_l": ExtResource("4_kefmf"),
+&"act_overhead_r": ExtResource("5_0hfqh"),
+&"act_slash_high_r": ExtResource("4_pkegj"),
+&"act_stagger": ExtResource("1_ufp4c"),
+&"act_thrust": ExtResource("8_rpphx"),
+&"idle_steady": ExtResource("5_0wyu7")
+}

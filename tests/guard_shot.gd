@@ -1,5 +1,6 @@
 extends SceneTree
-## A Knight on guard, to res://shots/guard.png. Needs a window.
+## A Knight on guard as he winds up an attack (he guards through every wind-up), to
+## res://shots/guard.png. Needs a window.
 var main: Node
 var f := 0
 func _initialize() -> void:
@@ -21,7 +22,9 @@ func _process(_d: float) -> bool:
 		main.enemy = e
 		main.hand.pinned = Vector2(900, 500)
 	if f == 30:
-		main.enemy._begin_guard()
+		main.enemy.active = true
+		main.enemy._begin_attack("overhead_l")  # (on guard through the wind-up)
+		main.enemy.active = false
 	if f == 60:
 		root.get_texture().get_image().save_png("res://shots/guard.png")
 		return true

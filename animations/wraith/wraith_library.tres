@@ -1,0 +1,20 @@
+[gd_resource type="AnimationLibrary" format=3]
+
+[ext_resource type="Animation" path="res://animations/wraith/act_grasp.res" id="1_323s2"]
+[ext_resource type="Animation" path="res://animations/wraith/act_shroud_l.res" id="1_ggm16"]
+[ext_resource type="Animation" path="res://animations/wraith/act_flinch.res" id="1_ijcyi"]
+[ext_resource type="Animation" path="res://animations/wraith/idle_drift.res" id="1_mjtga"]
+[ext_resource type="Animation" path="res://animations/wraith/act_broken.res" id="1_ryjdy"]
+[ext_resource type="Animation" path="res://animations/wraith/act_shroud_r.res" id="2_ucjpi"]
+[ext_resource type="Animation" path="res://animations/wraith/act_stagger.res" id="5_ldkf6"]
+
+[resource]
+_data = {
+&"act_broken": ExtResource("1_ryjdy"),
+&"act_flinch": ExtResource("1_ijcyi"),
+&"act_grasp": ExtResource("1_323s2"),
+&"act_shroud_l": ExtResource("1_ggm16"),
+&"act_shroud_r": ExtResource("2_ucjpi"),
+&"act_stagger": ExtResource("5_ldkf6"),
+&"idle_drift": ExtResource("1_mjtga")
+}

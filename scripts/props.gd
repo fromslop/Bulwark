@@ -17,8 +17,7 @@ extends Node2D
 
 const CELL := 7.5  # the items' own pixel size
 ## A keepsake for each secret place's guardian beaten: [what it is].
-const RELICS := {"Coin Golem": ["a gold coin that still blinks"], "Housecat": ["its ball of yarn"],
-	"The Astronomer": ["a pocket orrery"], "Errata": ["a page with a blot on it"], "The Smelter": ["its crucible, on the mantel, still molten"]}
+const RELICS := {"The Astronomer": ["a pocket orrery"], "Errata": ["a page with a blot on it"], "The Smelter": ["its crucible, on the mantel, still molten"]}
 const BUNTING_MAX := 30  # flags on the home's bunting (a flag per five foes felled)
 const NEAR := 110.0  # how close the hand has to be for a prop to show it's live
 const INFO := {
@@ -72,15 +71,14 @@ const LAYOUT := {
 	"Star Chamber": [["storm_glass", Vector2(240, 160), 30.0, 1.0]],
 	"Hidden Vault": [["chandelier", Vector2(640, 48), 26.0, 1.0]],
 	"Homestead": [["dummy", Vector2(420, 470), 80.0, 1.0],  # stands on the floor
-		["trophy_shelf", Vector2(790, 196), 60.0, 1.0],  # a cup for every boss, on the wall between the beam and the mantel
+		["trophy_shelf", Vector2(790, 196), 60.0, 1.0],  # the trophy rack: a board the bosses' cups stand on (main.gd TROPHY_SLOTS)
 		["tally", Vector2(520, 180), 50.0, 1.0],  # a chalk mark for every run, on the plaster by the window
 		["pennant", Vector2(590, 360), 34.0, 1.0],  # hung on the plaster: a star for every prestige reached
 		["bunting", Vector2(640, 40), 40.0, 1.0],  # strung along the top beam: a flag for every five foes felled
 		["cat", Vector2(300, 408), 26.0, 1.0],  # on the window sill
 		["placard", Vector2(790, 266), 30.0, 1.0],  # under the trophy board: which build this is
-		["hearth", Vector2(1110, 560), 100.0, 1.0]],  # the fireplace: melts junk down
-	"Gilded Gullet": [["chandelier", Vector2(640, 48), 26.0, 1.0]],
-	"Giant's Table": [["torch", Vector2(1080, 140), 30.0, 1.0]],  # the giant candle's drip
+		["hearth", Vector2(1110, 560), 100.0, 1.0],  # the fireplace: melts junk down
+		["storage", Vector2(108, 470), 88.0, 1.0]],  # the cupboard in the corner: let go of a thing over it to put it away, Space opens it
 	"Clockwork Orrery": [["storm_glass", Vector2(240, 160), 30.0, 1.0]],
 	"Ink Margin": [["fungus", Vector2(960, 150), 32.0, 1.0]],
 }
@@ -134,8 +132,10 @@ func _add(kind: String, pos: Vector2, r: float) -> void:
 func describe(key: String) -> Array:
 	var kind := key.trim_prefix("prop:")
 	if kind == "hearth" and game:
-		return ["Hearth", "Throw junk in the fire (scraps, pauldrons, skulls, rocks) and it melts down; throw wood on and it roars up. Melt enough and a Coin Purse pops out to take on a run.\nMelted so far: %d of %d" %
-			[floori(float(game.save.stats.get("smelt", 0.0))), int(game.SMELT_PURSE)]]
+		return ["Hearth", "Throw a boss's cup in the fire and it melts down into coins. Junk melts too (scraps, pauldrons, skulls, rocks), a coin for every so much of it; throw wood on and it roars up. Coins left at home come along on your next run."]
+	if kind == "storage" and game:
+		return ["Storage Cupboard", "Let go of something over the cupboard to put it away; press Space on it (hand empty) to open it and take things back out. What's stored stays home when you set out.\nStored: %d of %d" %
+			[game.save.storage.size(), Storage.CAPACITY]]
 	if kind == "placard":
 		return ["Hoardsman", "Build %s" % version()]
 	if game:
@@ -144,11 +144,12 @@ func describe(key: String) -> Array:
 			"tally":
 				return ["Tally", "A chalk mark for every run you've set out on: %d. The charcoal ones didn't come back: %d.\nFoes felled, all told: %d." % [st.runs, st.deaths, st.kills]]
 			"trophy_shelf":
-				var names: Array = []
-				for t in game.save.trophies:
-					if str(t[0]) != "":
-						names.append("%s%s" % [t[0], " (prestige %d)" % int(t[1]) if int(t[1]) > 0 else ""])
-				return ["Trophy Shelf", ("A cup for every boss you've felled: %d. The deeper the run, the bigger the cup.\n%s" % [st.bosses, ", ".join(PackedStringArray(names))]) if st.bosses > 0 else "Empty. Fell a boss and its cup goes up here."]
+				var cups: int = game.save.trophies.size()
+				var melted := int(st.get("melted_cups", 0))
+				if int(st.bosses) <= 0:
+					return ["Trophy Rack", "Empty. Fell a boss and its cup goes up here."]
+				return ["Trophy Rack", "A cup for every boss you've felled, the deeper the run the bigger the cup: %d standing%s. Throw one in the hearth and it melts down into coins for your next run." %
+					[cups, (", %d melted down" % melted) if melted > 0 else ""]]
 			"relics":
 				var have: Array = game.save.found.get("guardians", [])
 				var lines: Array = []
@@ -262,15 +263,10 @@ func appear(kind: String, pos: Vector2, r: float) -> void:
 
 ## Element sources: whatever owned piece is held in one takes on its element. Called from
 ## the physics step with the time since the last call. Also the chain pieces that want
-## something brought to them: an opened brick's hole, the star that waits.
+## something brought to them: the star that waits.
 func feed(items: Array, delta: float) -> void:
 	for pr in props:
 		if pr.kind == "brick" and pr.used:
-			for n in items:
-				var it := n as Item
-				if it and it.owned and float(it.def.get("size", 1.0)) <= 0.45 and _touches(it, pr):
-					game.on_through_hole(it, pr.pos)  # small enough to fit
-					break
 			continue
 		if pr.kind == "hearth":
 			for n in items:
@@ -278,13 +274,14 @@ func feed(items: Array, delta: float) -> void:
 				if it == null or not it.owned or it.held or it.freeze or it.is_queued_for_deletion():
 					continue
 				var junk: bool = it.def.kind in ["junk", "debris"] or it.def.get("piece", false)
-				if not junk and not _wooden(it):
+				var cup: bool = it.def.kind == "trophy"
+				if not junk and not cup and not _wooden(it):
 					continue
 				if it.global_position.distance_to(pr.pos) > pr.r:
 					it.remove_meta("in_fire")
 					continue
-				# your own wooden gear goes on the fire only when it's thrown in (not when it
-				# just rolls up against the hearth)
+				# your own wooden gear (and a boss's cup) goes on the fire only when it's thrown
+				# in (not when it just rolls up against the hearth)
 				if not junk and not it.has_meta("in_fire") and game.clock - float(it.get_meta("let_go_at", -99.0)) > 3.0:
 					continue
 				it.set_meta("in_fire", float(it.get_meta("in_fire", 0.0)) + delta)
@@ -601,28 +598,11 @@ func _build3d(pr: Dictionary) -> void:
 			for i in 3:
 				_piece(body, _box3(94, 5, 54, k), Vector3(0, -225 - i * 30, 0), rope, k)  # red rope lashings
 		"trophy_shelf":
-			# a wall shelf on two brackets; a cup on it for every boss felled, bigger for a
-			# deeper run, its bowl glinting in that boss's colour
+			# a wall shelf on two brackets: the bosses' cups stand on it (real things: main.gd
+			# puts them there)
 			_piece(root, _box3(230, 8, 34, k), Vector3(0, 22, 14), wood, k)
 			for sx in [-1, 1]:
 				_piece(root, _box3(8, 26, 30, k), Vector3(sx * 96, 36, 10), wood.darkened(0.2), k)
-			var cups: Array = game.save.trophies.duplicate() if game else []
-			var n := mini(cups.size(), 9)
-			for i in n:
-				var t: Array = cups[cups.size() - n + i]
-				var s := 1.0 + 0.3 * float(int(t[1]))
-				var gold := Color(0.95, 0.75, 0.25)
-				var foe: Dictionary = EnemyDefs.ENEMIES.get(str(t[0]), {})
-				for key in EnemyDefs.ENEMIES:
-					if foe.is_empty() and EnemyDefs.ENEMIES[key].get("name", "") == str(t[0]):
-						foe = EnemyDefs.ENEMIES[key]
-				var bowl: Color = gold.lerp(foe.get("color", gold), 0.3) if not foe.is_empty() else gold
-				var cx := -100.0 + (i + 0.5) * 200.0 / maxf(1.0, n)
-				_piece(root, _cyl3(6, 8, 4, k, 8), Vector3(cx, 16 - 2 * s, 14), gold.darkened(0.2), k)  # foot
-				_piece(root, _cyl3(2, 2, 8 * s, k, 6), Vector3(cx, 14 - 6 * s, 14), gold, k)  # stem
-				_piece(root, _cyl3(9 * s, 4 * s, 12 * s, k, 10), Vector3(cx, 8 - 14 * s, 14), bowl, k, 0.5)  # bowl
-				for hx in [-1, 1]:
-					_piece(root, _box3(3, 7 * s, 3, k), Vector3(cx + hx * 10 * s, 8 - 14 * s, 14), gold, k)  # handles
 		"tally":
 			# chalk marks scratched on the plaster, in fives: one per run. The runs that ended
 			# in a death are in charcoal.
@@ -664,20 +644,12 @@ func _build3d(pr: Dictionary) -> void:
 			for sx in [-1, 1]:
 				_piece(root, _box3(6, 20, 24, k), Vector3(sx * 70, 32, 10), wood.darkened(0.3), k)
 			var have: Array = game.save.found.get("guardians", []) if game else []
-			var order := ["Coin Golem", "Housecat", "The Astronomer", "Errata"]  # (the Smelter's is on the mantel: core_trophy)
+			var order := ["The Astronomer", "Errata"]  # (the Smelter's is on the mantel: core_trophy)
 			for i in order.size():
 				if not have.has(order[i]):
 					continue
-				var x := -58.0 + i * 29.0
+				var x := -22.0 + i * 44.0
 				match order[i]:
-					"Coin Golem":  # a short stack of gold, green-eyed
-						for c in 4:
-							_piece(root, _cyl3(9, 9, 4, k, 10), Vector3(x, 14 - c * 4.5, 14), Color(0.95, 0.72, 0.22).darkened(0.1 * (c % 2)), k, 0.3)
-						for ex in [-1, 1]:
-							_piece(root, _ball3(1.6, k, 5), Vector3(x + ex * 3, -2, 23), Color(0.4, 1.0, 0.75), k, 3.0)
-					"Housecat":  # a ball of blue yarn, a strand trailing off the shelf
-						_piece(root, _ball3(9, k, 8), Vector3(x, 9, 14), Color(0.25, 0.4, 0.8), k)
-						_piece(root, _box3(2, 18, 2, k), Vector3(x + 9, 26, 20), Color(0.25, 0.4, 0.8), k, 0.0, Vector3(0, 0, 0.3))
 					"The Astronomer":  # a brass orrery: a sun, a ring, a little world
 						_piece(root, _cyl3(3, 5, 8, k, 6), Vector3(x, 14, 14), Color(0.7, 0.55, 0.25), k)
 						_piece(root, _ball3(5, k, 8), Vector3(x, 4, 14), Color(1.0, 0.8, 0.35), k, 1.5)

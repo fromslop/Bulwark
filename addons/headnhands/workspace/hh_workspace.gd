@@ -73,7 +73,7 @@ static func arc(yaw_deg: float, dist := 1.15, rise := -0.15, eye := 1.65) -> Tra
 	var a := deg_to_rad(yaw_deg)
 	var pos := Vector3(-sin(a) * dist, eye + rise, -cos(a) * dist)
 	var t := Transform3D(Basis(Vector3.UP, a), pos)
-	return t.rotated_local(Vector3.RIGHT, deg_to_rad(-8.0) if rise < 0.0 else 0.0)
+	return t.rotated_local(Vector3.RIGHT, -atan2(rise, dist) * 0.8)  # tipped to face the eye
 
 
 func _process(_delta: float) -> void:
@@ -150,6 +150,7 @@ func _hand_buttons(p: HHPanel, h: Dictionary) -> void:
 	var stick := aim.get_vector2("primary")
 	if p and absf(stick.y) > 0.25:
 		p.pointer_scroll(h.px, -stick.y * 0.6)
+
 
 
 func _release() -> void:

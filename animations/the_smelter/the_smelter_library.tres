@@ -1,0 +1,30 @@
+[gd_resource type="AnimationLibrary" format=3]
+
+[ext_resource type="Animation" path="res://animations/the_smelter/act_broken.res" id="1_blfsx"]
+[ext_resource type="Animation" path="res://animations/the_smelter/act_combo_eruption.res" id="1_g700k"]
+[ext_resource type="Animation" path="res://animations/the_smelter/act_magma_grip.res" id="1_juul0"]
+[ext_resource type="Animation" path="res://animations/the_smelter/act_pour.res" id="1_l56x5"]
+[ext_resource type="Animation" path="res://animations/the_smelter/idle_heavy.res" id="1_um11g"]
+[ext_resource type="Animation" path="res://animations/the_smelter/act_eruption.res" id="1_wkchg"]
+[ext_resource type="Animation" path="res://animations/the_smelter/act_slag_fist.res" id="2_afu7o"]
+[ext_resource type="Animation" path="res://animations/the_smelter/act_combo_pour.res" id="2_h3e3l"]
+[ext_resource type="Animation" path="res://animations/the_smelter/act_combo_slag_tide.res" id="3_k5vgj"]
+[ext_resource type="Animation" path="res://animations/the_smelter/act_flinch.res" id="5_fg4yn"]
+[ext_resource type="Animation" path="res://animations/the_smelter/act_slag_tide.res" id="5_n2xga"]
+[ext_resource type="Animation" path="res://animations/the_smelter/act_stagger.res" id="10_57u3b"]
+
+[resource]
+_data = {
+&"act_broken": ExtResource("1_blfsx"),
+&"act_combo_eruption": ExtResource("1_g700k"),
+&"act_combo_pour": ExtResource("2_h3e3l"),
+&"act_combo_slag_tide": ExtResource("3_k5vgj"),
+&"act_eruption": ExtResource("1_wkchg"),
+&"act_flinch": ExtResource("5_fg4yn"),
+&"act_magma_grip": ExtResource("1_juul0"),
+&"act_pour": ExtResource("1_l56x5"),
+&"act_slag_fist": ExtResource("2_afu7o"),
+&"act_slag_tide": ExtResource("5_n2xga"),
+&"act_stagger": ExtResource("10_57u3b"),
+&"idle_heavy": ExtResource("1_um11g")
+}

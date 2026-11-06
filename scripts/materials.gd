@@ -6,7 +6,8 @@ extends RefCounted
 ##   density  mass per cell (effective, a thin metal plate isn't 13x heavier than a plank)
 ##   behavior how a failing cell reacts: splinter (wood), dent (metal), tear (soft)
 ##   spread   how much of a hit leaks into neighbours: x = sideways, y = up/down (wood grain)
-##   sharp    damage multiplier when used as a weapon's main material
+##   sharp    what one pixel of it is worth to a weapon's damage (wood least, prestigium
+##            most: Item.hit_damage counts every pixel a weapon has left)
 ##   value    price multiplier in the shop
 ##   wear     how fast enemy blows chew it up when it blocks (on top of hp). This is what
 ##            sets the metals apart as armour: a copper shield dents through in a fight or

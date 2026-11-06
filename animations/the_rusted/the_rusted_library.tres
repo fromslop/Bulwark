@@ -1,0 +1,22 @@
+[gd_resource type="AnimationLibrary" format=3]
+
+[ext_resource type="Animation" path="res://animations/the_rusted/act_stagger.res" id="1_15nlg"]
+[ext_resource type="Animation" path="res://animations/the_rusted/act_flinch.res" id="1_rqjmb"]
+[ext_resource type="Animation" path="res://animations/the_rusted/act_broken.res" id="1_v6ldp"]
+[ext_resource type="Animation" path="res://animations/the_rusted/act_death.res" id="2_5b7ig"]
+[ext_resource type="Animation" path="res://animations/the_rusted/act_drag_low.res" id="3_t1x24"]
+[ext_resource type="Animation" path="res://animations/the_rusted/act_rake.res" id="5_8qwte"]
+[ext_resource type="Animation" path="res://animations/the_rusted/idle_shamble.res" id="5_wenis"]
+[ext_resource type="Animation" path="res://animations/the_rusted/act_spit.res" id="6_weejd"]
+
+[resource]
+_data = {
+&"act_broken": ExtResource("1_v6ldp"),
+&"act_death": ExtResource("2_5b7ig"),
+&"act_drag_low": ExtResource("3_t1x24"),
+&"act_flinch": ExtResource("1_rqjmb"),
+&"act_rake": ExtResource("5_8qwte"),
+&"act_spit": ExtResource("6_weejd"),
+&"act_stagger": ExtResource("1_15nlg"),
+&"idle_shamble": ExtResource("5_wenis")
+}

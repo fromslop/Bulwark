@@ -12,7 +12,6 @@ footman | act_slash_high_r | weapon raised by the right shoulder, cut across to 
 footman | act_flinch | a hit lands: a sharp recoil, then back to ready
 footman | act_stagger | knocked out of whatever it was doing (a parry, a shock): snap back off balance, guard open, about a second, then recover. The game cuts into this from any moment, mid-swing included
 footman | act_broken | the stagger meter breaks: slumped, dazed, open, for a few seconds
-footman | act_death | killed: it goes down
 
 # --- Coin Golem (Guards the Gilded Gullet)
 coin_golem | idle_heavy | heavy breathing, weight shifting foot to foot, weapon low (loops)
@@ -23,7 +22,6 @@ coin_golem | act_coin_toss | drawn back, then thrust straight out at the player 
 coin_golem | act_flinch | a hit lands: a sharp recoil, then back to ready
 coin_golem | act_stagger | knocked out of whatever it was doing (a parry, a shock): snap back off balance, guard open, about a second, then recover. The game cuts into this from any moment, mid-swing included
 coin_golem | act_broken | the stagger meter breaks: slumped, dazed, open, for a few seconds
-coin_golem | act_death | killed: it goes down
 
 # --- Housecat (Guards the Giant's Table)
 housecat | idle_bounce | light on the toes, bouncing, weapon point moving (loops)
@@ -34,7 +32,6 @@ housecat | act_tail_lash | weapon drawn back low on the left, swept across low t
 housecat | act_flinch | a hit lands: a sharp recoil, then back to ready
 housecat | act_stagger | knocked out of whatever it was doing (a parry, a shock): snap back off balance, guard open, about a second, then recover. The game cuts into this from any moment, mid-swing included
 housecat | act_broken | the stagger meter breaks: slumped, dazed, open, for a few seconds
-housecat | act_death | killed: it goes down
 
 # --- The Astronomer (Guards the Clockwork Orrery)
 the_astronomer | idle_steady | standing ready, weight even, eyes on the player's hand (loops)
@@ -45,7 +42,6 @@ the_astronomer | act_spark | drawn back, then thrust straight out at the player 
 the_astronomer | act_flinch | a hit lands: a sharp recoil, then back to ready
 the_astronomer | act_stagger | knocked out of whatever it was doing (a parry, a shock): snap back off balance, guard open, about a second, then recover. The game cuts into this from any moment, mid-swing included
 the_astronomer | act_broken | the stagger meter breaks: slumped, dazed, open, for a few seconds
-the_astronomer | act_death | killed: it goes down
 
 # --- The Smelter (Guards the Molten Core)
 the_smelter | idle_heavy | heavy breathing, weight shifting foot to foot, weapon low (loops)
@@ -54,14 +50,12 @@ the_smelter | act_eruption | both fists pounded into the ground: the lava bursts
 the_smelter | act_slag_fist | both fists locked together overhead and brought down like a hammer (1.33s wind-up)
 the_smelter | act_magma_grip | one glowing hand reaches out after the player's hand, following it, then closes (1.24s wind-up; follow the player's hand for the first 70%, then commit)
 the_smelter | act_slag_tide | both arms dragged up from the floor: a tide of molten slag rising up through the pile (2.10s wind-up; the weapon travels as it winds up (pan))
-the_smelter | act_feint | start any attack's wind-up, break it off about 55% of the way in, and go straight into a different one (0.57s wind-up)
-the_smelter | act_combo_eruption | eruption, and without resetting run straight into slag fist (0.57s wind-up)
-the_smelter | act_combo_pour | pour, and without resetting run straight into magma grip (0.57s wind-up)
-the_smelter | act_combo_slag_tide | slag tide, and without resetting run straight into eruption (0.57s wind-up)
+the_smelter | act_combo_eruption | eruption, and without resetting run straight into slag fist (1.52s, then 0.57s wind-up)
+the_smelter | act_combo_pour | pour, and without resetting run straight into magma grip (1.71s, then 0.57s wind-up)
+the_smelter | act_combo_slag_tide | slag tide, and without resetting run straight into eruption (2.10s, then 0.57s wind-up)
 the_smelter | act_flinch | a hit lands: a sharp recoil, then back to ready
 the_smelter | act_stagger | knocked out of whatever it was doing (a parry, a shock): snap back off balance, guard open, about a second, then recover. The game cuts into this from any moment, mid-swing included
 the_smelter | act_broken | the stagger meter breaks: slumped, dazed, open, for a few seconds
-the_smelter | act_death | killed: it goes down
 
 # --- Woodcutter (Stage 2 of the way down)
 woodcutter | idle_heavy | heavy breathing, weight shifting foot to foot, weapon low (loops)
@@ -72,7 +66,6 @@ woodcutter | act_fell | weapon drawn back low on the left, swept across low to t
 woodcutter | act_flinch | a hit lands: a sharp recoil, then back to ready
 woodcutter | act_stagger | knocked out of whatever it was doing (a parry, a shock): snap back off balance, guard open, about a second, then recover. The game cuts into this from any moment, mid-swing included
 woodcutter | act_broken | the stagger meter breaks: slumped, dazed, open, for a few seconds
-woodcutter | act_death | killed: it goes down
 
 # --- Knight (Stage 4 of the way down)
 knight | idle_steady | standing ready, weight even, eyes on the player's hand (loops)
@@ -80,14 +73,13 @@ knight | act_overhead_l | raised high on the left, brought straight down (1.13s 
 knight | act_overhead_r | raised high on the right, brought straight down (1.13s wind-up)
 knight | act_thrust | drawn back, then thrust straight out at the player (0.78s wind-up)
 knight | act_slash_high_r | weapon raised by the right shoulder, cut across to the left at head height (0.96s wind-up)
-knight | act_combo_overhead_l | overhead, left, and without resetting run straight into thrust (0.70s wind-up)
-knight | act_combo_overhead_r | overhead, right, and without resetting run straight into thrust (0.70s wind-up)
-knight | act_combo_slash_high_r | high slash, from the right, and without resetting run straight into overhead, left (0.70s wind-up)
+knight | act_combo_overhead_l | overhead, left, and without resetting run straight into thrust (1.13s, then 0.70s wind-up)
+knight | act_combo_overhead_r | overhead, right, and without resetting run straight into thrust (1.13s, then 0.70s wind-up)
+knight | act_combo_slash_high_r | high slash, from the right, and without resetting run straight into overhead, left (0.96s, then 0.70s wind-up)
 knight | act_guard | raise the guard: blade level across the body, off hand on it, hold it 1.2-2.0s, then drop it back to ready
 knight | act_flinch | a hit lands: a sharp recoil, then back to ready
 knight | act_stagger | knocked out of whatever it was doing (a parry, a shock): snap back off balance, guard open, about a second, then recover. The game cuts into this from any moment, mid-swing included
 knight | act_broken | the stagger meter breaks: slumped, dazed, open, for a few seconds
-knight | act_death | killed: it goes down
 
 # --- Brute (Stage 3 of the way down)
 brute | idle_heavy | heavy breathing, weight shifting foot to foot, weapon low (loops)
@@ -99,7 +91,6 @@ brute | act_sweep | a wide sweep from high right down across to the left (1.76s 
 brute | act_flinch | a hit lands: a sharp recoil, then back to ready
 brute | act_stagger | knocked out of whatever it was doing (a parry, a shock): snap back off balance, guard open, about a second, then recover. The game cuts into this from any moment, mid-swing included
 brute | act_broken | the stagger meter breaks: slumped, dazed, open, for a few seconds
-brute | act_death | killed: it goes down
 
 # --- Duelist (Stage 3 of the way down)
 duelist | idle_bounce | light on the toes, bouncing, weapon point moving (loops)
@@ -111,11 +102,9 @@ duelist | act_cut_tr | weapon raised by the right shoulder, cut across to the le
 duelist | act_cut_ml | weapon raised by the left shoulder, cut across to the right at head height (0.40s wind-up)
 duelist | act_jab | drawn back, then thrust straight out at the player (0.60s wind-up; aimed at the player's hand)
 duelist | act_riposte | drawn back, then thrust straight out at the player (0.70s wind-up; aimed at the player's hand)
-duelist | act_feint | start any attack's wind-up, break it off about 50% of the way in, and go straight into a different one (0.70s wind-up)
 duelist | act_flinch | a hit lands: a sharp recoil, then back to ready
 duelist | act_stagger | knocked out of whatever it was doing (a parry, a shock): snap back off balance, guard open, about a second, then recover. The game cuts into this from any moment, mid-swing included
 duelist | act_broken | the stagger meter breaks: slumped, dazed, open, for a few seconds
-duelist | act_death | killed: it goes down
 
 # --- The Rusted (Stage 4 of the way down)
 the_rusted | idle_shamble | slumped, swaying, something loose about it (loops)
@@ -125,7 +114,6 @@ the_rusted | act_spit | the head rears back, then jerks forward (a spit); hands 
 the_rusted | act_flinch | a hit lands: a sharp recoil, then back to ready
 the_rusted | act_stagger | knocked out of whatever it was doing (a parry, a shock): snap back off balance, guard open, about a second, then recover. The game cuts into this from any moment, mid-swing included
 the_rusted | act_broken | the stagger meter breaks: slumped, dazed, open, for a few seconds
-the_rusted | act_death | killed: it goes down
 
 # --- Pyre Zealot (Stage 4 of the way down)
 pyre_zealot | idle_steady | standing ready, weight even, eyes on the player's hand (loops)
@@ -135,7 +123,6 @@ pyre_zealot | act_brand | drawn back, then thrust straight out at the player (1.
 pyre_zealot | act_flinch | a hit lands: a sharp recoil, then back to ready
 pyre_zealot | act_stagger | knocked out of whatever it was doing (a parry, a shock): snap back off balance, guard open, about a second, then recover. The game cuts into this from any moment, mid-swing included
 pyre_zealot | act_broken | the stagger meter breaks: slumped, dazed, open, for a few seconds
-pyre_zealot | act_death | killed: it goes down
 
 # --- Wraith (Stage 4 of the way down)
 wraith | idle_drift | floating: slow drifting sway, hands hanging open (loops)
@@ -145,7 +132,6 @@ wraith | act_grasp | both hands reach out of the screen toward the player's hand
 wraith | act_flinch | a hit lands: a sharp recoil, then back to ready
 wraith | act_stagger | knocked out of whatever it was doing (a parry, a shock): snap back off balance, guard open, about a second, then recover. The game cuts into this from any moment, mid-swing included
 wraith | act_broken | the stagger meter breaks: slumped, dazed, open, for a few seconds
-wraith | act_death | killed: it goes down
 
 # --- Halberdier (Stage 4 of the way down)
 halberdier | idle_steady | standing ready, weight even, eyes on the player's hand (loops)
@@ -156,7 +142,6 @@ halberdier | act_butt | a short, sharp jab low with the butt of the pole (0.70s 
 halberdier | act_flinch | a hit lands: a sharp recoil, then back to ready
 halberdier | act_stagger | knocked out of whatever it was doing (a parry, a shock): snap back off balance, guard open, about a second, then recover. The game cuts into this from any moment, mid-swing included
 halberdier | act_broken | the stagger meter breaks: slumped, dazed, open, for a few seconds
-halberdier | act_death | killed: it goes down
 
 # --- Twinblade (Stage 4 of the way down)
 twinblade | idle_bounce | light on the toes, bouncing, weapon point moving (loops)
@@ -167,11 +152,9 @@ twinblade | act_scissor_lo | the low blade closes up to meet it (0.22s wind-up; 
 twinblade | act_flurry_l | a quick flat cut with the left, the right already coming (0.48s wind-up; then straight into flurry r)
 twinblade | act_flurry_r | the right answers, a hand's width lower (0.18s wind-up)
 twinblade | act_jab | drawn back, then thrust straight out at the player (0.48s wind-up; aimed at the player's hand)
-twinblade | act_feint | start any attack's wind-up, break it off about 55% of the way in, and go straight into a different one (0.36s wind-up)
 twinblade | act_flinch | a hit lands: a sharp recoil, then back to ready
 twinblade | act_stagger | knocked out of whatever it was doing (a parry, a shock): snap back off balance, guard open, about a second, then recover. The game cuts into this from any moment, mid-swing included
 twinblade | act_broken | the stagger meter breaks: slumped, dazed, open, for a few seconds
-twinblade | act_death | killed: it goes down
 
 # --- Bonebreaker (Stage 3 of the way down)
 bonebreaker | idle_heavy | heavy breathing, weight shifting foot to foot, weapon low (loops)
@@ -184,7 +167,6 @@ bonebreaker | act_pommel | a short punch with the butt of the haft at the player
 bonebreaker | act_flinch | a hit lands: a sharp recoil, then back to ready
 bonebreaker | act_stagger | knocked out of whatever it was doing (a parry, a shock): snap back off balance, guard open, about a second, then recover. The game cuts into this from any moment, mid-swing included
 bonebreaker | act_broken | the stagger meter breaks: slumped, dazed, open, for a few seconds
-bonebreaker | act_death | killed: it goes down
 
 # --- Headsman (Deeper runs: prestige 2 and on, from stage 4)
 headsman | idle_heavy | heavy breathing, weight shifting foot to foot, weapon low (loops)
@@ -194,7 +176,6 @@ headsman | act_behead | the axe drawn back level at shoulder height, its line ri
 headsman | act_flinch | a hit lands: a sharp recoil, then back to ready
 headsman | act_stagger | knocked out of whatever it was doing (a parry, a shock): snap back off balance, guard open, about a second, then recover. The game cuts into this from any moment, mid-swing included
 headsman | act_broken | the stagger meter breaks: slumped, dazed, open, for a few seconds
-headsman | act_death | killed: it goes down
 
 # --- Lamplighter (Deeper runs: prestige 3 and on, from stage 4)
 lamplighter | idle_bounce | light on the toes, bouncing, weapon point moving (loops)
@@ -206,7 +187,6 @@ lamplighter | act_cut_mr | weapon raised by the right shoulder, cut across to th
 lamplighter | act_flinch | a hit lands: a sharp recoil, then back to ready
 lamplighter | act_stagger | knocked out of whatever it was doing (a parry, a shock): snap back off balance, guard open, about a second, then recover. The game cuts into this from any moment, mid-swing included
 lamplighter | act_broken | the stagger meter breaks: slumped, dazed, open, for a few seconds
-lamplighter | act_death | killed: it goes down
 
 # --- Castellan (Boss of the fifth stage)
 castellan | idle_guard | shield up and forward, weapon held back behind it (loops)
@@ -215,13 +195,11 @@ castellan | act_overhead_l | raised high on the left, brought straight down (1.3
 castellan | act_overhead_r | raised high on the right, brought straight down (1.30s wind-up)
 castellan | act_shield_bash | the off-hand shield swung across in a shove; the weapon hand stays (1.20s wind-up; then straight into overhead, right)
 castellan | act_thrust | drawn back, then thrust straight out at the player (0.90s wind-up)
-castellan | act_combo_tower_slam | tower slam, and without resetting run straight into overhead, right (0.70s wind-up)
-castellan | act_combo_overhead_l | overhead, left, and without resetting run straight into thrust (0.70s wind-up)
-castellan | act_guard | raise the guard: shield up and forward, hold it 1.5-2.5s, then drop it back to ready
+castellan | act_combo_tower_slam | tower slam, and without resetting run straight into overhead, right (1.60s, then 0.70s wind-up)
+castellan | act_combo_overhead_l | overhead, left, and without resetting run straight into thrust (1.30s, then 0.70s wind-up)
 castellan | act_flinch | a hit lands: a sharp recoil, then back to ready
 castellan | act_stagger | knocked out of whatever it was doing (a parry, a shock): snap back off balance, guard open, about a second, then recover. The game cuts into this from any moment, mid-swing included
 castellan | act_broken | the stagger meter breaks: slumped, dazed, open, for a few seconds
-castellan | act_death | killed: it goes down
 
 # --- The Sexton (Boss of the fifth stage (prestige 1 and on))
 sexton | idle_heavy | heavy breathing, weight shifting foot to foot, weapon low (loops)
@@ -231,13 +209,11 @@ sexton | act_peal | the bell swung round on its pole in a wide arc, the line of 
 sexton | act_dig | the spade (left hand) driven into the floor at the left and scooped steadily across to the right (1.40s wind-up; the weapon travels as it winds up (pan))
 sexton | act_bury | the spade raised high over the player's hand, following it, then driven straight down (1.30s wind-up; follow the player's hand for the first 60%, then commit)
 sexton | act_knell | the bell's mouth shoved out at the player's hand, following it, then thrust (1.00s wind-up; follow the player's hand for the first 70%, then commit)
-sexton | act_feint | start any attack's wind-up, break it off about 50% of the way in, and go straight into a different one (0.60s wind-up)
-sexton | act_combo_dig | dig, and without resetting run straight into bury (0.70s wind-up)
-sexton | act_combo_peal | peal, and without resetting run straight into toll (0.70s wind-up)
+sexton | act_combo_dig | dig, and without resetting run straight into bury (1.40s, then 0.70s wind-up)
+sexton | act_combo_peal | peal, and without resetting run straight into toll (1.50s, then 0.70s wind-up)
 sexton | act_flinch | a hit lands: a sharp recoil, then back to ready
 sexton | act_stagger | knocked out of whatever it was doing (a parry, a shock): snap back off balance, guard open, about a second, then recover. The game cuts into this from any moment, mid-swing included
 sexton | act_broken | the stagger meter breaks: slumped, dazed, open, for a few seconds
-sexton | act_death | killed: it goes down
 
 # --- Vault Warden (Guards the Hidden Vault)
 vault_warden | idle_steady | standing ready, weight even, eyes on the player's hand (loops)
@@ -249,4 +225,3 @@ vault_warden | act_thrust | drawn back, then thrust straight out at the player (
 vault_warden | act_flinch | a hit lands: a sharp recoil, then back to ready
 vault_warden | act_stagger | knocked out of whatever it was doing (a parry, a shock): snap back off balance, guard open, about a second, then recover. The game cuts into this from any moment, mid-swing included
 vault_warden | act_broken | the stagger meter breaks: slumped, dazed, open, for a few seconds
-vault_warden | act_death | killed: it goes down

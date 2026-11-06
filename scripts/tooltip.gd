@@ -2,7 +2,7 @@ class_name Tooltip
 extends CanvasLayer
 ## Hold Alt to inspect. The game freezes, the hand becomes a magnifying glass and:
 ##  - the item under it (or the one you're holding) gets an inspect card: a big title in the
-##    material's colour, the price as a coin, stat bars with icons, material swatches,
+##    material's colour, the price as a coin, its stats as numbers with icons, material swatches,
 ##    colour-coded modifier chips, and a keycap showing what Space does with it;
 ##  - your worn rings appear down the left side (hover one for its card);
 ##  - your own stats appear in a strip along the top (hover one to read what it does);
@@ -115,20 +115,42 @@ func _enemy_at(p: Vector2) -> Enemy:
 	return best
 
 
-## Shared drawing kit: icons, coins, segmented bars and the iron plate frame.
+## Shared drawing kit: icons, coins, stat figures and the iron plate frame.
 class Drawn:
 	extends Control
 
 	var font: Font = ThemeDB.fallback_font
 
-	func _bar(r: Rect2, v: float, col: Color, segs: int = 10) -> void:
-		var sw := r.size.x / segs
-		for i in segs:
-			var filled := v * segs - i
-			var cell := Rect2(r.position.x + i * sw, r.position.y, sw - 2, r.size.y)
-			draw_rect(cell, Color(1, 1, 1, 0.07))
-			if filled > 0.0:
-				draw_rect(Rect2(cell.position, Vector2(cell.size.x * clampf(filled, 0.0, 1.0), cell.size.y)), col)
+	## A stat as a number, in a cell of a grid: a faint tile, the icon, the label small and
+	## dim on the left, the figure on the right in the stat's colour.
+	func _figure(r: Rect2, icon: String, label: String, value: String, col: Color, label_col: Color = Color(0.62, 0.57, 0.5)) -> void:
+		draw_rect(r, Color(1, 1, 1, 0.045))
+		var mid := r.position.y + r.size.y * 0.5
+		var lx := r.position.x + 6
+		if icon != "":
+			_icon(icon, Vector2(r.position.x + 10, mid), col)
+			lx = r.position.x + 21
+		draw_string(font, Vector2(lx, mid + 4), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, label_col)
+		draw_string(font, Vector2(r.position.x, mid + 5), value, HORIZONTAL_ALIGNMENT_RIGHT, r.size.x - 7, 14, col.lightened(0.15))
+
+	## Stats laid out two to a row; returns the height used. `rows`: [icon, label, value, colour].
+	func _figures(y: float, rows: Array, x0: float, width: float, paint: bool) -> float:
+		var cw := (width - 4.0) / 2.0
+		if paint:
+			for i in rows.size():
+				var r := Rect2(x0 + (i % 2) * (cw + 4.0), y + int(i / 2) * 22.0, cw, 19.0)
+				_figure(r, rows[i][0], rows[i][1], rows[i][2], rows[i][3])
+		return ceili(rows.size() / 2.0) * 22.0
+
+	## A multiplier, in as few digits as it needs: ×1, ×1.2, ×1.25.
+	static func times(v: float) -> String:
+		var s := "%.2f" % v
+		s = s.rstrip("0").rstrip(".")
+		return "×" + s
+
+	## A share as a percentage: 86%.
+	static func pct(v: float) -> String:
+		return "%d%%" % roundi(v * 100.0)
 
 	func _plate(r: Rect2, accent: Color) -> void:
 		draw_rect(Rect2(r.position + Vector2(4, 4), r.size), Color(0, 0, 0, 0.45))
@@ -271,19 +293,21 @@ class Panels:
 		var x := r.position.x + 14
 		var y := r.position.y + 13
 		var health := 1.0 - hand.hurt_fraction()
+		# each stat as its number: the hand's health, its multipliers, and how much better than
+		# a bare hand the charms and salves have made it
 		var entries := [
-			["heart", "HAND", health, Color(0.9, 0.25, 0.2).lerp(Color(0.45, 0.9, 0.4), health)],
-			["fist", "GRIP", clampf(hand.grip() / 2.0, 0.0, 1.0), Color(0.85, 0.75, 0.6)],
-			["sword", "SWING", clampf(hand.swing_power / 2.0, 0.0, 1.0), Color(1.0, 0.45, 0.35)],
-			["wave", "STEADY", clampf(1.0 - hand.steadiness * 0.5, 0.0, 1.0), Color(0.6, 0.8, 1.0)],
+			["heart", "HAND", "%d/%d" % [ceili(hand.max_hp * health), roundi(hand.max_hp)], Color(0.9, 0.25, 0.2).lerp(Color(0.45, 0.9, 0.4), health)],
+			["fist", "GRIP", times(hand.grip()), Color(0.85, 0.75, 0.6)],
+			["sword", "SWING", times(hand.swing_power), Color(1.0, 0.45, 0.35)],
+			["wave", "STEADY", "+" + pct(1.0 - hand.steadiness), Color(0.6, 0.8, 1.0)],
 		]
 		if hand.haste < 1.0 or hand.resilience < 1.0:
-			entries.append(["hourglass", "HASTE", clampf((1.0 - hand.haste) * 2.5, 0.0, 1.0), Color(1.0, 0.85, 0.4)])
-			entries.append(["brick", "SKIN", clampf((1.0 - hand.resilience) * 2.5, 0.0, 1.0), Color(0.5, 0.8, 0.4)])
+			entries.append(["hourglass", "HASTE", "+" + pct(1.0 - hand.haste), Color(1.0, 0.85, 0.4)])
+			entries.append(["brick", "SKIN", "+" + pct(1.0 - hand.resilience), Color(0.5, 0.8, 0.4)])
 		for e in entries:
-			_icon(e[0], Vector2(x + 6, y + 5), e[3])
-			draw_string(font, Vector2(x + 15, y + 9), e[1], HORIZONTAL_ALIGNMENT_LEFT, -1, 9, DIM)
-			_bar(Rect2(x + 15, y + 13, 70, 7), e[2], e[3], 7)
+			_icon(e[0], Vector2(x + 6, y + 9), e[3])
+			draw_string(font, Vector2(x + 16, y + 3), e[1], HORIZONTAL_ALIGNMENT_LEFT, -1, 9, DIM)
+			draw_string(font, Vector2(x + 16, y + 20), e[2], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, (e[3] as Color).lightened(0.15))
 			x += 104
 		_ring_icon(Vector2(x + 8, y + 9), 6.0, Color(1, 1, 1), 1.0)
 		draw_string(font, Vector2(x + 20, y + 14), "%d/%d" % [hand.rings.size(), hand.ring_slots], HORIZONTAL_ALIGNMENT_LEFT, -1, 14, INK)
@@ -374,7 +398,7 @@ class Card:
 			_text(info[1], PAD, PAD + 28, W - PAD * 2, 12, INK, true)
 		return h
 
-	## An enemy: name in its colour, boss or not, its description, its numbers as bars, what
+	## An enemy: name in its colour, boss or not, its description, its numbers, what
 	## it's doing right now, and its quirks in plain words.
 	func _layout_enemy(paint: bool) -> float:
 		var d: Dictionary = foe.data
@@ -389,15 +413,16 @@ class Card:
 		var traits_h := 0.0
 		for t in traits:
 			traits_h += _text("• " + t, PAD, 0, W - PAD * 2, 11, DIM, false) + 3
-		var bars := [
-			["heart", "HEALTH  %d/%d" % [ceili(foe.hp), ceili(foe.max_hp)], foe.hp / foe.max_hp, Color(0.9, 0.25, 0.2)],
-			["wave", "STAGGER", foe.stagger_fraction(), Color(1.0, 0.8, 0.3)],
-			["sword", "DAMAGE", clampf(float(d.get("power", 1.0)) / 3.5, 0.03, 1.0), Color(1.0, 0.45, 0.35)],
-			["hourglass", "SPEED", clampf(foe.cur_speed() / 2.5, 0.03, 1.0), Color(0.6, 0.8, 1.0)],
-			["brick", "POISE", clampf(float(d.get("poise", 10.0)) / 120.0, 0.03, 1.0), Color(0.8, 0.7, 0.55)],
-			["shield", "ARMOUR", clampf(float(d.get("armor", 0.0)), 0.0, 1.0), Color(0.7, 0.72, 0.8)],
+		var figs := [
+			["heart", "HEALTH", "%d/%d" % [ceili(foe.hp), ceili(foe.max_hp)], Color(0.9, 0.25, 0.2)],
+			["wave", "STAGGER", pct(foe.stagger_fraction()), Color(1.0, 0.8, 0.3)],
+			["sword", "DAMAGE", times(float(d.get("power", 1.0))), Color(1.0, 0.45, 0.35)],
+			["hourglass", "SPEED", times(foe.cur_speed()), Color(0.6, 0.8, 1.0)],
+			["brick", "POISE", "%d" % roundi(float(d.get("poise", 10.0))), Color(0.8, 0.7, 0.55)],
+			["shield", "ARMOUR", pct(float(d.get("armor", 0.0))), Color(0.7, 0.72, 0.8)],
 		]
-		var h := PAD + 46 + bio_h + 8 + bars.size() * 18 + (20 if now != "" else 0) + 6 + traits_h + PAD
+		var figs_h := _figures(0, figs, PAD, W - PAD * 2, false)
+		var h := PAD + 46 + bio_h + 8 + figs_h + (20 if now != "" else 0) + 6 + traits_h + PAD
 		if paint:
 			_plate(Rect2(Vector2.ZERO, Vector2(W, h)), accent)
 			draw_rect(Rect2(2, 2, W - 4, 42), Color(accent.r, accent.g, accent.b, 0.12))
@@ -407,11 +432,7 @@ class Card:
 			var y := PAD + 46
 			_text(bio, PAD, y, W - PAD * 2, 12, INK, true)
 			y += bio_h + 8
-			for b in bars:
-				_icon(b[0], Vector2(PAD + 7, y + 7), b[3])
-				draw_string(font, Vector2(PAD + 18, y + 11), b[1], HORIZONTAL_ALIGNMENT_LEFT, -1, 10, DIM)
-				_bar(Rect2(PAD + 132, y + 2, W - PAD * 2 - 132, 10), b[2], b[3])
-				y += 18
+			y += _figures(y, figs, PAD, W - PAD * 2, true)
 			if now != "":
 				draw_string(font, Vector2(PAD, y + 13), now, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1.0, 0.75, 0.35))
 				y += 20
@@ -464,6 +485,8 @@ class Card:
 			out.append("Answers a clean block with a riposte at your hand.")
 		if d.get("guard", false):
 			out.append("Its shield covers its torso until it's reeling or broken.")
+		if d.get("windup_guard", false):
+			out.append("Guards while it winds up: hits glance off until the blow comes down. Strike as it swings, or between its attacks.")
 		if d.has("bash_after"):
 			out.append("After %d clean blocks in a row it bashes your pile apart." % int(d.bash_after))
 		if float(d.get("weapon_mult", 1.0)) < 1.0:
@@ -483,10 +506,6 @@ class Card:
 			out.append("Lightning doesn't bother it.")
 		if d.get("dark", false):
 			out.append("Puts the lights out.")
-		if d.get("greedy", false):
-			out.append("Its blows swallow any coin in their path, and it heals on them.")
-		if d.get("distractible", false):
-			out.append("A gold coin flung past it mid-swing makes it drop the swing to chase it.")
 		if float(d.get("revive", 0.0)) > 0.0:
 			out.append("Comes back once when it's killed.")
 		if d.get("ink", false):
@@ -525,9 +544,12 @@ class Card:
 			if u.cooldown > 0.0:
 				_keycap(Vector2(PAD, ky), "RMB", 34)
 				_keycap(Vector2(PAD + 40, ky), str(finger + 1), 20)
-				var ready := 1.0 - hand.ring_cds[finger] / float(u.cooldown)
-				_icon("hourglass", Vector2(PAD + 74, ky + 8), Color(1.0, 0.85, 0.4))
-				_bar(Rect2(PAD + 84, ky + 3, W - PAD * 2 - 84, 10), ready, Color(1.0, 0.85, 0.4))
+				var left: float = hand.ring_cds[finger]
+				var gold := Color(1.0, 0.85, 0.4)
+				_icon("hourglass", Vector2(PAD + 76, ky + 8), gold)
+				var when := "READY" if left <= 0.0 else "ready in %.1fs" % left
+				draw_string(font, Vector2(PAD + 86, ky + 13), when, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.55, 0.95, 0.55) if left <= 0.0 else gold)
+				draw_string(font, Vector2(PAD, ky + 13), "every %ss" % String.num(snappedf(float(u.cooldown), 0.1)), HORIZONTAL_ALIGNMENT_RIGHT, W - PAD * 2, 11, DIM)
 			else:
 				var c := Color(0.6, 0.9, 0.6)
 				draw_rect(Rect2(PAD, ky, 64, 16), Color(c.r, c.g, c.b, 0.2))
@@ -599,11 +621,8 @@ class Card:
 		# what a utility does, in plain words
 		if d.has("effect"):
 			y += _text(str(d.effect), PAD, y, W - PAD * 2, 12, Color(0.85, 0.95, 0.75), paint) + 6
-		# stat bars
-		for st in _stats(d):
-			if paint:
-				_stat_row(y, st[0], st[1], st[2], st[3])
-			y += 17
+		# its stats, as numbers
+		y += _figures(y, _stats(d), PAD, W - PAD * 2, paint) + 2
 		# modifiers as colour-coded chips, each with its one-line effect
 		if not d.modifiers.is_empty():
 			y += 4
@@ -674,7 +693,7 @@ class Card:
 					return "make what it touches " + str(d.applies)
 		return ""
 
-	## [icon, short label, 0..1, bar colour]
+	## [icon, short label, the figure, colour]
 	func _stats(d: Dictionary) -> Array:
 		var out: Array = []
 		if d.kind == "coin":
@@ -684,21 +703,17 @@ class Card:
 			var cell: Dictionary = item.cells[c]
 			block += Materials.get_mat(cell.mat).block * (0.85 + 0.15 * clampf(cell.hp / cell.max, 0.0, 1.0))
 		block = block / maxf(1.0, item.cells.size()) * d.get("guard", 1.0)
-		out.append(["shield", "BLOCK", clampf((block - 0.4) / 0.6, 0.0, 1.0), Color(0.55, 0.75, 1.0)])
 		if d.kind == "weapon":
-			var dmg: float = d.swing_damage * Materials.get_mat(d.material).sharp * item.edge_condition()
-			out.append(["sword", "DAMAGE", clampf(dmg / 35.0, 0.0, 1.0), Color(1.0, 0.45, 0.35)])  # relative: same scale for every weapon
-			out.append(["hourglass", "SPEED", clampf(1.0 - (float(d.cooldown) - 0.7) / 1.1, 0.05, 1.0), Color(1.0, 0.85, 0.4)])
-		out.append(["weight", "WEIGHT", clampf(item.mass / 250.0, 0.03, 1.0), Color(0.7, 0.65, 0.6)])
-		out.append(["brick", "TOUGH", clampf(log(maxf(item.max_total, 1.0)) / log(4000.0), 0.03, 1.0), Color(0.8, 0.7, 0.55)])
+			# what a full swing of it lands for (its pixels, by material and condition), and
+			# how long it takes to come round again
+			out.append(["sword", "DAMAGE", "%d" % roundi(item.hit_damage(d)), Color(1.0, 0.45, 0.35)])
+			out.append(["hourglass", "RECOVERY", "%.1fs" % float(d.cooldown), Color(1.0, 0.85, 0.4)])
+		out.append(["shield", "BLOCKS", pct(block), Color(0.55, 0.75, 1.0)])
+		out.append(["weight", "WEIGHT", "%d" % roundi(item.mass), Color(0.7, 0.65, 0.6)])
+		out.append(["brick", "TOUGHNESS", "%d" % roundi(item.max_total), Color(0.8, 0.7, 0.55)])
 		var cond := item.health_ratio()
-		out.append(["heart", "CONDITION", cond, Color(0.9, 0.25, 0.2).lerp(Color(0.45, 0.9, 0.4), cond)])
+		out.append(["heart", "CONDITION", pct(cond), Color(0.9, 0.25, 0.2).lerp(Color(0.45, 0.9, 0.4), cond)])
 		return out
-
-	func _stat_row(y: float, icon: String, label: String, v: float, col: Color) -> void:
-		_icon(icon, Vector2(PAD + 7, y + 7), col)
-		draw_string(font, Vector2(PAD + 18, y + 11), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, DIM)
-		_bar(Rect2(PAD + 82, y + 2, W - PAD * 2 - 82, 10), v, col)
 
 	## Dark iron plate with a material-coloured border, a tinted title band and rivets.
 	func _frame(accent: Color) -> void:

@@ -18,9 +18,7 @@ const BLURB := {
 	"Forge": "A hammer and sometimes a weapon on the rack, and a hearth that heats whatever you hold in it.",
 	"Ossuary": "A hall of bone. Skulls on the ledge, and more of them dropping from the ceiling now and then.",
 	"Star Chamber": "An observatory open to the night. Nothing weighs much here: everything you drop hangs in the air.",
-	"Hidden Vault": "Behind the lever. A treasure room with its own warden.",
-	"Gilded Gullet": Secrets.STAGES["Gilded Gullet"].blurb,
-	"Giant's Table": Secrets.STAGES["Giant's Table"].blurb,
+	"Hidden Vault": "Behind a hidden keyhole. A treasure room with its own warden, heaped with things for the taking.",
 	"Clockwork Orrery": Secrets.STAGES["Clockwork Orrery"].blurb,
 	"Ink Margin": Secrets.STAGES["Ink Margin"].blurb,
 	"Molten Core": Secrets.STAGES["Molten Core"].blurb,
@@ -64,8 +62,6 @@ const ENV := {
 	"Cistern": {"fog": 0.3, "fog_color": Color(0.01, 0.03, 0.03), "ambient": 0.3},
 	"Forge": {"fog": 0.15, "fog_color": Color(0.05, 0.02, 0.01), "ambient": 0.35},
 	"Hidden Vault": {"fog": 0.12, "fog_color": Color(0.05, 0.035, 0.01), "ambient": 0.4},
-	"Gilded Gullet": {"fog": 0.15, "fog_color": Color(0.15, 0.05, 0.02), "ambient": 0.5},
-	"Giant's Table": {"fog": 0.06, "fog_color": Color(0.08, 0.05, 0.03), "ambient": 0.55},
 	"Clockwork Orrery": {"fog": 0.05, "fog_color": Color(0.0, 0.0, 0.02), "ambient": 0.35},
 	"Ink Margin": {"fog": 0.02, "fog_color": Color(0.9, 0.87, 0.8), "ambient": 0.9},
 	"Molten Core": {"fog": 0.05, "fog_color": Color(0.3, 0.07, 0.01), "ambient": 0.35},
@@ -93,10 +89,6 @@ const LOOK := {
 		"pixel": 2.0, "noise": 0.04, "gamma": 0.85, "contrast": 1.15},
 	"Forge": {"c": [Color(0.02, 0.0, 0.0), Color(0.4, 0.02, 0.02), Color(0.9, 0.3, 0.02), Color(1.0, 0.8, 0.15), Color(1.0, 1.0, 0.92)],
 		"pixel": 2.0, "noise": 0.03, "gamma": 1.05, "contrast": 1.4},
-	"Gilded Gullet": {"c": [Color(0.12, 0.0, 0.02), Color(0.5, 0.08, 0.05), Color(0.9, 0.5, 0.1), Color(1.0, 0.85, 0.35), Color(1.0, 1.0, 0.85)],
-		"pixel": 2.0, "noise": 0.04, "gamma": 0.95, "contrast": 1.3},
-	"Giant's Table": {"c": [Color(0.08, 0.04, 0.02), Color(0.35, 0.2, 0.1), Color(0.75, 0.5, 0.25), Color(1.0, 0.85, 0.55), Color(1.0, 0.98, 0.9)],
-		"pixel": 2.0, "noise": 0.03, "gamma": 0.9, "contrast": 1.05},
 	"Clockwork Orrery": {"c": [Color(0.0, 0.0, 0.05), Color(0.08, 0.06, 0.25), Color(0.5, 0.35, 0.2), Color(0.95, 0.75, 0.35), Color(1.0, 0.98, 0.85)],
 		"pixel": 2.0, "noise": 0.04, "gamma": 0.85, "contrast": 1.2},
 	"Molten Core": {"c": [Color(0.02, 0.0, 0.0), Color(0.25, 0.03, 0.02), Color(0.75, 0.2, 0.05), Color(1.0, 0.6, 0.15), Color(1.0, 0.95, 0.7)],
@@ -106,8 +98,6 @@ const LOOK := {
 }
 
 var setting := ""
-var lever: Node3D = null  # late settings sometimes hide one: pull it to find the Hidden Vault
-var lever_pulled := false
 var _flicker: Array = []  # [light, base energy, speed, phase]
 var _flames: Array = []  # [mesh, base scale, speed, phase]: tongues of fire that lick and sway
 var _spinners: Array = []  # [node, radians per second]: rings of crust turning round the Molten Core's whirlpool
@@ -117,7 +107,7 @@ var blaze := 0.0  # the home fire, stoked with wood: 0 is its usual size, 1 a ro
 const BLAZE_FADE := 0.04  # per second: a full blaze dies back down in about 25s
 
 
-static func create(name: String, with_lever: bool = false) -> Backdrop:
+static func create(name: String) -> Backdrop:
 	var b := Backdrop.new()
 	b.setting = name
 	b._rng.seed = hash(name)
@@ -140,10 +130,6 @@ static func create(name: String, with_lever: bool = false) -> Backdrop:
 			b._ossuary()
 		"Star Chamber":
 			b._star_chamber()
-		"Gilded Gullet":
-			b._gullet()
-		"Giant's Table":
-			b._giant_table()
 		"Clockwork Orrery":
 			b._orrery()
 		"Ink Margin":
@@ -152,8 +138,6 @@ static func create(name: String, with_lever: bool = false) -> Backdrop:
 			b._molten_core()
 		_:
 			b._cell()
-	if with_lever:
-		b._add_lever()
 	return b
 
 
@@ -283,37 +267,6 @@ static func create_shaft(depth: float) -> Backdrop:
 	return b
 
 
-## A small iron lever set into the wall somewhere off to the side, easy to miss.
-func _add_lever() -> void:
-	lever = Node3D.new()
-	var spots := [Vector3(-1.45, 2.2, -1.2), Vector3(1.5, 2.0, -1.2), Vector3(-1.5, 1.85, -1.0)]  # high: the pile hides the bottom
-	lever.position = spots[_rng.randi() % spots.size()]
-	add_child(lever)
-	var plate := MeshInstance3D.new()
-	var pm := BoxMesh.new()
-	pm.size = Vector3(0.12, 0.16, 0.03)
-	pm.material = _mat(Color(0.2, 0.18, 0.15))
-	plate.mesh = pm
-	lever.add_child(plate)
-	var arm := MeshInstance3D.new()
-	var am := BoxMesh.new()
-	am.size = Vector3(0.025, 0.16, 0.025)
-	am.material = _mat(Color(0.35, 0.3, 0.22))
-	arm.mesh = am
-	arm.position = Vector3(0, 0.07, 0.03)
-	arm.rotation.z = 0.5
-	arm.name = "Arm"
-	lever.add_child(arm)
-
-
-func pull_lever() -> void:
-	if lever == null or lever_pulled:
-		return
-	lever_pulled = true
-	var arm: Node3D = lever.get_node("Arm")
-	create_tween().tween_property(arm, "rotation:z", -0.6, 0.25).set_trans(Tween.TRANS_BACK)
-
-
 ## The Hidden Vault: a low treasure room heaped with gold, chests and a single brazier.
 func _vault() -> void:
 	var stone := Color(0.3, 0.25, 0.18)
@@ -344,76 +297,6 @@ func _vault() -> void:
 	_box(Vector3(0.2, 0.12, 0.2), Vector3(0.9, 1.7, -1.4), Color(1.0, 0.55, 0.15), Vector3.ZERO, 3.0)
 	_light(Vector3(0.9, 1.9, -1.1), Color(1.0, 0.7, 0.3), 2.8, 5.0)
 	_light(Vector3(-1.0, 1.0, -0.8), Color(1.0, 0.8, 0.4), 1.0, 3.0)
-
-
-## The Gilded Gullet: down a golden throat. Ribs of stacked coin close in toward a glow at
-## the back, gold teeth along the top, a gold bell of a uvula, coin heaped on the tongue.
-func _gullet() -> void:
-	var gold := Color(0.95, 0.72, 0.22)
-	var flesh := Color(0.5, 0.1, 0.12)
-	_box(Vector3(6.0, 0.1, 5.0), Vector3(0, -0.05, 0.3), flesh)  # the tongue
-	_box(Vector3(4.0, 3.4, 0.1), Vector3(0, 1.7, -2.0), flesh.darkened(0.6))
-	_cyl(0.5, 0.5, 0.05, Vector3(0, 1.5, -1.9), Color(1.0, 0.85, 0.4), 16, Vector3(PI * 0.5, 0, 0), 3.0)  # the glow down the throat
-	for k in 6:
-		var z := -1.7 + k * 0.45
-		var w := 1.0 + k * 0.3
-		for side in [-1, 1]:
-			for c in 15:
-				var g := gold.darkened(0.12 * (c % 3))
-				_cyl(0.17, 0.17, 0.05, Vector3(side * w + 0.02 * sin(c * 2.0), 0.03 + c * 0.21, z), g, 12)
-		_box(Vector3(w * 2.0 + 0.3, 0.14, 0.18), Vector3(0, 3.1 - k * 0.04, z), gold.darkened(0.25))  # a rib of the arch
-	for i in 11:
-		_box(Vector3(0.22, 0.35, 0.18), Vector3(-2.5 + i * 0.5, 2.95, 1.0), Color(1.0, 0.85, 0.35), Vector3(0, 0, 0.1 * sin(i)))  # gold teeth
-	_cyl(0.03, 0.03, 0.7, Vector3(0, 2.75, -0.7), flesh)
-	_ball(0.2, Vector3(0, 2.3, -0.7), gold, 10)  # the uvula, a bell of gold
-	for k in 60:  # coin heaped on the tongue
-		var a := _rng.randf() * TAU
-		var r := _rng.randf() * 1.6
-		_cyl(0.07, 0.07, 0.015, Vector3(cos(a) * r, 0.02 + _rng.randf() * 0.1, -1.0 + sin(a) * r * 0.4), gold.lightened(_rng.randf() * 0.2), 8,
-			Vector3(_rng.randf() * 0.8, 0, _rng.randf() * 0.8))
-	_light(Vector3(0, 1.6, -1.4), Color(1.0, 0.8, 0.4), 3.0, 6.0)
-	_light(Vector3(0, 2.4, 0.4), Color(1.0, 0.55, 0.3), 1.2, 5.0)
-
-
-## The Giant's Table: you're the size of a crumb. A mountain of cheese, a teacup like a
-## tower on its saucer, a fork standing like a tree, a candle as tall as a church, and far
-## off in the dark the rest of an enormous kitchen.
-func _giant_table() -> void:
-	var wood := Color(0.55, 0.36, 0.2)
-	var china := Color(0.93, 0.92, 0.88)
-	var cheese := Color(1.0, 0.82, 0.35)
-	var steel := Color(0.75, 0.77, 0.82)
-	_box(Vector3(8.0, 0.2, 6.0), Vector3(0, -0.1, 0.0), wood)
-	for i in 9:
-		_box(Vector3(8.0, 0.01, 0.03), Vector3(0, 0.005, -2.5 + i * 0.6), wood.darkened(0.35))  # plank seams
-	_box(Vector3(14.0, 9.0, 0.2), Vector3(0, 3.5, -5.0), Color(0.12, 0.08, 0.06))  # the kitchen, far off
-	_box(Vector3(2.0, 2.6, 0.05), Vector3(2.5, 4.2, -4.85), Color(0.35, 0.45, 0.7), Vector3.ZERO, 0.8)  # a window bigger than the world
-	# the teacup, left
-	_cyl(1.1, 1.1, 0.06, Vector3(-1.5, 0.03, -1.3), china, 24)
-	_cyl(0.8, 0.55, 1.3, Vector3(-1.5, 0.7, -1.3), china, 20)
-	_cyl(0.76, 0.76, 0.02, Vector3(-1.5, 1.35, -1.3), Color(0.45, 0.25, 0.1), 20)
-	_box(Vector3(0.12, 0.6, 0.12), Vector3(-2.38, 0.75, -1.3), china)
-	_box(Vector3(0.35, 0.12, 0.12), Vector3(-2.25, 1.0, -1.3), china)
-	_box(Vector3(0.35, 0.12, 0.12), Vector3(-2.25, 0.5, -1.3), china)
-	# the cheese, right: a stepped wedge, holed
-	for i in 5:
-		_box(Vector3(1.4 - i * 0.25, 0.28, 0.9), Vector3(1.5 + i * 0.12, 0.14 + i * 0.28, -1.1), cheese)
-	for k in 8:
-		_ball(0.07 + _rng.randf() * 0.05, Vector3(1.0 + _rng.randf() * 1.0, 0.15 + _rng.randf() * 1.0, -0.64), cheese.darkened(0.3), 6)
-	# a fork standing like a tree, a knife lying across
-	_box(Vector3(0.1, 2.6, 0.05), Vector3(-0.35, 1.3, -1.8), steel)
-	for t in 4:
-		_box(Vector3(0.04, 0.6, 0.04), Vector3(-0.53 + t * 0.12, 2.9, -1.8), steel)
-	_box(Vector3(0.45, 0.08, 0.05), Vector3(-0.35, 2.6, -1.8), steel)
-	_box(Vector3(3.0, 0.04, 0.3), Vector3(0.4, 0.04, -0.4), steel, Vector3(0, 0.35, 0))
-	# the candle, a tower with a flame at the top
-	_cyl(0.28, 0.28, 2.6, Vector3(0.75, 1.3, -2.2), Color(0.95, 0.9, 0.78), 14)
-	_cyl(0.0, 0.1, 0.32, Vector3(0.75, 2.78, -2.2), Color(1.0, 0.7, 0.3), 8, Vector3.ZERO, 4.0)
-	_light(Vector3(0.75, 2.6, -1.6), Color(1.0, 0.75, 0.4), 2.6, 7.0)
-	for k in 30:  # crumbs, each the size of a boulder
-		_box(Vector3.ONE * (0.04 + _rng.randf() * 0.08), Vector3(_rng.randf_range(-2.2, 2.2), 0.04, _rng.randf_range(-1.5, 0.6)),
-			Color(0.8, 0.6, 0.35).darkened(_rng.randf() * 0.3), Vector3(_rng.randf(), _rng.randf(), _rng.randf()))
-	_light(Vector3(0, 3.0, 1.0), Color(1.0, 0.9, 0.75), 1.0, 8.0, false)
 
 
 ## The Clockwork Orrery: inside a brass orrery the size of a cathedral, out among the
@@ -835,11 +718,30 @@ func _homestead() -> void:
 		_box(Vector3(0.015, 0.015, 0.005), st, Color(0.9, 0.92, 1.0), Vector3.ZERO, 3.0)
 	_box(Vector3(0.3, 0.3, 0.005), Vector3(-1.4, 1.95, -1.58), Color(0.35, 0.45, 0.7), Vector3.ZERO, 0.6)  # the moon's halo
 	_light(Vector3(-1.2, 1.7, -1.1), Color(0.45, 0.6, 1.0), 1.8, 3.4, false)  # moonlight: a cool wash over the left of the room
-	# a bookshelf in the corner and a table
-	_box(Vector3(0.6, 1.6, 0.25), Vector3(-1.65, 0.8, -1.4), timber.darkened(0.2))
-	for r in 3:
-		for k in 5:
-			_box(Vector3(0.08, 0.22, 0.18), Vector3(-1.86 + k * 0.1, 0.35 + r * 0.45, -1.38), [Color(0.6, 0.12, 0.12), Color(0.12, 0.3, 0.5), Color(0.78, 0.6, 0.2), Color(0.18, 0.4, 0.25)][(k * 2 + r) % 4])
+	# the storage cupboard in the corner (props.gd "storage": things put away live in it): a
+	# tall oak press on a plinth, a cornice along the top, two panelled doors on iron strap
+	# hinges, brass pulls and a lock plate, and a drawer under the doors
+	var oak := Color(0.4, 0.23, 0.11)
+	var brass := Color(0.85, 0.64, 0.28)
+	var strap := Color(0.14, 0.13, 0.12)
+	_box(Vector3(0.62, 1.55, 0.3), Vector3(-1.65, 0.85, -1.42), oak.darkened(0.25))  # the carcass
+	_box(Vector3(0.7, 0.08, 0.36), Vector3(-1.65, 1.66, -1.4), oak.darkened(0.1))  # cornice
+	_box(Vector3(0.66, 0.03, 0.34), Vector3(-1.65, 1.61, -1.4), brass.darkened(0.3))
+	_box(Vector3(0.66, 0.1, 0.34), Vector3(-1.65, 0.05, -1.4), oak.darkened(0.4))  # plinth
+	for side in [-1, 1]:
+		var dx: float = -1.65 + side * 0.145
+		_box(Vector3(0.27, 1.08, 0.02), Vector3(dx, 1.0, -1.26), oak)  # a door
+		for py in [1.27, 0.75]:
+			_box(Vector3(0.19, 0.4, 0.012), Vector3(dx, py, -1.245), oak.lightened(0.08))  # its raised panels
+			_box(Vector3(0.21, 0.42, 0.006), Vector3(dx, py, -1.25), oak.darkened(0.3))
+		for hy in [1.42, 0.6]:
+			_box(Vector3(0.14, 0.035, 0.012), Vector3(-1.65 + side * 0.22, hy, -1.243), strap)  # strap hinges
+		_ball(0.022, Vector3(-1.65 + side * 0.03, 1.0, -1.24), brass)  # pulls
+	_box(Vector3(0.008, 1.08, 0.025), Vector3(-1.65, 1.0, -1.255), oak.darkened(0.5))  # the gap between the doors
+	_box(Vector3(0.06, 0.09, 0.01), Vector3(-1.65, 1.1, -1.242), brass)  # lock plate
+	_box(Vector3(0.56, 0.2, 0.02), Vector3(-1.65, 0.3, -1.26), oak)  # the drawer
+	_box(Vector3(0.1, 0.025, 0.02), Vector3(-1.65, 0.3, -1.245), brass)
+	# a table
 	_box(Vector3(1.0, 0.06, 0.5), Vector3(0.1, 0.72, -1.1), timber.lightened(0.15))
 	for lx in [-0.35, 0.55]:
 		_box(Vector3(0.06, 0.7, 0.06), Vector3(lx, 0.36, -1.1), timber)

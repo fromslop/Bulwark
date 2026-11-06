@@ -52,6 +52,7 @@ class Part:
         self.origin = Vector(origin)
         self.bm = bmesh.new()
         self.mats = []
+        self.turn = 0.0  # radians about the part's own +Y (Godot), applied when it's finished
 
     def _mi(self, mat):
         if mat not in self.mats:
@@ -152,6 +153,9 @@ class Part:
         self.lathe(prof, segs, mat, pos, rot, scale=(scale[0], scale[2]))
 
     def finish(self, palette):
+        if self.turn:
+            # (Godot +Y is Blender +Z: to_blender is a plain rotation)
+            bmesh.ops.rotate(self.bm, verts=self.bm.verts, cent=(0, 0, 0), matrix=Matrix.Rotation(self.turn, 3, "Z"))
         bmesh.ops.recalc_face_normals(self.bm, faces=self.bm.faces)
         mesh = bpy.data.meshes.new(self.name)
         self.bm.to_mesh(mesh)
@@ -235,24 +239,21 @@ def capsule(P, a, b, r, mat, segs=6, r2=None, rings=2):
 
 
 def fist(P, mat, s=0.12, side=1, knuckles=None, thumb=True):
-    """A hand closed round a vertical grip, seen from the front: a rounded palm tapering to
-    the wrist, four fingers wrapped round the grip and stacked top to bottom (the index on
-    top, the little finger shortest), the thumb pressed over the index. side: +1 right hand
-    (thumb inward, -x)."""
+    """A hand closed round a grip, built the way a VR controller is held, so recorded wrists
+    turn it the right way: the grip (and the weapon) runs along +Y through the fist and the
+    arm leaves out of the bottom (-Y); the thumb lies along the top (+Z); the fingers curl
+    underneath (-Z); the back of the hand faces outward (+x for the right hand, side=+1)
+    with the knuckles along its lower edge. A few chunky forms, so it reads at a glance
+    from any side."""
     kn = knuckles or mat
-    # the palm and back of the hand: an octagonal loft, narrow at the wrist
-    P.loft([[(math.sin(TAU * i / 8) * s * 0.34, -s * 0.55, math.cos(TAU * i / 8) * s * 0.26) for i in range(8)],
-            [(math.sin(TAU * i / 8) * s * 0.48, -s * 0.1, math.cos(TAU * i / 8) * s * 0.34) for i in range(8)],
-            [(math.sin(TAU * i / 8) * s * 0.5, s * 0.3, math.cos(TAU * i / 8) * s * 0.34) for i in range(8)],
-            [(math.sin(TAU * i / 8) * s * 0.42, s * 0.46, math.cos(TAU * i / 8) * s * 0.28) for i in range(8)]], mat)
-    # the fingers, each a rounded roll across the front of the grip
-    for k in range(4):
-        y = s * 0.3 - k * s * 0.21
-        half = s * (0.44 - 0.05 * k)
-        capsule(P, (-half, y, s * 0.3), (half, y, s * 0.3), s * 0.11, kn if k == 0 else mat, segs=6)
-        capsule(P, (side * half * 0.9, y, s * 0.3), (side * half * 0.7, y - s * 0.02, s * 0.05), s * 0.09, mat, segs=5)  # the tip curling back
+    o = side
+    P.box((s * 0.42, s * 0.95, s * 0.74), (o * s * 0.24, -s * 0.02, -s * 0.02), mat, chamfer=0.45)  # the back of the hand
+    P.box((s * 0.66, s * 0.84, s * 0.36), (0, -s * 0.04, -s * 0.28), mat, chamfer=0.5)  # the fingers, curled under the grip
+    P.box((s * 0.3, s * 0.8, s * 0.46), (-o * s * 0.24, -s * 0.04, -s * 0.06), mat, chamfer=0.5)  # their tips, tucked into the palm
+    P.box((s * 0.22, s * 0.92, s * 0.22), (o * s * 0.3, -s * 0.02, -s * 0.3), kn, chamfer=0.45)  # the knuckles
     if thumb:
-        capsule(P, (-side * s * 0.46, -s * 0.12, s * 0.12), (-side * s * 0.12, s * 0.4, s * 0.36), s * 0.12, mat, segs=6, r2=s * 0.1)
+        capsule(P, (o * s * 0.2, -s * 0.28, s * 0.26), (-o * s * 0.04, s * 0.3, s * 0.3), s * 0.13, mat, segs=6, r2=s * 0.11)
+    P.lathe([(s * 0.26, -s * 0.78), (s * 0.3, -s * 0.46)], 8, mat)  # the wrist
 
 
 def open_hand(P, mat, s=0.11, side=1, finger_mat=None, length=0.1):
@@ -271,11 +272,13 @@ def open_hand(P, mat, s=0.11, side=1, finger_mat=None, length=0.1):
 
 
 def gauntlet(P, steel, dark, s=0.12, side=1):
+    """An armoured fist (see fist() for how it's held): a flared cuff at the wrist, a
+    knuckle plate along the knuckles, lames across the back of the hand."""
     fist(P, steel, s, side, knuckles=dark)
-    P.lathe([(s * 0.42, -s * 0.5), (s * 0.66, -s * 0.95)], 8, dark)  # flared cuff, below the wrist
-    P.box((s * 0.95, s * 0.12, s * 0.12), (0, s * 0.38, s * 0.38), dark, chamfer=0.4)  # a knuckle plate over the fingers
+    P.lathe([(s * 0.42, -s * 0.55), (s * 0.66, -s * 0.98)], 8, dark)  # flared cuff, below the wrist
+    P.box((s * 0.16, s * 0.98, s * 0.16), (side * s * 0.4, -s * 0.02, -s * 0.38), dark, chamfer=0.4)  # the knuckle plate
     for k in range(3):
-        P.box((s * 0.8, s * 0.06, s * 0.5), (0, s * (0.0 - 0.17 * k), -s * 0.16), dark, chamfer=0.3)  # lames on the back
+        P.box((s * 0.08, s * 0.14, s * 0.62), (side * s * 0.47, s * (0.28 - 0.24 * k), -s * 0.02), dark, chamfer=0.3)  # lames on the back
 
 
 def sword(P, blade, guard, grip, length=0.85, width=0.06, thick=0.02, fuller=False):
@@ -300,18 +303,12 @@ def crown(P, gold, r=0.14, y=0.2):
 
 
 def face(P, skin, dark, w=0.24, h=0.3, nose=True, brow=True, eyes=True, mouth=None):
-    """A head: an eight-sided lathe with a jaw, a wedge of a nose, sockets for eyes, a brow."""
+    """A bare head: an eight-sided lathe with a jaw, and no face on it. Modelled human
+    faces never looked right, so a head without a helmet or a hood is left blank (a
+    helmet's slits and a hood's shadowed features are fine). The feature arguments are
+    kept so old calls still read, and ignored."""
     P.lathe([(w * 0.3, -h * 0.5), (w * 0.44, -h * 0.35), (w * 0.5, -h * 0.05), (w * 0.52, h * 0.25),
              (w * 0.42, h * 0.45), (0, h * 0.52)], 8, skin, scale=(1, 0.92), phase=TAU / 16)
-    if nose:
-        P.poly([(0, -0.02), (0, 0.05), (0.035, -0.015)], 0.03, skin, pos=(0, 0.0, w * 0.46), rot=(0, -math.pi / 2, 0))
-    if eyes:
-        for sx in (-1, 1):
-            P.box((0.05, 0.028, 0.02), (sx * 0.065, 0.045, w * 0.46), dark)
-    if brow:
-        P.box((0.17, 0.025, 0.025), (0, 0.078, w * 0.44), dark)
-    if mouth:
-        P.box((0.07, 0.018, 0.015), (0, -0.075, w * 0.44), mouth)
 
 
 def eye_slit(P, dark, w=0.24, y=0.03, z=0.16):
@@ -355,7 +352,6 @@ def footman():
         P.box((0.14, 0.02, 0.06), (0, 0.04, 0), "leather", rot=(0, 0, -sx * 0.3))  # the strap over it
     H = c.part("Head")
     face(H, "skin", "dark", mouth="dark")
-    H.poly([(-0.07, 0), (0.07, 0), (0.04, -0.07), (-0.04, -0.07)], 0.06, "beard", pos=(0, -0.1, 0.105))
     H.lathe([(0.17, 0.11), (0.14, 0.15), (0.09, 0.24), (0, 0.27)], 8, "iron")  # kettle hat
     H.lathe([(0.26, 0.1), (0.25, 0.125)], 8, "iron_dark")  # its wide brim
     for sx in (-1, 1):
@@ -397,8 +393,7 @@ def woodcutter():
         P.lathe([(0.11, -0.04), (0.14, 0.0), (0.11, 0.05), (0, 0.07)], 7, "fur", scale=(0.9, 1.2), rot=(0, 0, -sx * 0.3))
     H = c.part("Head")
     face(H, "skin", "dark", mouth="dark")
-    # a big bushy beard and a knitted cap with a slumped point
-    H.poly([(-0.12, 0.02), (0.12, 0.02), (0.1, -0.12), (0.04, -0.2), (-0.04, -0.2), (-0.1, -0.12)], 0.1, "beard", pos=(0, -0.06, 0.17))
+    # a knitted cap with a slumped point
     H.lathe([(0.17, 0.1), (0.17, 0.16), (0.13, 0.24), (0.06, 0.29), (0, 0.3)], 8, "cap")
     H.lathe([(0.18, 0.08), (0.18, 0.13)], 8, "fur")
     H.box((0.08, 0.14, 0.08), (0.08, 0.28, -0.04), "cap", chamfer=0.3, rot=(0, 0, -0.9))
@@ -525,13 +520,9 @@ def brute():
     H = c.part("Head")
     face(H, "tint_skin", "dark", w=0.3, h=0.3, nose=True, eyes=True, brow=False)
     H.box((0.3, 0.14, 0.26), (0, -0.12, 0.03), "tint_skin_dark", chamfer=0.4, taper=(1.1, 1.0))  # a heavy jaw
-    H.box((0.24, 0.035, 0.03), (0, 0.09, 0.14), "brow", rot=(0.3, 0, 0))
-    H.box((0.26, 0.045, 0.01), (0, 0.03, 0.16), "woad")  # a band of woad across the eyes
-    for sx in (-1, 1):
-        H.box((0.03, 0.07, 0.05), (sx * 0.16, 0.0, 0.0), "tint_skin")  # ears
     for sx in (-1, 1):
         hand = c.part("RightHand" if sx > 0 else "LeftHand")
-        fist(hand, "tint_skin", 0.17, sx, knuckles="tint_skin_dark")
+        fist(hand, "tint_skin", 0.14, sx, knuckles="tint_skin_dark")
         hand.lathe([(0.085, -0.14), (0.08, -0.08)], 8, "leather")  # a wrist wrap, below the hand
     W = c.part("Weapon")
     W.lathe([(0.035, -0.15), (0.035, 0.85)], 6, "wood")
@@ -561,8 +552,6 @@ def duelist():
         P.box((0.02, 0.2, 0.02), (0, 0, 0.1), "coat_dark")
     H = c.part("Head")
     face(H, "skin", "dark", w=0.2, h=0.28, mouth=None)
-    H.box((0.22, 0.07, 0.03), (0, 0.04, 0.085), "dark")  # the mask
-    H.box((0.09, 0.02, 0.02), (0, -0.07, 0.095), "hair")
     H.lathe([(0.3, 0.125), (0.31, 0.145)], 10, "coat_dark")  # hat brim
     H.lathe([(0.13, 0.14), (0.12, 0.26), (0.13, 0.3), (0, 0.31)], 8, "coat_dark")
     H.poly([(0, 0), (0.24, 0.18), (0.3, 0.34), (0.12, 0.3), (0.02, 0.1)], 0.02, "feather", pos=(0.1, 0.24, -0.04), rot=(0, -0.3, 0))
@@ -880,7 +869,7 @@ def twinblade():
         fist(hand, "leather", 0.09, sx, knuckles="leather_light")
         hand.lathe([(0.055, -0.1), (0.045, -0.045)], 6, "tint_jerkin_dark")  # a cuff, at the wrist
         # a sabre in each hand: the right one is the Weapon, the left hangs on the left hand
-        B = c.part("Weapon") if sx > 0 else hand
+        B = c.part("Weapon") if sx > 0 else c.part("LeftHand_Sabre")
         blade = [(0.0, 0.1), (0.035, 0.1), (0.05, 0.4), (0.06, 0.62), (0.04, 0.8), (0.0, 0.88), (-0.01, 0.62), (-0.01, 0.3)]
         B.poly([(x * -sx if sx < 0 else x, y) for x, y in blade], 0.012, "blade")
         B.box((0.16, 0.025, 0.04), (0, 0.09, 0), "brass", chamfer=0.3)  # the guard
@@ -934,14 +923,16 @@ def bonebreaker():
 
 def sexton():
     """The bell-ringer and gravedigger: tall and gaunt in a grey-blue smock under a muddy
-    leather apron, hood thrown back off a bald head, an iron circlet of office. A great
-    verdigris bell on a pole (right hand) and a grave spade (left)."""
+    leather apron, hood thrown back off a bald head, an iron circlet of office, and over his
+    face a mask of bone carved as a skull. A great verdigris bell hung from a pole (right
+    hand; it swings free: RightHand_Bell) and a grave spade (left)."""
     smock = (0.42, 0.48, 0.58)
     c = Char("sexton", {"tint_smock": smock, "tint_smock_dark": shade(smock, -0.3), "apron": (0.3, 0.2, 0.12),
                         "mud": (0.22, 0.17, 0.1), "rope": (0.62, 0.52, 0.32), "skin": (0.78, 0.72, 0.64), "skin_dark": (0.6, 0.52, 0.45),
                         "dark": (0.03, 0.02, 0.02), "hood": (0.12, 0.12, 0.16), "iron": (0.35, 0.35, 0.38),
                         "bronze": (0.3, 0.55, 0.45), "bronze_dark": (0.2, 0.38, 0.32), "wood": (0.32, 0.22, 0.12),
-                        "spade": (0.5, 0.5, 0.52), "glow_eye": (0.75, 0.85, 1.0)})
+                        "spade": (0.5, 0.5, 0.52), "glow_eye": (0.75, 0.85, 1.0),
+                        "bone": (0.86, 0.82, 0.7), "bone_dark": (0.55, 0.5, 0.4)})
     T = c.part("Torso")
     # a long smock, narrow at the shoulders: gaunt
     T.lathe([(0.27, -0.4), (0.25, -0.15), (0.24, 0.1), (0.22, 0.28), (0.13, 0.38)], 8, "tint_smock", scale=(1, 0.75), phase=TAU / 16)
@@ -961,27 +952,44 @@ def sexton():
         P.lathe([(0.1, -0.04), (0.12, 0.0), (0.09, 0.05), (0, 0.06)], 7, "hood", rot=(0, 0, -sx * 0.35))  # sackcloth shoulder wraps
         P.box((0.04, 0.02, 0.14), (0, 0.05, 0), "rope", rot=(0, 0, -sx * 0.35))
     H = c.part("Head")
-    # a long bald head, sunken eyes with a pale glint, an iron circlet of office
+    # a long bald head and an iron circlet of office
     H.lathe([(0.12, -0.2), (0.15, -0.08), (0.16, 0.06), (0.14, 0.18), (0.08, 0.25), (0, 0.27)], 8, "skin", scale=(1, 0.95), phase=TAU / 16)
-    for sx in (-1, 1):
-        H.box((0.06, 0.035, 0.02), (sx * 0.055, 0.03, 0.135), "dark")  # deep sockets
-        H.box((0.018, 0.012, 0.01), (sx * 0.055, 0.03, 0.147), "glow_eye")
-        H.box((0.02, 0.08, 0.02), (sx * 0.085, -0.06, 0.12), "skin_dark")  # hollow cheeks
-    H.box((0.03, 0.07, 0.04), (0, -0.02, 0.15), "skin_dark", taper=(0.6, 1.0))  # a long nose
-    H.box((0.08, 0.012, 0.01), (0, -0.12, 0.13), "dark")
     H.lathe([(0.155, 0.1), (0.16, 0.13)], 10, "iron")  # the circlet
     H.box((0.04, 0.05, 0.02), (0, 0.13, 0.16), "bronze")  # a little bell on it
+    # the skull mask: a plate of bone over the face, deep black sockets with a cold pinpoint
+    # in each, a nose hole, cheekbones, and a grin of teeth over a black slot
+    H.poly([(-0.12, 0.09), (0.12, 0.09), (0.135, 0.02), (0.11, -0.06), (0.07, -0.1), (0.06, -0.17),
+            (-0.06, -0.17), (-0.07, -0.1), (-0.11, -0.06), (-0.135, 0.02)], 0.035, "bone", pos=(0, 0, 0.14))
+    H.box((0.25, 0.03, 0.03), (0, 0.065, 0.158), "bone", chamfer=0.4)  # the brow ridge
+    for sx in (-1, 1):
+        H.poly([(-0.04, 0.03), (0.04, 0.034), (0.046, -0.012), (0.018, -0.042), (-0.028, -0.036), (-0.048, 0.0)], 0.014,
+               "dark", pos=(sx * 0.054, 0.016, 0.16), rot=(0, 0, -sx * 0.32))  # a socket, slanted into a glare
+        H.box((0.016, 0.016, 0.01), (sx * 0.05, 0.012, 0.166), "glow_eye")  # the pinpoint in it
+        H.box((0.05, 0.022, 0.02), (sx * 0.085, -0.045, 0.152), "bone_dark", chamfer=0.3, rot=(0, 0, sx * 0.35))  # a cheekbone
+    H.poly([(0.0, 0.0), (0.022, -0.04), (-0.022, -0.04)], 0.014, "dark", pos=(0, -0.025, 0.162))  # the nose hole
+    for a, b in (((0.03, 0.09), (0.045, 0.06)), ((0.045, 0.06), (0.03, 0.045)), ((0.03, 0.045), (0.04, 0.035))):
+        mx, my = (a[0] + b[0]) / 2, (a[1] + b[1]) / 2
+        ln = math.hypot(b[0] - a[0], b[1] - a[1])
+        H.box((0.006, ln + 0.004, 0.008), (mx, my, 0.161), "dark", rot=(0, 0, math.atan2(a[0] - b[0], b[1] - a[1])))  # a crack down the brow
+    H.box((0.11, 0.03, 0.012), (0, -0.11, 0.159), "dark")  # the slot behind the teeth
+    for k in range(6):
+        H.box((0.014, 0.034, 0.014), (-0.045 + k * 0.018, -0.11, 0.163), "bone", chamfer=0.3)  # teeth
     for sx in (-1, 1):
         hand = c.part("RightHand" if sx > 0 else "LeftHand")
         fist(hand, "skin", 0.1, sx, knuckles="skin_dark")
         hand.lathe([(0.055, -0.12), (0.045, -0.05)], 6, "tint_smock_dark")  # a cuff, at the wrist
-    # the bell on its pole: hung from a crossbar at the top, mouth down, a clapper under it
+    # the bell on its pole: hung from a crossbar at the top, mouth down, a clapper under it.
+    # The bell is its own part, its origin on the crossbar: the game swings it from there
+    # under gravity (Enemy._swing_parts), so it hangs and sways whatever the pole does.
     W = c.part("Weapon")
     W.lathe([(0.025, -0.15), (0.025, 0.85)], 6, "wood")
     W.box((0.26, 0.04, 0.04), (0, 0.86, 0), "iron")
-    W.lathe([(0.21, 0.52, 0.94), (0.2, 0.56), (0.15, 0.66), (0.11, 0.76), (0.09, 0.82), (0, 0.84)], 12, "bronze")
-    W.lathe([(0.215, 0.5), (0.21, 0.54)], 12, "bronze_dark")  # the lip
-    W.sphere(0.05, (0, 0.5, 0), "iron", segs=6, rings=3)  # the clapper
+    B = c.part("RightHand_Bell", (0, 0.86, 0))
+    B.box((0.03, 0.08, 0.05), (0, -0.04, 0), "iron")  # the hanger, round the crossbar
+    B.lathe([(0.21, -0.38, 0.94), (0.2, -0.34), (0.15, -0.24), (0.11, -0.14), (0.09, -0.08), (0, -0.06)], 12, "bronze")
+    B.lathe([(0.215, -0.4), (0.21, -0.36)], 12, "bronze_dark")  # the lip
+    B.lathe([(0.008, -0.38), (0.008, -0.08)], 4, "iron")  # the clapper's rod
+    B.sphere(0.05, (0, -0.4, 0), "iron", segs=6, rings=3)  # the clapper
     # the grave spade, in the left hand
     S = c.part("LeftHand_Spade")
     S.lathe([(0.022, -0.12), (0.022, 0.7)], 6, "wood")
@@ -1059,7 +1067,7 @@ def lamplighter():
         for k in range(5):
             P.box((0.012, 0.06, 0.012), (-0.05 + k * 0.025, -0.04, 0.12), "brass")  # the fringe
     H = c.part("Head")
-    # a long pale face and a stovepipe hat
+    # a long pale head and a stovepipe hat
     face(H, "skin", "glow_eye", w=0.18, h=0.32, brow=False, mouth="coat_dark")
     H.lathe([(0.2, 0.13), (0.21, 0.15)], 8, "coat_dark")
     H.lathe([(0.11, 0.15), (0.115, 0.36), (0.12, 0.42), (0, 0.43)], 8, "coat_dark")
@@ -1080,91 +1088,6 @@ def lamplighter():
 
 
 # --- secret guardians: bodies found nowhere else ------------------------------------------
-
-def coin_golem():
-    gold = (0.95, 0.72, 0.22)
-    c = Char("coin_golem", {"gold": gold, "gold_dark": shade(gold, -0.25), "gold_light": shade(gold, 0.2),
-                            "slot": (0.05, 0.03, 0.01), "glow_eye": (0.4, 1.0, 0.75), "bar": (1.0, 0.8, 0.3),
-                            "verdigris": (0.25, 0.55, 0.45)})
-    T = c.part("Torso")
-    # a body of stacked coins, each a little off true, so it reads as a pile that stood up
-    for k in range(10):
-        y = -0.38 + k * 0.078
-        r = 0.27 + 0.06 * math.sin(k / 9 * math.pi)
-        dx = 0.025 * math.sin(k * 2.3)
-        T.lathe([(r, y), (r, y + 0.07)], 14, ("verdigris" if k in (1, 6) else "gold") if k % 2 else "gold_dark", pos=(dx, 0, 0.01 * math.cos(k * 1.7)))  # old coin, green with verdigris
-    for k in range(5):  # loose coins stuck to its belly
-        T.lathe([(0.06, 0), (0.06, 0.015)], 10, "gold_light", pos=(-0.15 + k * 0.08, -0.15 + (k % 2) * 0.1, 0.33), rot=(math.pi / 2, 0, 0.3 * k))
-    for sx in (-1, 1):
-        P = c.part("PauldronL" if sx < 0 else "PauldronR", (sx * 0.32, 0.3, 0))
-        for k in range(3):  # a short stack on each shoulder
-            P.lathe([(0.13 - k * 0.02, k * 0.045), (0.13 - k * 0.02, k * 0.045 + 0.04)], 12, "gold_light" if k % 2 else "gold", rot=(0, 0, -sx * 0.25))
-    H = c.part("Head")
-    # one great coin for a face, edge-on to the floor and face-on to you, with a slot for a mouth
-    H.lathe([(0.22, -0.035), (0.22, 0.035)], 18, "gold", rot=(math.pi / 2, 0, 0))
-    H.lathe([(0.17, -0.04), (0.17, 0.042)], 18, "gold_dark", rot=(math.pi / 2, 0, 0))
-    H.box((0.2, 0.035, 0.03), (0, -0.08, 0.04), "slot")
-    for sx in (-1, 1):
-        H.box((0.05, 0.035, 0.02), (sx * 0.07, 0.05, 0.05), "glow_eye")
-    for k in range(5):  # a crown of little coins standing on edge
-        a = -0.6 + k * 0.3
-        H.lathe([(0.045, -0.008), (0.045, 0.008)], 10, "gold_light", pos=(math.sin(a) * 0.17, 0.23 + 0.02 * math.cos(a * 3), 0.0), rot=(math.pi / 2, 0, 0))
-    for sx in (-1, 1):
-        hand = c.part("RightHand" if sx > 0 else "LeftHand")
-        for k in range(4):  # fists of stacked coins
-            hand.lathe([(0.1, -0.1 + k * 0.05), (0.1, -0.1 + k * 0.05 + 0.045)], 12, "gold_dark" if k % 2 else "gold")
-    W = c.part("Weapon")
-    W.box((0.12, 0.08, 0.26), (0, 0.15, 0), "bar", chamfer=0.25)  # a gold bar, to throw
-    return c
-
-
-def housecat():
-    fur = (0.85, 0.5, 0.2)
-    c = Char("housecat", {"tint_fur": fur, "tint_fur_dark": shade(fur, -0.3), "cream": (0.95, 0.88, 0.75), "pink": (0.9, 0.55, 0.55),
-                          "dark": (0.03, 0.02, 0.02), "glow_eye": (0.75, 1.0, 0.35), "collar": (0.2, 0.35, 0.75), "bell": (0.95, 0.78, 0.25),
-                          "whisker": (0.95, 0.95, 0.92)})
-    T = c.part("Torso")
-    # a big sitting cat: a round loaf of a body, a cream chest, stripes, and a tail round the front
-    T.lathe([(0.0, -0.42), (0.33, -0.38), (0.38, -0.15), (0.34, 0.1), (0.25, 0.3), (0.16, 0.38)], 12, "tint_fur", scale=(1, 0.85))
-    T.sphere(0.2, (0, -0.02, 0.2), "cream", segs=10, rings=6, scale=(1.0, 1.5, 0.6))
-    for k in range(3):
-        for sx in (-1, 1):
-            T.box((0.12, 0.035, 0.04), (sx * 0.3, -0.1 + k * 0.12, 0.12), "tint_fur_dark", rot=(0, sx * 0.6, sx * 0.3))
-    for k in range(6):
-        a = -1.3 + k * 0.45
-        T.box((0.09, 0.09, 0.09), (math.sin(a) * 0.36, -0.38 + 0.02 * k, math.cos(a) * 0.3 * 0.85), "tint_fur" if k % 2 else "tint_fur_dark", chamfer=0.4)
-    for sx in (-1, 1):
-        # the collar, in two halves (they come off like pauldrons), with a bell on the right
-        P = c.part("PauldronL" if sx < 0 else "PauldronR", (sx * 0.12, 0.33, 0.06))
-        P.box((0.2, 0.05, 0.22), (0, 0, 0), "collar", rot=(0, 0, -sx * 0.2), chamfer=0.3)
-        if sx > 0:
-            P.sphere(0.045, (-0.08, -0.06, 0.12), "bell", segs=8, rings=4)
-    H = c.part("Head")
-    H.sphere(0.24, (0, 0, 0), "tint_fur", segs=12, rings=6, scale=(1.15, 0.95, 1.0))
-    H.sphere(0.1, (0, -0.07, 0.18), "cream", segs=8, rings=4, scale=(1.3, 0.8, 0.7))
-    for sx in (-1, 1):
-        H.poly([(-0.08, 0), (0.08, 0), (0.0, 0.17)], 0.05, "tint_fur", pos=(sx * 0.15, 0.17, 0.0), rot=(0, 0, -sx * 0.25))
-        H.poly([(-0.045, 0.01), (0.045, 0.01), (0.0, 0.11)], 0.055, "pink", pos=(sx * 0.15, 0.18, 0.01), rot=(0, 0, -sx * 0.25))
-        H.box((0.07, 0.06, 0.02), (sx * 0.09, 0.04, 0.22), "glow_eye")
-        H.box((0.015, 0.055, 0.025), (sx * 0.09, 0.04, 0.225), "dark")  # slit pupils
-        for k in range(3):
-            H.box((0.2, 0.008, 0.008), (sx * 0.2, -0.06 + k * 0.025, 0.2), "whisker", rot=(0, 0, sx * (k - 1) * 0.15))
-    H.box((0.05, 0.035, 0.03), (0, -0.04, 0.26), "pink", chamfer=0.4)
-    for sx in (-1, 1):
-        hand = c.part("RightHand" if sx > 0 else "LeftHand")
-        # paws: a soft round mitt with three toes and pink pads
-        hand.sphere(0.12, (0, 0, 0), "tint_fur", segs=10, rings=5, scale=(1.0, 0.8, 1.0))
-        for k in range(3):
-            hand.sphere(0.04, (-0.06 + k * 0.06, 0.07, 0.07), "cream", segs=6, rings=3)
-        hand.sphere(0.05, (0, -0.02, 0.1), "pink", segs=6, rings=3, scale=(1.2, 0.8, 0.5))
-    W = c.part("Weapon")
-    # a ball of yarn, batted about, trailing a strand
-    W.sphere(0.11, (0, 0.18, 0.05), "collar", segs=10, rings=6)
-    for k in range(4):
-        W.box((0.23, 0.012, 0.012), (0, 0.13 + k * 0.035, 0.12), "cream", rot=(0, 0, 0.5 - k * 0.3))
-    W.box((0.012, 0.25, 0.012), (0.09, 0.02, 0.06), "collar", rot=(0, 0, 0.3))
-    return c
-
 
 def astronomer():
     coat = (0.08, 0.07, 0.25)
@@ -1207,8 +1130,6 @@ def astronomer():
 
 
 CHARACTERS = {
-    "coin_golem": coin_golem,
-    "housecat": housecat,
     "the_astronomer": astronomer,
     "footman": footman,
     "woodcutter": woodcutter,
@@ -1237,6 +1158,16 @@ def export(slug, build):
     c = build()
     tris = 0
     for p in c.parts:
+        # Every weapon is built with its edge out to +x (-x for one in the left hand, built
+        # mirrored), and turned a quarter round the grip so the edge faces the foe's thumb
+        # side (+Z, the player at rest). The recorder's mirror turns a held weapon half round
+        # its grip (the foe is your mirror image, a rotation can't be), so the studio's ghost
+        # of it on your controller gets that half turn back: in your hand the edge faces the
+        # trigger, and on the foe it faces where the mirror shows yours facing.
+        if p.name == "Weapon":
+            p.turn = -math.pi / 2
+        elif p.name in ("LeftHand_Sabre", "LeftHand_Spade"):
+            p.turn = math.pi / 2
         obj = p.finish(c.palette)
         tris += sum(len(poly.vertices) - 2 for poly in obj.data.polygons)
     os.makedirs(OUT, exist_ok=True)

@@ -18,6 +18,7 @@ var _time_caption: Label
 var _time: Label
 var _kind: Label
 var _hints: Label
+var _beat: StudioBeat
 var _col := Color.BLACK
 
 
@@ -68,6 +69,8 @@ func _init(p_studio) -> void:
 	_time = HHStyle.label("", HHStyle.SIZE_HERO, HHStyle.WARN, HHStyle.mono())
 	_time.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	right.add_child(_time)
+	_beat = StudioBeat.new()
+	body.add_child(_beat)
 	var rule := ColorRect.new()
 	rule.color = Color(1, 1, 1, 0.07)
 	rule.custom_minimum_size = Vector2(0, 2)
@@ -92,7 +95,8 @@ func refresh() -> void:
 		_kind.text = "·   %s%s" % [str(cue.kind).to_upper(), "   ·   RECORDED" if cue.recorded else ""]
 		_kind.add_theme_color_override("font_color", HHStyle.OK if cue.recorded else HHStyle.TEXT_FAINT)
 	var w := float(cue.get("windup", 0.0))
-	_time.text = "%.2f s" % w if w > 0.0 else ("loop" if cue.get("loops", false) else "free")
+	var w2 := float(cue.get("windup2", 0.0))
+	_time.text = ("%.2f s" % w if w2 <= 0.0 else "%.2f + %.2f" % [w, w2]) if w > 0.0 else ("loop" if cue.get("loops", false) else "free")
 	_time.add_theme_color_override("font_color", HHStyle.WARN if w > 0.0 else HHStyle.TEXT_DIM)
 	_time_caption.text = "WIND-UP" if w > 0.0 else "LENGTH"
 	tick()
@@ -111,14 +115,36 @@ func tick() -> void:
 		var t: float = studio.recording_time()
 		text = "●  %02d:%04.1f" % [int(t) / 60, fmod(t, 60.0)]
 		_hints.text = "RECORDING  ·  MENU to stop"
+		var g: StudioGuide = studio.guide
+		if g:
+			match g.phase(t):
+				"settle":
+					text = "SETTLE"
+					col = HHStyle.TEXT_DIM
+					_hints.text = "HOLD THE READY POSE  ·  the wind-up starts on the tone"
+				"windup":
+					text = "WIND-UP"
+					col = HHStyle.WARN
+					_hints.text = "WIND UP  ·  strike on the high tone  ·  TRIGGER as your blow lands"
+				"gap":
+					text = "STRIKE" if t - g.strike_at() < 0.35 else "AGAIN"
+					col = HHStyle.REC if t - g.strike_at() < 0.35 else HHStyle.TEXT_DIM
+					_hints.text = "FIRST BLOW IN  ·  straight into the second  ·  TRIGGER on each blow"
+				"windup2":
+					text = "WIND-UP 2"
+					col = HHStyle.WARN
+					_hints.text = "SECOND WIND-UP  ·  strike on the high tone"
+				"follow":
+					text = "STRIKE" if t - g.last_strike_at() < 0.35 else "FOLLOW"
+					col = HHStyle.REC
+					_hints.text = "FOLLOW THROUGH  ·  back to the ready pose  ·  stops by itself"
 	else:
 		if studio.replay:
 			text = "REPLAY"
 			col = HHStyle.OK
 		var punch: String = studio.punch_group()
-		_hints.text = "MENU  record     ◀ ▶  cue     A  %s     B  %s view%s" % [
-			"live" if studio.replay else "replay", "behind" if studio.mirror_view else "mirror",
-			("     PUNCH-IN: " + punch.to_upper()) if punch != "" else ""]
+		_hints.text = "MENU  record     ◀ ▶  cue     A  %s%s" % [
+			"live" if studio.replay else "replay", ("     PUNCH-IN: " + punch.to_upper()) if punch != "" else ""]
 	if _state.text != text:
 		_state.text = text
 		_state.add_theme_font_size_override("font_size", HHStyle.SIZE_HERO if text.length() <= 2 else HHStyle.SIZE_TITLE)
@@ -128,6 +154,10 @@ func tick() -> void:
 		_state_box.add_theme_stylebox_override("panel", HHStyle.fill(Color(col, 0.12), 14, Color(col, 0.55)))
 	var n: int = studio.cues.size()
 	set_subtitle("CUE %d / %d" % [studio.cue_index + 1, n] if studio.cue_index >= 0 else ("FREE TAKE" if n > 0 else ""))
+	_beat.guide = studio.guide if studio.is_recording() and studio.guide else studio.plan
+	_beat.t = studio.recording_time() if studio.is_recording() and studio.guide else -1.0
+	_beat.visible = _beat.guide != null
+	_beat.queue_redraw()
 
 
 ## What to perform, in a sentence: the cue's direction without its timing (the slate shows

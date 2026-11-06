@@ -37,6 +37,14 @@ extends Resource
 ## How far back from the end to search for the best loop point, in seconds.
 @export_range(0.1, 5.0, 0.05) var loop_search := 1.5
 
+@export_group("Timing")
+## Pins the take's marks to times in the baked clip: {mark name: seconds into the clip}.
+## Between pinned marks the performance is stretched or squeezed to fit; after the last
+## it plays at its own pace. A mark pinned at 0 starts the clip there. E.g.
+## {"windup": 0.0, "strike": 0.8}: the clip starts as the wind-up starts, and the blow
+## lands exactly 0.8 s in, however fast you actually swung.
+@export var fit_marks := {}
+
 @export_group("Output")
 ## Frame rate of the baked animation. 30 for most clips, 60 for fast actions.
 @export_range(10, 120, 1) var fps := 30

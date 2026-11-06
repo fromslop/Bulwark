@@ -1,0 +1,22 @@
+[gd_resource type="AnimationLibrary" format=3]
+
+[ext_resource type="Animation" path="res://animations/woodcutter/act_broken.res" id="1_f18me"]
+[ext_resource type="Animation" path="res://animations/woodcutter/act_flinch.res" id="1_mn61t"]
+[ext_resource type="Animation" path="res://animations/woodcutter/act_chop_l.res" id="2_l3qss"]
+[ext_resource type="Animation" path="res://animations/woodcutter/idle_heavy.res" id="3_5m6fa"]
+[ext_resource type="Animation" path="res://animations/woodcutter/act_chop_r.res" id="3_xrklf"]
+[ext_resource type="Animation" path="res://animations/woodcutter/act_fell.res" id="4_lvebw"]
+[ext_resource type="Animation" path="res://animations/woodcutter/act_hew.res" id="5_a7e6v"]
+[ext_resource type="Animation" path="res://animations/woodcutter/act_stagger.res" id="7_bikh1"]
+
+[resource]
+_data = {
+&"act_broken": ExtResource("1_f18me"),
+&"act_chop_l": ExtResource("2_l3qss"),
+&"act_chop_r": ExtResource("3_xrklf"),
+&"act_fell": ExtResource("4_lvebw"),
+&"act_flinch": ExtResource("1_mn61t"),
+&"act_hew": ExtResource("5_a7e6v"),
+&"act_stagger": ExtResource("7_bikh1"),
+&"idle_heavy": ExtResource("3_5m6fa")
+}

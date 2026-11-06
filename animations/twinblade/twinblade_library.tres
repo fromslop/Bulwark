@@ -1,0 +1,30 @@
+[gd_resource type="AnimationLibrary" format=3]
+
+[ext_resource type="Animation" path="res://animations/twinblade/idle_bounce.res" id="1_7tm45"]
+[ext_resource type="Animation" path="res://animations/twinblade/act_flinch.res" id="1_bdj1k"]
+[ext_resource type="Animation" path="res://animations/twinblade/act_broken.res" id="1_c8o2c"]
+[ext_resource type="Animation" path="res://animations/twinblade/act_jab.res" id="1_lkylq"]
+[ext_resource type="Animation" path="res://animations/twinblade/act_death.res" id="2_poxh4"]
+[ext_resource type="Animation" path="res://animations/twinblade/act_stagger.res" id="2_ssvqy"]
+[ext_resource type="Animation" path="res://animations/twinblade/act_flurry_l.res" id="4_1bs0c"]
+[ext_resource type="Animation" path="res://animations/twinblade/act_flurry_r.res" id="5_22kl4"]
+[ext_resource type="Animation" path="res://animations/twinblade/act_scissor_hi.res" id="5_76vdc"]
+[ext_resource type="Animation" path="res://animations/twinblade/act_scissor_lo.res" id="6_1m2kd"]
+[ext_resource type="Animation" path="res://animations/twinblade/act_x_right.res" id="6_5y3nm"]
+[ext_resource type="Animation" path="res://animations/twinblade/act_x_left.res" id="6_gejsv"]
+
+[resource]
+_data = {
+&"act_broken": ExtResource("1_c8o2c"),
+&"act_death": ExtResource("2_poxh4"),
+&"act_flinch": ExtResource("1_bdj1k"),
+&"act_flurry_l": ExtResource("4_1bs0c"),
+&"act_flurry_r": ExtResource("5_22kl4"),
+&"act_jab": ExtResource("1_lkylq"),
+&"act_scissor_hi": ExtResource("5_76vdc"),
+&"act_scissor_lo": ExtResource("6_1m2kd"),
+&"act_stagger": ExtResource("2_ssvqy"),
+&"act_x_left": ExtResource("6_gejsv"),
+&"act_x_right": ExtResource("6_5y3nm"),
+&"idle_bounce": ExtResource("1_7tm45")
+}

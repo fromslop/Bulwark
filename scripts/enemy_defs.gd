@@ -36,18 +36,6 @@ const ATTACKS := {
 	"slam": {"zone": [Vector2(0.32, 0.6), Vector2(0.68, 0.6), Vector2(0.68, 1), Vector2(0.32, 1)],
 		"dir": Vector2(0, 1), "damage": 44.0, "impact": 2.0, "push": 45000.0, "windup": 1.7, "pose": "slam", "cleave": 0.45},
 	# --- the secret guardians' own attacks ------------------------------------------
-	# Coin Golem: a gold bar hurled at the hand, and a body-slam that buries the floor in coin
-	"coin_toss": {"zone": [Vector2(0.5, 0.43), Vector2(0.55, 0.5), Vector2(0.5, 0.57), Vector2(0.45, 0.5)],
-		"dir": Vector2.ZERO, "damage": 30.0, "impact": 2.2, "push": 12000.0, "windup": 1.0, "pose": "thrust", "track": true},
-	# Housecat: swipes from either side, a pounce at the hand, a tail lash along the floor
-	"swipe_l": {"zone": [Vector2(0, 0.25), Vector2(0.55, 0.25), Vector2(0.55, 0.6), Vector2(0, 0.6)],
-		"dir": Vector2(1, 0.2), "damage": 20.0, "impact": 1.0, "push": 30000.0, "windup": 0.9, "pose": "high_left"},
-	"swipe_r": {"zone": [Vector2(0.45, 0.25), Vector2(1, 0.25), Vector2(1, 0.6), Vector2(0.45, 0.6)],
-		"dir": Vector2(-1, 0.2), "damage": 20.0, "impact": 1.0, "push": 30000.0, "windup": 0.9, "pose": "high_right"},
-	"pounce": {"zone": [Vector2(0.5, 0.4), Vector2(0.58, 0.5), Vector2(0.5, 0.6), Vector2(0.42, 0.5)],
-		"dir": Vector2.ZERO, "damage": 30.0, "impact": 1.6, "push": 20000.0, "windup": 1.1, "pose": "lunge", "track": true},
-	"tail_lash": {"zone": [Vector2(0, 0.72), Vector2(1, 0.72), Vector2(1, 0.92), Vector2(0, 0.92)],
-		"dir": Vector2(1, 0), "damage": 18.0, "impact": 0.9, "push": 50000.0, "windup": 1.0, "pose": "low_left"},
 	# The Astronomer: a comet down at the hand, an orbit sweeping the middle, and the pull of the
 	# heavens let go of: everything you own falls upward for a moment
 	"comet": {"zone": [Vector2(0.5, 0.42), Vector2(0.55, 0.5), Vector2(0.5, 0.58), Vector2(0.45, 0.5)],
@@ -268,14 +256,6 @@ const ENEMIES := {
 		"weapon": "sword", "idle": "steady", "flinch": 1.8,
 		"bio": "A pressed man with a borrowed sword. Block him clean and he loses his nerve."},
 	# --- secret guardians: each found only in its secret place (secrets.gd) ---------
-	"Coin Golem": {"name": "Coin Golem", "stagger": 120.0, "hp": 300.0, "poise": 40.0, "armor": 0.8, "speed": 0.85, "power": 0.6, "reward": 120,
-		"attacks": ["ground_pound", "slam", "sweep", "coin_toss"], "rest": [1.1, 1.8], "color": Color(0.95, 0.72, 0.22),
-		"weapon": "none", "idle": "heavy", "greedy": true, "secret": true,
-		"bio": "A hoard that stood up. Its blows swallow any coin in their path and it grows back on them. Spend your gold before it does."},
-	"Housecat": {"name": "Housecat", "stagger": 50.0, "hp": 240.0, "poise": 15.0, "armor": 0.0, "speed": 1.3, "power": 0.9, "reward": 80,
-		"attacks": ["swipe_l", "swipe_r", "pounce", "tail_lash"], "rest": [0.8, 1.5], "color": Color(0.85, 0.5, 0.2),
-		"weapon": "none", "idle": "bounce", "distractible": true, "revive": 0.3, "secret": true,
-		"bio": "Enormous, bored, and quick. Fling a gold coin past it mid-swing and it forgets you to chase it. It has a life to spare."},
 	"The Astronomer": {"name": "The Astronomer", "stagger": 50.0, "hp": 240.0, "poise": 16.0, "armor": 0.3, "speed": 1.15, "power": 1.0, "reward": 90,
 		"attacks": ["comet", "orbit", "unmoor", "spark"], "rest": [1.0, 1.6], "color": Color(0.25, 0.3, 0.7),
 		"weapon": "staff", "idle": "steady", "secret": true,
@@ -305,8 +285,8 @@ const ENEMIES := {
 		"attacks": ["overhead_l", "overhead_r", "thrust", "slash_high_r"], "rest": [0.9, 1.6], "color": Color(0.55, 0.57, 0.62),
 		"weapon": "sword", "idle": "steady",
 		"combos": {"overhead_l": "thrust", "overhead_r": "thrust", "slash_high_r": "overhead_l"}, "combo_chance": 0.3, "combo_windup": 0.8,
-		"guard_stance": {"chance": 0.35, "time": [1.2, 2.0]},
-		"bio": "Drilled since he could walk. Everything comes from above, and his overheads run straight into a thrust: watch for the second blow."},
+		"windup_guard": true,  # on guard through every wind-up, open as he strikes and between attacks
+		"bio": "Drilled since he could walk. Everything comes from above, and his overheads run straight into a thrust: watch for the second blow. He keeps his guard up while he winds up; hit him as the blow comes down, or between his attacks."},
 	# A giant with a maul. Every swing is wide and low and wrecks gear. Gets faster as it gets angry.
 	"Brute": {"name": "Brute", "stagger": 125.0, "hp": 160.0, "poise": 42.0, "armor": 0.45, "speed": 0.85, "power": 0.45, "reward": 24,
 		"attacks": ["ground_pound", "maul_low_l", "maul_low_r", "slam", "sweep"], "rest": [1.4, 2.3], "color": Color(0.4, 0.3, 0.25),
@@ -374,9 +354,9 @@ const ENEMIES := {
 	"Castellan": {"name": "Castellan", "stagger": 220.0, "hp": 480.0, "poise": 55.0, "armor": 1.0, "speed": 1.0, "power": 0.6, "reward": 50,
 		"attacks": ["tower_slam", "overhead_l", "overhead_r", "tower_slam", "shield_bash"], "rest": [1.0, 1.7], "color": Color(0.35, 0.4, 0.55),
 		"weapon": "shield", "idle": "guard", "guard": true, "bash_after": 3, "boss": true,
-		"guard_stance": {"chance": 0.4, "time": [1.5, 2.5]},
+		"always_guard": true,  # its idle IS its guard: down only to swing, or when it's rattled
 		"combos": {"tower_slam": "overhead_r", "overhead_l": "thrust"}, "combo_chance": 0.4, "combo_windup": 0.7,
-		"bio": "Keeper of the gate. He carries a wall of his own and keeps it between you and him; knock him reeling to get past it. He answers a tidy defence by scattering it."},
+		"bio": "Keeper of the gate. He carries a wall of his own and keeps it between you and him; knock him reeling to get past it, or catch him mid-swing. He answers a tidy defence by scattering it."},
 	# The Sexton: keeper of the bell and the graveyard. A great bronze bell on a pole and a grave
 	# spade: the bell tolls twice on one spot (the second ring scatters your pile), the spade
 	# scoops along the floor and buries what's under your hand.
@@ -402,7 +382,8 @@ const FIRST_RUN_HP := [1.0, 0.6, 0.7, 1.0, 1.0]  # per stage, boss last
 const WARDEN := {"name": "Vault Warden", "stagger": 70.0, "hp": 200.0, "poise": 26.0, "armor": 1.0, "speed": 1.0,
 	"power": 0.9, "reward": 60, "attacks": ["slash_high_r", "slash_high_l", "overhead_l", "overhead_r", "thrust"],
 	"rest": [1.0, 1.7], "color": Color(0.85, 0.65, 0.25), "weapon": "sword", "idle": "steady",
-	"bio": "Paid to stand in a room full of gold and not touch any of it."}
+	"windup_guard": true,  # on guard through every wind-up, like the Knight
+	"bio": "Paid to stand in a room full of gold and not touch any of it. Trained like a knight: his guard stays up while he winds up, and only drops as the blow comes down."}
 
 
 # Pairs that fight together (past the first boss, on the middle stages, some of the time).

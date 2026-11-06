@@ -1,0 +1,24 @@
+[gd_resource type="AnimationLibrary" format=3]
+
+[ext_resource type="Animation" path="res://animations/brute/act_broken.res" id="1_e5hcp"]
+[ext_resource type="Animation" path="res://animations/brute/idle_heavy.res" id="1_f6gg4"]
+[ext_resource type="Animation" path="res://animations/brute/act_ground_pound.res" id="1_lq3sa"]
+[ext_resource type="Animation" path="res://animations/brute/act_flinch.res" id="1_x5q5g"]
+[ext_resource type="Animation" path="res://animations/brute/act_maul_low_l.res" id="2_hxme7"]
+[ext_resource type="Animation" path="res://animations/brute/act_maul_low_r.res" id="3_ie0y1"]
+[ext_resource type="Animation" path="res://animations/brute/act_slam.res" id="4_5pid8"]
+[ext_resource type="Animation" path="res://animations/brute/act_sweep.res" id="5_uyh4f"]
+[ext_resource type="Animation" path="res://animations/brute/act_stagger.res" id="7_1qbxi"]
+
+[resource]
+_data = {
+&"act_broken": ExtResource("1_e5hcp"),
+&"act_flinch": ExtResource("1_x5q5g"),
+&"act_ground_pound": ExtResource("1_lq3sa"),
+&"act_maul_low_l": ExtResource("2_hxme7"),
+&"act_maul_low_r": ExtResource("3_ie0y1"),
+&"act_slam": ExtResource("4_5pid8"),
+&"act_stagger": ExtResource("7_1qbxi"),
+&"act_sweep": ExtResource("5_uyh4f"),
+&"idle_heavy": ExtResource("1_f6gg4")
+}

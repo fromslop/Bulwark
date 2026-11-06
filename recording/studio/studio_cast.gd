@@ -34,7 +34,7 @@ func refresh() -> void:
 		var id := HoardsmanCues.slug(d)
 		if not studio.character_ids.has(id):
 			continue
-		var cues := HHCues.all(id)
+		var cues := HHCues.all(id).filter(func(c: Dictionary) -> bool: return not c.get("shared", false) and not c.get("skipped", false))
 		var done := cues.filter(func(c: Dictionary) -> bool: return c.recorded).size()
 		all_done += done
 		all += cues.size()

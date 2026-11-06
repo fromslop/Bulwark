@@ -1,0 +1,22 @@
+[gd_resource type="AnimationLibrary" format=3]
+
+[ext_resource type="Animation" path="res://animations/pyre_zealot/act_brand.res" id="1_5ombq"]
+[ext_resource type="Animation" path="res://animations/pyre_zealot/act_flinch.res" id="1_6mgl0"]
+[ext_resource type="Animation" path="res://animations/pyre_zealot/act_broken.res" id="1_qfbjo"]
+[ext_resource type="Animation" path="res://animations/pyre_zealot/act_stagger.res" id="1_vu0o7"]
+[ext_resource type="Animation" path="res://animations/pyre_zealot/act_death.res" id="2_e5a1i"]
+[ext_resource type="Animation" path="res://animations/pyre_zealot/act_ember_rain.res" id="3_jni4w"]
+[ext_resource type="Animation" path="res://animations/pyre_zealot/act_flail_arc.res" id="3_pbywy"]
+[ext_resource type="Animation" path="res://animations/pyre_zealot/idle_steady.res" id="5_ri1u6"]
+
+[resource]
+_data = {
+&"act_brand": ExtResource("1_5ombq"),
+&"act_broken": ExtResource("1_qfbjo"),
+&"act_death": ExtResource("2_e5a1i"),
+&"act_ember_rain": ExtResource("3_jni4w"),
+&"act_flail_arc": ExtResource("3_pbywy"),
+&"act_flinch": ExtResource("1_6mgl0"),
+&"act_stagger": ExtResource("1_vu0o7"),
+&"idle_steady": ExtResource("5_ri1u6")
+}

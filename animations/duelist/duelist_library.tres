@@ -1,0 +1,36 @@
+[gd_resource type="AnimationLibrary" format=3]
+
+[ext_resource type="Animation" path="res://animations/duelist/act_broken.res" id="1_4msyg"]
+[ext_resource type="Animation" path="res://animations/duelist/act_lunge.res" id="1_hpr4l"]
+[ext_resource type="Animation" path="res://animations/duelist/act_cut_ml.res" id="1_ksjew"]
+[ext_resource type="Animation" path="res://animations/duelist/act_cut_tl.res" id="1_wnbhb"]
+[ext_resource type="Animation" path="res://animations/duelist/act_flick_high.res" id="1_x4lap"]
+[ext_resource type="Animation" path="res://animations/duelist/idle_bounce.res" id="1_xtj4j"]
+[ext_resource type="Animation" path="res://animations/duelist/act_cut_mr.res" id="1_y6d2o"]
+[ext_resource type="Animation" path="res://animations/duelist/act_cut_tr.res" id="3_nf68n"]
+[ext_resource type="Animation" path="res://animations/duelist/act_jab.res" id="6_7tqwy"]
+[ext_resource type="Animation" path="res://animations/duelist/act_death.res" id="6_glx8q"]
+[ext_resource type="Animation" path="res://animations/duelist/act_flinch.res" id="6_l50dy"]
+[ext_resource type="Animation" path="res://animations/duelist/act_riposte.res" id="8_nf7b1"]
+[ext_resource type="Animation" path="res://animations/duelist/act_stagger.res" id="9_ytddd"]
+[ext_resource type="Animation" path="res://animations/duelist/take_2026-11-05T20-28-40.res" id="14_wyxla"]
+[ext_resource type="Animation" path="res://animations/duelist/take_2026-11-05T20-29-05.res" id="15_83q7e"]
+
+[resource]
+_data = {
+&"act_broken": ExtResource("1_4msyg"),
+&"act_cut_ml": ExtResource("1_ksjew"),
+&"act_cut_mr": ExtResource("1_y6d2o"),
+&"act_cut_tl": ExtResource("1_wnbhb"),
+&"act_cut_tr": ExtResource("3_nf68n"),
+&"act_death": ExtResource("6_glx8q"),
+&"act_flick_high": ExtResource("1_x4lap"),
+&"act_flinch": ExtResource("6_l50dy"),
+&"act_jab": ExtResource("6_7tqwy"),
+&"act_lunge": ExtResource("1_hpr4l"),
+&"act_riposte": ExtResource("8_nf7b1"),
+&"act_stagger": ExtResource("9_ytddd"),
+&"idle_bounce": ExtResource("1_xtj4j"),
+&"take_2026-11-05T20-28-40": ExtResource("14_wyxla"),
+&"take_2026-11-05T20-29-05": ExtResource("15_83q7e")
+}

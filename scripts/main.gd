@@ -24,10 +24,12 @@ const COIN_MERGES := 12  # fusions per second, so a hoard condenses over a few s
 const SHAKE_CAP := 30.0
 const PUNCH_DAMAGE := 3.0
 const SHIELD_STAGGER := 2.0  # stagger from blows a shield took the brunt of
-# A plain weapon hits soft. The big numbers come from what you've done to it (each element
-# or infusion multiplies it), the rings you build around it, and the openings your blocks
-# make. Weapon hits barely fill the stagger meter: blocking is what breaks an enemy.
-const WEAPON_DAMAGE := 0.8
+# A plain weapon hits soft (ItemDefs.WEAPON_DAMAGE; how hard is its pixels: Item.hit_damage).
+# The big numbers come from what you've done to it (each element or infusion multiplies it),
+# the rings you build around it, and the openings your blocks make. Weapon hits barely fill
+# the stagger meter: blocking is what breaks an enemy.
+const CHAIN_STUN := 0.3  # Stormbrand: the chance its lightning locks up a swing being wound up
+const CHAIN_STUN_ASCENDED := 0.6  # ascended: the chance on every foe it strikes
 const INFUSIONS := ["electrified", "superheated", "frosty", "poisoned", "corrosive"]
 const INFUSED_BONUS := 1.35
 const WEAPON_STAGGER := 0.2
@@ -102,10 +104,13 @@ const ELEMENT_COLORS := {"fire": Color(1.0, 0.55, 0.15), "frost": Color(0.7, 0.9
 	"rot": Color(0.65, 0.5, 0.25), "storm": Color(0.6, 0.85, 1.0), "": Color(1.0, 0.65, 0.25)}
 const MAGNET_CATCH := 26.0  # px from the nearest cell: a magnetic item draws the blade to it from this far off
 const STARTING_COINS := 10
-const SHELF_Y := 270.0  # top of the shop shelves
+const SHELF_Y := 230.0  # top of the shop shelves
 const SHELF_W := 140.0
 const SHOP_GEAR := 4  # gear shelves; then a stat shelf and two ring shelves
 const GONG := {"pos": Vector2(1190, 330), "radius": 42.0}
+const REROLL_BASE := 3  # the first reroll of a shop visit
+const REROLL_STEP := 2  # each of the first few costs this much more than the last
+const REROLL_CHEAP := 3  # after this many, every reroll costs double the last
 const DICE := {"pos": Vector2(1190, 225), "radius": 26.0}  # punch to reroll the shop
 const CHUTE := {"pos": Vector2(640, 52), "radius": 38.0}  # shop: feed it scraps, it pays for metal
 # What a cell of scrap is worth down the chute, in coins (anything not listed is just gone).
@@ -121,8 +126,19 @@ const SHELF_SLOTS := [Vector2(995, 150), Vector2(1070, 150), Vector2(1145, 150),
 const MANTEL_Y := 302.0  # the top of the 3D mantel over the hearth, on screen: the lower shelf row sits on it
 const GUARD_WEAR := 3.0  # condition a blow on a raised guard takes off each cell that struck
 const STOKE_CELLS := 60.0  # wood cells thrown on the home fire for a full blaze
-const SMELT_PURSE := 10.0  # scrap value melted in the home hearth for one Coin Purse
+# The trophy rack: a boss's cup for every one felled stands on the board over the mantel
+# (newest first; what doesn't fit waits on the floor). Throw one in the hearth: coins.
+const TROPHY_SHELF_Y := 214.0  # the top of the trophy board, on screen
+const TROPHY_SLOTS := [Vector2(702, 0), Vector2(746, 0), Vector2(790, 0), Vector2(834, 0), Vector2(878, 0)]
 const SNAP_REACH := 55.0
+const KEYHOLE_CHANCE := 0.35  # an ordinary stage (not the one before a boss) hides a keyhole this often
+const VAULT_LOOT_AHEAD := 4  # the vault's gear is what the shops of a run this many stages deeper stock
+const VAULT_GOLD := 60  # loose gold on the vault floor
+const KEYHOLE_REACH := 16.0  # px: how close the key has to come to the keyhole to turn in it
+# Where a keyhole can be, on screen: high on the walls, clear of the foe, the gong and the
+# ring slots (the pile buries anything low)
+const KEYHOLE_SPOTS := [Vector2(108, 86), Vector2(1189, 150), Vector2(1125, 56), Vector2(234, 96), Vector2(332, 58), Vector2(968, 70), Vector2(160, 300)]
+const STORAGE_OUT := Vector2(150, 560)  # where a thing taken out of the cupboard tumbles out
 
 var state := State.HOME
 var round_num := 0
@@ -144,6 +160,7 @@ var items_root: Node2D
 var hand: Hand
 var ui: CanvasLayer
 var codex: Codex
+var storage: Storage  # the cupboard at home
 var save: SaveData
 var debug_label: Label  # F1: developer readout, hidden by default
 var shelves: Array = []  # {rect, price, paid, item, body, kind}
@@ -173,7 +190,7 @@ var explosions := 0  # running count, for tests and tuning
 const BLOWBACK := 0.7  # an enemy that sets off a volatile item takes this much of a point-blank blast
 const BLOWBACK_TIME := 3.0  # how long after its blow a blast still counts as its doing (a chain included)
 var rerolls := 0       # this shop visit
-var secret_next := false  # the hidden lever was pulled: the next fight is in the Hidden Vault
+var secret_next := false  # the Mysterious Key was turned in a hidden keyhole: the next fight is in the Hidden Vault
 var secret_stage := ""  # a secret place unlocked this run (secrets.gd): the next ordinary fight is there
 var _stars_caught := 0  # this fight's falling stars (the way into the Clockwork Orrery)
 var _next_plan: Dictionary = {}  # the next fight, rolled when the shop opens (see _plan_fight)
@@ -183,13 +200,10 @@ var _fight_taken := 0.0  # what got through to the hand this fight
 var _fight_base := 0  # the foes' coin rewards, for the bonus
 var _fight_par := 30.0
 var _fight_reactions: Array = []  # different reactions set off this fight (the way into the Ink Margin)
-var _chute_gold := 0  # gold fed down the chute this shop visit (the way into the Gilded Gullet)
-var _tooth_given := false
 var _recent_places: Array = []  # the last few places fought in this run, newest last (so the next isn't the same again)
 var _last_foe_def: Dictionary = {}  # the last ordinary foe fought: the Errata is a misprint of it
-var _quake := 0.0  # Giant's Table: time to the next footstep
-var _rain := 0.0  # Gilded Gullet: time to the next fall of coin
 var _glint := 0.0
+var _keyhole: Dictionary = {}  # this stage's hidden keyhole, if it has one: {pos, used}
 var free_rerolls := 0  # from horseshoes
 var _debris_check := 0.0
 var _shake := 0.0
@@ -236,6 +250,9 @@ func _ready() -> void:
 	codex = Codex.new()
 	add_child(codex)
 	codex.setup(self)
+	storage = Storage.new()
+	add_child(storage)
+	storage.setup(self)
 	_go_home()
 
 
@@ -279,8 +296,8 @@ func _build_3d() -> void:
 	world3d.add_child(torch)
 	# framed waist-up: the head and hands are the show
 	camera = Camera3D.new()
-	camera.fov = 40.0
-	camera.position = Vector3(0, 1.45, 1.5)
+	camera.fov = Enemy.GAME_FOV  # (the recording studio frames foes the same way)
+	camera.position = Enemy.GAME_CAM
 	world3d.add_child(camera)
 
 
@@ -424,6 +441,8 @@ func _go_home(carry: Item = null) -> void:
 		racks.append({"pos": p, "kind": "weapon", "item": null})
 	for p in SHELF_SLOTS:
 		racks.append({"pos": p, "kind": "any", "item": null, "mantel": p.y > 200.0})
+	for p in TROPHY_SLOTS:
+		racks.append({"pos": Vector2(p.x, TROPHY_SHELF_Y), "kind": "trophy", "item": null})
 	overlay.racks = racks
 	hand.reset_run()  # a fresh hand (this lets go of what it carried: it drops here, yours)
 	# the collections hang in a row along the top wall (hung up high: the floor fills up)
@@ -442,10 +461,26 @@ func _go_home(carry: Item = null) -> void:
 		var slot := int(e.get("slot", -1))
 		if slot >= 0 and slot < racks.size() and racks[slot].item == null:
 			call_deferred("_slot_item", it, slot)
+	_place_trophies()
 	if carry:
 		carry.set_meta("kept", true)
 		_save_home()
 		call_deferred("_save_home")  # (and again once the racks are filled, so their slots are written)
+
+
+## A cup for every boss felled whose cup you still have, newest on the rack, the rest on
+## the floor below it. They aren't kept in the home save: the trophy list is (SaveData.trophies).
+func _place_trophies() -> void:
+	var slots: Array = []
+	for i in racks.size():
+		if racks[i].kind == "trophy":
+			slots.append(i)
+	var cups: Array = save.trophies.duplicate()
+	cups.reverse()
+	for k in cups.size():
+		var it := _spawn(ItemDefs.make_trophy(cups[k]), Vector2(560 + (k - slots.size()) * 40.0, 620) if k >= slots.size() else Vector2(640, 300))
+		if k < slots.size():
+			call_deferred("_slot_item", it, slots[k])
 
 
 ## Write the home down: every item in it, where it sits, and how worn it is.
@@ -455,8 +490,8 @@ func _save_home(leaving: Item = null) -> void:
 		var it := n as Item
 		if it == null or it == leaving or it.is_queued_for_deletion() or not it.owned:
 			continue
-		if it.def.kind in ["menu", "debris"]:
-			continue
+		if it.def.kind in ["menu", "debris", "trophy"]:
+			continue  # (cups come back from the trophy list)
 		var e := SaveData.pack(it)
 		e.slot = -1
 		for i in racks.size():
@@ -476,7 +511,15 @@ func _slot_item(it: Item, i: int) -> void:
 	it.set_meta("slotted", true)
 	it.freeze = true
 	it.rotation = 0.0
-	it.teleport(slot.pos)
+	if it.def.kind == "trophy":
+		it.set_apart(true)  # (on display: nothing you swing at home catches on it)
+	if slot.kind == "trophy":
+		var bottom := 0.0
+		for c in it.cells:
+			bottom = maxf(bottom, it.cell_pos(c).y + Item.CELL * 0.5)
+		it.teleport(Vector2(slot.pos.x, TROPHY_SHELF_Y - bottom))  # stood on the board
+	else:
+		it.teleport(slot.pos)
 
 
 ## Let go of something at home near a free slot and it hangs itself there.
@@ -490,6 +533,9 @@ func _on_released(it: Item) -> void:
 			it.set_meta("thrown", true)
 	if state != State.HOME or it == null or not is_instance_valid(it) or it.def.kind == "menu":
 		return
+	if _over_storage(hand.position) and Storage.storable(it):
+		_put_away(it)
+		return
 	var best := -1
 	var best_d := SNAP_REACH
 	for i in racks.size():
@@ -498,6 +544,8 @@ func _on_released(it: Item) -> void:
 			continue
 		if slot.kind == "weapon" and it.def.kind != "weapon":
 			continue
+		if (slot.kind == "trophy") != (it.def.kind == "trophy"):
+			continue  # (the trophy board is for cups, and cups go on it)
 		var d: float = slot.pos.distance_to(it.global_position)
 		if d < best_d:
 			best_d = d
@@ -508,12 +556,55 @@ func _on_released(it: Item) -> void:
 		Sfx.play("clack", -8.0, 1.2)
 
 
+## The storage cupboard in the corner at home (a prop: props.gd "storage").
+func _over_storage(p: Vector2) -> bool:
+	for pr in props.props:
+		if pr.kind == "storage" and p.distance_to(pr.pos) <= pr.r:
+			return true
+	return false
+
+
+func _put_away(it: Item) -> void:
+	if not storage.store(it):
+		overlay.ring(hand.position, 40.0, Color(1, 0.3, 0.2), 0.3)
+		popups.word(hand.position + Vector2(0, -40), "FULL", Color(1.0, 0.45, 0.35))
+		Sfx.play("deny")
+		return
+	if it.held:
+		hand.release()
+	overlay.ring(hand.position, 50.0, Color(1, 0.9, 0.6), 0.3)
+	popups.word(hand.position + Vector2(0, -40), "STORED", Color(1.0, 0.85, 0.5))
+	Sfx.play("clack", -4.0, 0.8)
+	it.queue_free()
+	on_storage_changed()
+
+
+## Something went in or came out of the cupboard: the home save follows.
+func on_storage_changed() -> void:
+	if state == State.HOME:
+		call_deferred("_save_home")
+	else:
+		save.write()
+
+
 ## Ring the gong at home: the run begins. Whatever's in your hand comes with you.
 func _start_run() -> void:
 	if codex.is_open():
 		codex.toggle()
+	if storage.is_open():
+		storage.toggle()
 	save.tally("runs")
 	var carry := hand.held
+	if carry and carry.def.kind == "trophy":
+		hand.release()  # (a cup stays on its rack)
+		carry = null
+	# whatever coins are lying about at home come along on the run
+	var purse := 0
+	for n in get_tree().get_nodes_in_group("coins"):
+		var c := n as Item
+		if c and c.owned and c != carry and not c.is_queued_for_deletion():
+			purse += coin_value(c)
+			c.queue_free()
 	_save_home(carry)
 	for it in items_root.get_children():
 		if it is Item and it != carry:
@@ -529,6 +620,9 @@ func _start_run() -> void:
 	prestige = 0
 	ItemDefs.run_prestige = 0
 	_spawn_starting_kit()
+	if purse > 0:
+		_spawn_coins(purse, Vector2(520, 600), 120.0)
+		popups.word(Vector2(520, 520), "+%d FROM HOME" % purse, Color(1.0, 0.82, 0.3))
 	_start_fight()
 
 
@@ -587,11 +681,12 @@ func _return_home() -> void:
 # --- flow --------------------------------------------------------------------
 
 ## Each fight happens somewhere: settings cycle with the round (F9 flips through them).
-func _set_backdrop(name: String) -> void:
+func _set_backdrop(name: String, keyhole: bool = false) -> void:
 	if backdrop:
 		backdrop.queue_free()
-	var late: bool = Backdrop.TIERS.late.has(name)
-	backdrop = Backdrop.create(name, late and rng.randf() < 0.5)
+	backdrop = Backdrop.create(name)
+	_keyhole = {"pos": KEYHOLE_SPOTS[rng.randi() % KEYHOLE_SPOTS.size()], "used": false} if keyhole else {}
+	overlay.keyhole = _keyhole
 	world3d.add_child(backdrop)
 	styles.set_base_env(Backdrop.ENV[name])
 	styles.set_world_look(Backdrop.LOOK[name])
@@ -615,10 +710,7 @@ func _add_features() -> void:
 		"Crypt Chapel":
 			_fixture(ItemDefs.make("reliquary", "steel"), Vector2(1100, 200), true)
 		"Hidden Vault":
-			_fixture(ItemDefs.make("reliquary", "steel"), Vector2(1100, 200), true)
-			var rings := ItemDefs.ring_ids()
-			_fixture(ItemDefs.make_upgrade(rings[rng.randi() % rings.size()]), Vector2(160, 180), true)
-			_spawn_coins(15, Vector2(640, 300), 200.0)
+			_vault_hoard()
 		"Forge":
 			_fixture(ItemDefs.make("smith_hammer", "iron"), Vector2(1130, 210), true)
 			if rng.randf() < 0.6:
@@ -630,11 +722,6 @@ func _add_features() -> void:
 			_fixture(ItemDefs.make("reliquary", "steel"), Vector2(180, 200), true)
 		"Star Chamber":
 			_fixture(ItemDefs.make("potion_levitation", "glass"), Vector2(1150, 200), true)
-		"Gilded Gullet":
-			_secret_prize(["magnetic"])
-			_fixture(ItemDefs.make("coin25", "gold"), Vector2(180, 200), true)
-		"Giant's Table":
-			_secret_prize(["large"])
 		"Clockwork Orrery":
 			_secret_prize(["electrified"])
 		"Ink Margin":
@@ -645,6 +732,34 @@ func _add_features() -> void:
 			var rare := ItemDefs.pick_rare(rng, "weapon", [epic])
 			_fixture(ItemDefs.make(["greatsword", "warhammer", "longsword"][rng.randi() % 3], "prestigium", ["superheated", epic, rare]), Vector2(1100, 200), true)
 			_spawn_coins(60, Vector2(640, 300), 260.0)
+
+
+## The Hidden Vault is heaped with things for the taking: two reliquaries, two rings and a
+## hand upgrade, a rack of late-run gear, utilities, potions and kits, all hung on the walls
+## either side of the Warden (the middle stays clear, to see him), and gold all over the floor.
+func _vault_hoard() -> void:
+	var spots: Array = []
+	for row in 4:
+		for col in 3:
+			spots.append(Vector2(70 + col * 88, 120 + row * 88))  # the left wall
+			spots.append(Vector2(1034 + col * 88, 120 + row * 88))  # the right (the Warden fills the middle)
+	spots.shuffle()
+	var late := round_num + VAULT_LOOT_AHEAD  # the stock of a run this much deeper
+	var hoard: Array = [ItemDefs.make("reliquary", "steel"), ItemDefs.make("reliquary", "steel")]
+	var rings := ItemDefs.ring_ids().filter(func(k: String) -> bool: return not hand.has_ring(k))
+	rings.shuffle()
+	for i in mini(2, rings.size()):
+		hoard.append(ItemDefs.make_upgrade(rings[i]))
+	hoard.append(ItemDefs.make_upgrade(ItemDefs.roll_stat(rng, hand.ring_slots < Hand.MAX_RING_SLOTS)))
+	for i in 6:
+		hoard.append(ItemDefs.roll_offer(late, rng, ["weapon", "shield"]))
+	for i in 2:
+		hoard.append(ItemDefs.roll_offer(late, rng, ["utility"]))
+	for i in 2:
+		hoard.append(ItemDefs.roll_offer(late, rng, ["consumable", "potion"]))
+	for i in mini(hoard.size(), spots.size()):
+		_fixture(hoard[i], spots[i], true)
+	_spawn_coins(VAULT_GOLD, Vector2(640, 360), 260.0)
 
 
 func _fixture(d: Dictionary, at: Vector2, hanging: bool) -> Item:
@@ -699,32 +814,6 @@ func _setting_physics(delta: float) -> void:
 				if it and not it.freeze and not it.is_queued_for_deletion():
 					it.apply_central_force(Vector2(0, -it.mass * 980.0 * 0.85))
 					it.linear_velocity *= 0.995
-		"Gilded Gullet":
-			# gold rains down the throat now and then: yours if you can keep it from the golem
-			_rain -= delta
-			if _rain <= 0.0:
-				_rain = rng.randf_range(4.0, 7.0)
-				_spawn_coins(rng.randi_range(2, 5), Vector2(rng.randf_range(200, 1080), -20), 40.0)
-		"Giant's Table":
-			# the giant walks past: the whole table jumps
-			_quake -= delta
-			if _quake <= 0.0:
-				_quake = rng.randf_range(6.0, 9.0)
-				_shake += 14.0
-				Sfx.play("boom", -4.0, 0.4)
-				for n in get_tree().get_nodes_in_group("items"):
-					var it := n as Item
-					if it and not it.freeze and not it.held:
-						it.apply_central_impulse(Vector2(rng.randf_range(-120, 120), -rng.randf_range(250, 450)) * it.mass)
-			# the cat can't help itself: a gold coin flying past makes it drop its swing
-			for e in living():
-				if e.data.get("distractible", false) and e.state == "windup":
-					for n in get_tree().get_nodes_in_group("items"):
-						var c := n as Item
-						if c and c.def.kind == "coin" and c.linear_velocity.length() > 450.0:
-							e.stagger()
-							popups.word(camera.unproject_position(e.head.global_position) + Vector2(0, -40), "!", Color(1.0, 0.85, 0.3))
-							break
 		"Clockwork Orrery":
 			# light gravity, and the planets sweep through on their arms, batting things aside
 			for n in get_tree().get_nodes_in_group("items"):
@@ -815,9 +904,7 @@ func _start_fight() -> void:
 	hand.pain = 0.0
 	_second_wind_used = false
 	_fight_reactions.clear()
-	_quake = 5.0
-	_rain = 3.0
-	_set_backdrop(plan.place)
+	_set_backdrop(plan.place, _keyhole_here(plan.place))
 	_recent_places.append(plan.place)
 	if _recent_places.size() > 3:
 		_recent_places.pop_front()
@@ -947,16 +1034,9 @@ func _feed_chute() -> void:
 		var it := n as Item
 		if it == null or not it.owned or it.is_queued_for_deletion() or it.freeze:
 			continue
-		var gold: bool = it.def.kind == "coin"  # gold down the chute: it pays nothing, but it remembers
-		if it.def.kind != "debris" and not it.def.get("piece", false) and not gold:
+		if it.def.kind != "debris" and not it.def.get("piece", false):
 			continue
 		if it.to_global(it.center_of_mass).distance_to(CHUTE.pos) > CHUTE.radius:
-			continue
-		if gold:
-			if it.held:
-				hand.release()
-			_chute_ate_gold(coin_value(it))
-			it.queue_free()
 			continue
 		for c in it.cells:
 			_scrap_bank += float(SCRAP_VALUE.get(it.cells[c].mat, 0.0)) * (1.0 - 0.5 * float(it.cells[c].get("rust", 0.0)))
@@ -1137,8 +1217,6 @@ func _defeat() -> void:
 
 func _open_shop() -> void:
 	state = State.SHOP
-	_chute_gold = 0
-	_tooth_given = false
 	for e in enemies:
 		if is_instance_valid(e):
 			e.visible = false
@@ -1147,6 +1225,8 @@ func _open_shop() -> void:
 	overlay.gong = GONG
 	overlay.dice = DICE
 	overlay.chute = CHUTE
+	_keyhole = {}
+	overlay.keyhole = {}  # (the shop has no keyhole: it was the fight's wall)
 	overlay.door = DOOR if is_boss_round() or _core_cleared else {}
 	overlay.lift = _core_cleared
 	if _core_cleared:
@@ -1164,8 +1244,15 @@ func _open_shop() -> void:
 	_stock_shelves(true)
 
 
+## What the next reroll of this shop costs: 3, 5, 7 for the first few, then it doubles
+## every time (14, 28, 56...). A horseshoe's free one doesn't count toward it.
 func reroll_cost() -> int:
-	return 0 if free_rerolls > 0 else 2 + rerolls
+	if free_rerolls > 0:
+		return 0
+	if rerolls < REROLL_CHEAP:
+		return REROLL_BASE + REROLL_STEP * rerolls
+	var last_cheap := REROLL_BASE + REROLL_STEP * (REROLL_CHEAP - 1)
+	return last_cheap * int(pow(2.0, rerolls - REROLL_CHEAP + 1))
 
 
 ## Seven shelves: four of gear (the first stocking of a visit always puts a consumable on
@@ -1254,7 +1341,8 @@ func _pay(amount: int, change_at: Vector2) -> bool:
 func _add_shelf(d: Dictionary, x: float, kind: String = "gear") -> void:
 	var rect := Rect2(x - SHELF_W * 0.5, SHELF_Y, SHELF_W, 10)
 	var body := StaticBody2D.new()
-	body.collision_layer = 2
+	body.collision_layer = Item.SHOP_LAYER  # (the hoard passes through it: see Item.SHOP_LAYER)
+	body.collision_mask = 0
 	var cs := CollisionShape2D.new()
 	var rs := RectangleShape2D.new()
 	rs.size = rect.size
@@ -1265,6 +1353,7 @@ func _add_shelf(d: Dictionary, x: float, kind: String = "gear") -> void:
 	var it := Item.create(d)
 	it.owned = false
 	it.freeze = true
+	it.set_apart(true)
 	it.position = Vector2(x, SHELF_Y - it.origin.y - 1.0)
 	items_root.add_child(it)
 	_discover(d)  # seen on a shelf counts as found
@@ -1308,6 +1397,7 @@ func _on_buy_attempt(it: Item, at: Vector2) -> void:
 		return
 	it.owned = true
 	it.freeze = false
+	it.set_apart(false)
 	overlay.ring(it.global_position, 60.0, Color(1, 0.85, 0.3))
 	Sfx.play("buy")
 	sh.body.queue_free()
@@ -1448,8 +1538,6 @@ func _resolve_attack(atk: Dictionary, who: Enemy = null) -> void:
 			var it := n as Item
 			if it and it.owned and not it.freeze:
 				it.reverse_time = 2.0
-	if enemy_greedy(who):
-		_swallow_coins(poly, who if who else enemy)
 	var dir: Vector2 = (atk.dir as Vector2).normalized()
 	var lanes := Lanes.build(poly, dir)
 	if lanes.is_empty():
@@ -1775,8 +1863,6 @@ func _physics_process(_delta: float) -> void:
 		for it in items_root.get_children():
 			if it is Item and it.swing_time > 0.0 and _over_gong(it):
 				_strike_gong()
-			elif state == State.SHOP and not _falling and it is Item and it.def.get("id", "") == "gilded_tooth" and _over_gong(it):
-				_tooth_to_gong(it)
 			elif state == State.HOME and it is Item and it.swing_time > 0.0 and not it.swing_hit and it.def.kind == "weapon":
 				for pr in props.props:
 					if pr.kind == "dummy" and props._touches(it, pr):
@@ -1787,14 +1873,16 @@ func _physics_process(_delta: float) -> void:
 	if state != State.COMBAT or living().is_empty():
 		return
 	var regs := _all_regions()
-	var lp := _lever_screen()
+	var kp := _keyhole_screen()
 	for it in items_root.get_children():
-		if it is Item and it.swing_time > 0.0 and not it.swing_hit:
-			if lp.is_finite():
-				for c in it.cells:
-					if it.to_global(it.cell_pos(c)).distance_to(lp) < 20.0:
-						_try_lever(lp, 1.0)
-						break
+		if not it is Item:
+			continue
+		if kp.is_finite() and it.def.get("id", "") == "key" and it.owned and not it.is_queued_for_deletion():
+			for c in it.cells:
+				if it.to_global(it.cell_pos(c)).distance_to(kp) < KEYHOLE_REACH:
+					_try_keyhole(it)
+					break
+		if it.swing_time > 0.0 and not it.swing_hit:
 			_check_weapon_hit(it, regs)
 
 
@@ -1825,8 +1913,7 @@ func _check_weapon_hit(it: Item, regs: Array) -> bool:
 		var speed_f := clampf(absf(it.angular_velocity) / float(wd.get("swing_speed", 10.0)), 0.35, 1.15)
 		if thrown:
 			speed_f = clampf(it.linear_velocity.length() / 1400.0, 0.5, 1.15)
-		var sharp: float = Materials.get_mat(wd.get("material", it.def.material)).sharp
-		var dmg: float = float(wd.get("swing_damage", 4.0)) * WEAPON_DAMAGE * sharp * it.edge_condition() * speed_f * r.mult
+		var dmg: float = it.hit_damage(wd) * speed_f * r.mult  # (its pixels, by material and condition)
 		# electrified: shocks through armour, so armoured parts take the most
 		if it.charge > 0.1:
 			dmg *= 1.0 + it.charge * (0.2 + float(r.armor) * enemy.data.armor * 1.5)
@@ -2285,7 +2372,9 @@ func _legend_hit(it: Item, legend: String, asc: bool, enemy: Enemy, dmg: float, 
 				if e != enemy:
 					e.take_hit(dmg * (1.0 if asc else 0.5), "torso", false)
 					overlay.streak(r.center, camera.unproject_position(e.torso.global_position), 3.0, Color(0.6, 0.85, 1.0))
-				if asc or e.state == "windup":
+				# a chance, not a sure thing: a swing being wound up can be locked up (ascended:
+				# better odds, and on any foe, winding up or not)
+				if (asc or e.state == "windup") and randf() < (CHAIN_STUN_ASCENDED if asc else CHAIN_STUN):
 					e.stagger()
 			overlay.sparks(r.center, 30000.0, Color(0.6, 0.85, 1.0))
 		"flare":
@@ -2549,28 +2638,6 @@ func _guardian(place: String, p: int = -1) -> Dictionary:
 	return d
 
 
-func enemy_greedy(who: Enemy) -> bool:
-	var e: Enemy = who if who else enemy
-	return is_instance_valid(e) and e.data.get("greedy", false)
-
-
-## The Coin Golem's blows swallow any coin in their path, and it grows back on them.
-func _swallow_coins(poly: PackedVector2Array, e: Enemy) -> void:
-	var eaten := 0
-	for n in get_tree().get_nodes_in_group("items"):
-		var c := n as Item
-		if c == null or c.def.kind != "coin" or c.is_queued_for_deletion() or c.held:
-			continue
-		if Geometry2D.is_point_in_polygon(c.global_position, poly):
-			eaten += coin_value(c)
-			overlay.streak(c.global_position, camera.unproject_position(e.head.global_position), 2.0, Color(1.0, 0.85, 0.3), 0.25)
-			c.queue_free()
-	if eaten > 0:
-		e.hp = minf(e.max_hp, e.hp + eaten * 4.0)
-		popups.word(camera.unproject_position(e.head.global_position) + Vector2(0, -40), "GULP +%d" % (eaten * 4), Color(1.0, 0.85, 0.3))
-		Sfx.play("ting", -2.0, 0.6)
-
-
 ## The Clockwork Orrery's planets: where each is now. Two on long arms, opposite ways round.
 func planets() -> Array:
 	if setting() != "Clockwork Orrery":
@@ -2585,41 +2652,6 @@ func planets() -> Array:
 		var vel := Vector2(-sin(a) * radius.x, cos(a) * radius.y) * sgn
 		out.append({"pos": pos, "vel": vel, "r": [42.0, 30.0][k], "color": [Color(0.85, 0.55, 0.3), Color(0.5, 0.75, 0.95)][k]})
 	return out
-
-
-## The Gilded Gullet's chain, step one: the chute eats gold and, at 40, coughs up a tooth.
-func _chute_ate_gold(value: int) -> void:
-	_chute_gold += value
-	if _chute_gold >= 40 and not _tooth_given:
-		_tooth_given = true
-		_spawn(ItemDefs.make("gilded_tooth", "gold"), CHUTE.pos + Vector2(0, 60))
-		popups.word(CHUTE.pos + Vector2(0, 40), "*hic*", Color(1.0, 0.85, 0.3))
-		Sfx.play("clang", -2.0, 1.4)
-
-
-## Step two: the tooth touches the gong, and the gong swallows you.
-func _tooth_to_gong(tooth: Item) -> void:
-	if secret_stage != "" or secret_next:
-		var now := Time.get_ticks_msec()
-		if now - int(tooth.get_meta("denied_at", -10000)) > 1500:
-			Sfx.play("deny")  # the way is already open somewhere else: keep the tooth for later
-		tooth.set_meta("denied_at", now)
-		return
-	if tooth.held:
-		hand.release()
-	tooth.queue_free()
-	_unlock_secret("Gilded Gullet")
-	_strike_gong()
-
-
-## The Giant's Table's chain, last step: something shrunk twice goes through the brick's hole.
-func on_through_hole(it: Item, at: Vector2) -> void:
-	if it.held:
-		hand.release()
-	overlay.ring(at, 50.0, Color(0.95, 0.85, 0.6), 0.5)
-	it.queue_free()
-	popups.word(at + Vector2(0, -40), "...and so do you", Color(0.95, 0.85, 0.6))
-	_unlock_secret("Giant's Table")
 
 
 ## The Clockwork Orrery's chain, last step: the star that waited is reached.
@@ -2689,9 +2721,13 @@ func release_if_holding(it: Item) -> void:
 		hand.release()
 
 
-## The home hearth melts junk down: a thing left in the fire burns away and its scrap value
-## builds up (saved) until a Coin Purse pops out to take on a run.
+## The home hearth melts things down into coins (they come along on the next run). A boss's
+## cup melts into its worth all at once, and its place on the rack is gone for good. Junk
+## melts into its scrap value, saved up until it makes a whole coin.
 func on_smelt(it: Item, at: Vector2) -> void:
+	if it.def.kind == "trophy":
+		_melt_trophy(it, at)
+		return
 	var value := 0.0
 	var wood := 0
 	for c in it.cells:
@@ -2708,13 +2744,36 @@ func on_smelt(it: Item, at: Vector2) -> void:
 	overlay.sparks(at, 8000.0, Color(1.0, 0.55, 0.15))
 	Sfx.play("soft", -4.0, 0.6)
 	save.stats.smelt = float(save.stats.get("smelt", 0.0)) + value
-	while float(save.stats.smelt) >= SMELT_PURSE:
-		save.stats.smelt = float(save.stats.smelt) - SMELT_PURSE
-		var purse := _spawn(ItemDefs.make("coin_purse", "leather"), at + Vector2(-140, -80))
-		purse.linear_velocity = Vector2(-220, -320)
-		popups.word(at + Vector2(-60, -120), "COIN PURSE", Color(1.0, 0.82, 0.3))
-		Sfx.play("ting", 0.0, 1.2)
+	var coins := floori(float(save.stats.smelt))
+	if coins > 0:
+		save.stats.smelt = float(save.stats.smelt) - coins
+		_hearth_coins(coins, at)
 	save.write()
+
+
+func _melt_trophy(it: Item, at: Vector2) -> void:
+	var entry: Array = it.def.get("trophy", [])
+	var worth := int(it.def.get("melt_value", 0))
+	save.trophies.erase(entry)  # (the first cup like it: they're all the same)
+	save.stats.melted_cups = int(save.stats.get("melted_cups", 0)) + 1
+	if it.held:
+		hand.release()
+	it.queue_free()
+	overlay.sparks(at, 12000.0, Color(1.0, 0.8, 0.3))
+	Sfx.play("soft", -4.0, 0.6)
+	_hearth_coins(worth, at)
+	_save_home()
+
+
+## Melted gold spills out of the hearth onto the floor in front of it.
+func _hearth_coins(n: int, at: Vector2) -> void:
+	_spawn_coins(n, at + Vector2(-150, -60), 0.0)
+	for c in get_tree().get_nodes_in_group("coins"):
+		var ci := c as Item
+		if ci and ci.global_position.distance_to(at + Vector2(-150, -60)) < 40.0 and ci.linear_velocity.length() < 1.0:
+			ci.linear_velocity = Vector2(randf_range(-320, -160), randf_range(-320, -180))
+	popups.word(at + Vector2(-60, -120), "+%d" % n, Color(1.0, 0.82, 0.3))
+	Sfx.play("ting", 0.0, 1.2)
 
 
 ## The training dummy at home takes a hit: what that weapon (or a punch) would do, rings,
@@ -2724,7 +2783,7 @@ func on_dummy_hit(it: Item, at: Vector2) -> void:
 	if it:
 		var wd: Dictionary = it.swing_part if not it.swing_part.is_empty() else it.def
 		var speed_f := clampf(absf(it.angular_velocity) / float(wd.get("swing_speed", 10.0)), 0.35, 1.15)
-		dmg = float(wd.get("swing_damage", 4.0)) * WEAPON_DAMAGE * Materials.get_mat(wd.get("material", it.def.material)).sharp * it.edge_condition() * speed_f
+		dmg = it.hit_damage(wd) * speed_f
 		for m in INFUSIONS:
 			if it.has_mod(m):
 				dmg *= INFUSED_BONUS
@@ -2870,24 +2929,41 @@ func on_star_caught(at: Vector2) -> void:
 	save.discover("secrets", "star")
 
 
-## Where the hidden lever is on screen, if this setting has one still up.
-func _lever_screen() -> Vector2:
-	if backdrop == null or backdrop.lever == null or backdrop.lever_pulled or state != State.COMBAT:
+## Where the hidden keyhole is on screen, if this stage has one still locked.
+func _keyhole_screen() -> Vector2:
+	if _keyhole.is_empty() or _keyhole.used or state != State.COMBAT:
 		return Vector2.INF
-	return camera.unproject_position(backdrop.lever.global_position)
+	return _keyhole.pos
 
 
-func _try_lever(at: Vector2, reach: float) -> bool:
-	var lp := _lever_screen()
-	if not lp.is_finite() or at.distance_to(lp) > reach:
+## Does this fight's stage hide a keyhole? Only the ordinary places, some of the time, and
+## never the stage before a boss (the vault it opens would take the boss's place).
+func _keyhole_here(place: String) -> bool:
+	if secret_next or not place in Backdrop.SETTINGS + ["Ossuary", "Star Chamber"]:
 		return false
-	backdrop.pull_lever()
+	if round_num % EnemyDefs.STAGES == EnemyDefs.BOSS_STAGE - 1:
+		return false
+	return rng.randf() < KEYHOLE_CHANCE
+
+
+## The Mysterious Key, brought to the keyhole: it turns, it's gone, and the next fight is in
+## the Hidden Vault.
+func _try_keyhole(key: Item) -> bool:
+	var kp := _keyhole_screen()
+	if not kp.is_finite():
+		return false
+	if key.held:
+		hand.release()
+	key.queue_free()
+	_keyhole.used = true
+	overlay.queue_redraw()
 	secret_next = true
 	save.discover("secrets", "vault")
-	overlay.ring(lp, 120.0, Color(1.0, 0.85, 0.3), 0.8)
-	overlay.sparks(lp, 40000.0, Color(1.0, 0.85, 0.3))
-	Sfx.play("gong", -4.0, 0.5)
+	overlay.ring(kp, 120.0, Color(1.0, 0.85, 0.3), 0.8)
+	overlay.sparks(kp, 40000.0, Color(1.0, 0.85, 0.3))
+	popups.word(kp + Vector2(0, -40), "*click*", Color(1.0, 0.85, 0.4))
 	Sfx.play("clack", 0.0, 0.6)
+	Sfx.play("gong", -4.0, 0.5)
 	_shake += 12.0
 	return true
 
@@ -2919,7 +2995,13 @@ func _on_punched(at: Vector2) -> void:
 			overlay.ring(DOOR.pos, 30.0, Color(1, 0.3, 0.2), 0.3)  # bring something home
 			Sfx.play("deny")
 		return
-	if _try_lever(at, 24.0):
+	var kp := _keyhole_screen()
+	if kp.is_finite() and at.distance_to(kp) <= 24.0:
+		popups.word(kp + Vector2(0, -30), "LOCKED", Color(0.95, 0.8, 0.45))  # (a fist won't open it)
+		Sfx.play("clack", -6.0, 1.5)
+		return
+	if state == State.HOME and _over_storage(at):
+		storage.toggle()
 		return
 	if state in [State.COMBAT, State.VICTORY, State.SHOP, State.HOME] and not _falling and props.punch(at):
 		return
@@ -3386,12 +3468,12 @@ func _process(delta: float) -> void:
 	_track_held()
 	_tick_wisps(delta)
 	_tick_storms(delta)
-	var lp := _lever_screen()
-	if lp.is_finite():
+	var kp := _keyhole_screen()
+	if kp.is_finite():
 		_glint -= delta
 		if _glint <= 0.0:
-			_glint = rng.randf_range(3.0, 6.0)
-			overlay.sparks(lp + Vector2(0, -6), 3000.0, Color(1, 0.95, 0.7))
+			_glint = rng.randf_range(4.0, 8.0)
+			overlay.sparks(kp + Vector2(0, -4), 1500.0, Color(1, 0.9, 0.6))  # a faint glint off the brass
 	camera.h_offset = randf_range(-1.0, 1.0) * _shake * 0.004 * Settings.shake
 	camera.v_offset = randf_range(-1.0, 1.0) * _shake * 0.004 * Settings.shake
 	_debris_check -= delta

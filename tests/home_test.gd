@@ -76,7 +76,7 @@ func _test_home_opens() -> void:
 	_check(_find("codex") != null and _find("mirror") != null, "the codex and the mirror should be on the floor")
 	# a fresh load (game start, or the reload after a death) brings up home's night ambience
 	_check(Music._inst != null and float(Music._inst._target.get("amb_night", 0.0)) == 1.0, "a fresh load at home should bring up the night ambience")
-	_check(main.racks.size() == 10, "four rack pegs and six shelf spots (got %d)" % main.racks.size())
+	_check(main.racks.size() == 10 + main.TROPHY_SLOTS.size(), "four rack pegs, six shelf spots and the trophy rack (got %d)" % main.racks.size())
 	_check(not main.overlay.gong.is_empty(), "the gong should hang at home")
 	# the codex opens and closes
 	main.codex.toggle()

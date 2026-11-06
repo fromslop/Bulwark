@@ -30,6 +30,10 @@ func _process(_d: float) -> bool:
 	if f == 8:
 		var i: int = studio.cues.find_custom(func(c: Dictionary) -> bool: return c.clip == clip)
 		studio.pick_cue(i)
+		# the Assign window with a shared clip's choices open
+		if not studio.shared_cues.is_empty():
+			studio.assign_board._open = studio.shared_cues[0].clip
+			studio.assign_board.refresh()
 	if f == 40:
 		for p in studio.workspace.panels:
 			p.viewport.get_texture().get_image().save_png("res://shots/studio_%s.png" % str(p.name).to_snake_case())

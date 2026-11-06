@@ -2,7 +2,7 @@
 ## beside it), so the panel teaches the shortcuts while you click.
 ##
 ##   [ ●  RECORD          MENU ]
-##   [ ▶  Replay              A ]   [ ⇄  Mirror view        B ]
+##   [ ▶  Replay              A ]
 ##   [ ⧉  Play-along         Y ]   [ ✂  Punch-in: off  L-stick ]
 ##   [ ◌  Ghost cubes  R-stick ]
 ##   LAST TAKE
@@ -13,7 +13,6 @@ extends HHPanel
 var studio
 var _rec: Button
 var _replay: Button
-var _view: Button
 var _along: Button
 var _punch: Button
 var _ghost: Button
@@ -33,11 +32,10 @@ func _init(p_studio) -> void:
 	grid.add_theme_constant_override("v_separation", 12)
 	body.add_child(grid)
 	_replay = _button("", "A", func() -> void: studio.toggle_replay())
-	_view = _button("", "B", func() -> void: studio.toggle_view())
 	_along = _button("", "Y", func() -> void: studio.toggle_play_along())
 	_punch = _button("", "L-STICK", func() -> void: studio.cycle_punch())
 	_ghost = _button("", "R-STICK", func() -> void: studio.toggle_ghost())
-	for b in [_replay, _view, _along, _punch, _ghost]:
+	for b in [_replay, _along, _punch, _ghost]:
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		grid.add_child(b)
 	var gap := Control.new()
@@ -87,7 +85,6 @@ func refresh() -> void:
 	var has_take: bool = studio.last_clean != null and studio.character != null
 	_replay.text = "■   Back to live" if studio.replay else "▶   Replay last take"
 	_replay.disabled = not idle or not (has_take or studio.replay)
-	_view.text = "⇄   Mirror view" if studio.mirror_view else "⇄   Behind view"
 	_along.text = "◫   Play-along: %s" % ("on" if studio.play_along else "off")
 	_along.disabled = not idle
 	var punch: String = studio.punch_group()
@@ -96,7 +93,6 @@ func refresh() -> void:
 	_punch.disabled = not idle
 	_ghost.text = "◇   Ghost cubes: %s" % ("on" if studio.ghost_cubes_visible else "off")
 	_ghost.disabled = not idle
-	_view.disabled = not idle
 	if studio.last_take:
 		var t: HHTake = studio.last_take
 		var who := t.character_id if t.character_id != "" else "free"

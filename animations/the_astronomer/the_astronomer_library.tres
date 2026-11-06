@@ -1,0 +1,22 @@
+[gd_resource type="AnimationLibrary" format=3]
+
+[ext_resource type="Animation" path="res://animations/the_astronomer/act_comet.res" id="1_2ehkh"]
+[ext_resource type="Animation" path="res://animations/the_astronomer/idle_steady.res" id="1_4200g"]
+[ext_resource type="Animation" path="res://animations/the_astronomer/act_broken.res" id="1_rdx0b"]
+[ext_resource type="Animation" path="res://animations/the_astronomer/act_orbit.res" id="2_7b0n5"]
+[ext_resource type="Animation" path="res://animations/the_astronomer/act_flinch.res" id="2_etunv"]
+[ext_resource type="Animation" path="res://animations/the_astronomer/act_unmoor.res" id="3_vnuv3"]
+[ext_resource type="Animation" path="res://animations/the_astronomer/act_spark.res" id="3_xmo46"]
+[ext_resource type="Animation" path="res://animations/the_astronomer/act_stagger.res" id="5_rcuhs"]
+
+[resource]
+_data = {
+&"act_broken": ExtResource("1_rdx0b"),
+&"act_comet": ExtResource("1_2ehkh"),
+&"act_flinch": ExtResource("2_etunv"),
+&"act_orbit": ExtResource("2_7b0n5"),
+&"act_spark": ExtResource("3_xmo46"),
+&"act_stagger": ExtResource("5_rcuhs"),
+&"act_unmoor": ExtResource("3_vnuv3"),
+&"idle_steady": ExtResource("1_4200g")
+}

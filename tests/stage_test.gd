@@ -1,6 +1,6 @@
 extends SceneTree
 ## Settings and their features: tiers, fixtures, floodwater, the hearth, darkness, the
-## hidden lever. Run: Godot_console.exe --headless --fixed-fps 60 --path . -s res://tests/stage_test.gd
+## hidden keyhole that takes the Mysterious Key to the Hidden Vault, never on the stage before a boss. Run: Godot_console.exe --headless --fixed-fps 60 --path . -s res://tests/stage_test.gd
 
 var main: Node
 var frame := 0
@@ -28,6 +28,7 @@ var ash: Item
 var rot: Item
 var sound: Item
 var coins0 := 0
+var vault_key: Item
 var chute_bits: Array = []
 var strongbox: Item
 
@@ -96,16 +97,38 @@ func _process(_d: float) -> bool:
 			main._set_backdrop("Catacombs")
 			_check(main.styles.dark, "the catacombs should be dark")
 			main._set_backdrop("Forge")
-			main.backdrop.queue_free()
-			main.backdrop = Backdrop.create("Forge", true)
-			main.world3d.add_child(main.backdrop)
+			# no keyhole on the stage before a boss, ever; elsewhere now and then
+			var keep_round: int = main.round_num
+			main.round_num = EnemyDefs.BOSS_STAGE - 1
+			var pre_boss := 0
+			for i in 300:
+				if main._keyhole_here("Forge"):
+					pre_boss += 1
+			main.round_num = 1
+			var elsewhere := 0
+			for i in 300:
+				if main._keyhole_here("Forge"):
+					elsewhere += 1
+			main.round_num = keep_round
+			_check(pre_boss == 0, "a keyhole should never turn up on the stage before a boss (%d of 300)" % pre_boss)
+			_check(elsewhere > 40 and elsewhere < 200, "a keyhole should turn up on some ordinary stages (%d of 300)" % elsewhere)
+			main._set_backdrop("Forge", true)
 		152:
-			var lp: Vector2 = main._lever_screen()
-			_check(lp.is_finite() and main._try_lever(lp, 5.0), "punching the hidden lever should pull it")
-			_check(main.secret_next, "pulling the lever should lead to the Hidden Vault")
+			var kp: Vector2 = main._keyhole_screen()
+			_check(kp.is_finite(), "the stage should have a keyhole")
+			main.hand.position = kp + Vector2(0, -40)  # (the fist on it: locked)
+			main._on_punched(kp)
+			_check(not main.secret_next, "a fist shouldn't open the keyhole")
+			vault_key = main._spawn(ItemDefs.make("key", "copper"), kp)
+			vault_key.freeze = true
+		153:
+			_check(main.secret_next, "the Mysterious Key at the keyhole should open the way to the Hidden Vault")
+			_check(not is_instance_valid(vault_key) or vault_key.is_queued_for_deletion(), "the key should stay in the lock")
 			main._start_fight()
 		154:
 			_check(main.setting() == "Hidden Vault" and main.enemy.data.name == "Vault Warden", "the next fight should be the Hidden Vault and its Warden")
+			var hoard: Array = main.get_tree().get_nodes_in_group("items").filter(func(n: Node) -> bool: return n is Item and n.has_meta("fixture"))
+			_check(hoard.size() >= 12, "the vault should be heaped with things to take (%d)" % hoard.size())
 			_check(not main.styles.dark, "leaving the catacombs should bring the light back")
 			# spent bits crumble after a fight; sound scrap stays
 			ash = _scrap("wood", Vector2(300, 600))

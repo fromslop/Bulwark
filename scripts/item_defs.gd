@@ -33,9 +33,10 @@ const DEFS := {
 	"tower_shield": {"title": "Tower Shield", "kind": "shield", "shape": "tower", "price": 8,
 		"materials": ["wood", "iron", "steel"]},
 	"rock": {"title": "Rock", "kind": "junk", "shape": "rock", "price": 1, "materials": ["stone"]},
-	# A key to nothing yet: somewhere there's a lock for it. (Not junk: the hearth won't take it.)
+	# The key to the Hidden Vault: some stages hide a little keyhole high in a wall (never the
+	# stage before a boss). Bring the key to it and it turns: the next fight is in the vault.
 	"key": {"title": "Mysterious Key", "kind": "curio", "shape": "key", "price": 6, "materials": ["copper"],
-		"effect": "Old, heavy, and warm to the touch. It fits nothing you've found. Yet."},
+		"effect": "Old, heavy, and warm to the touch. Somewhere down here there's a keyhole it fits, small and high in a wall. Bring it there."},
 	"glue_pot": {"title": "Glue Pot", "kind": "consumable", "shape": "pot", "price": 3, "materials": ["wood"],
 		"applies": "sticky", "uses": 1},
 	"coin_purse": {"title": "Coin Purse", "kind": "utility", "utility": "purse", "shape": "purse", "price": 6,
@@ -72,8 +73,10 @@ const DEFS := {
 	# Kits: dab a modifier onto a piece of gear (like the Glue Pot)
 	"resin": {"title": "Resin Block", "kind": "consumable", "shape": "resin", "price": 4, "materials": ["wood"],
 		"applies": "reinforced", "uses": 1},
+	# Retired: it did what Featherdraught does. Kept so homes that hold one still load; never
+	# sold, and the ledger only lists it for someone who already found one.
 	"wisp_jar": {"title": "Bottled Wisp", "kind": "consumable", "shape": "wisp", "price": 7, "materials": ["glass"],
-		"applies": "weightless", "uses": 1},
+		"applies": "weightless", "uses": 1, "shop": false, "retired": true},
 	"spike_kit": {"title": "Spike Kit", "kind": "consumable", "shape": "spikes", "price": 5, "materials": ["iron"],
 		"applies": "spiked", "uses": 1},
 	"potion_prestigium": {"title": "Ascendant Draught", "kind": "potion", "liquid": "to_prestigium", "liquid_color": Color(0.3, 0.75, 0.95), "shape": "flask",
@@ -120,10 +123,13 @@ const DEFS := {
 	"lantern": {"title": "Grave Lantern", "kind": "utility", "utility": "lantern", "shape": "lantern", "price": 5,
 		"materials": ["iron"], "gem": Color(1.0, 0.8, 0.35), "effect": "Gives off light: in the dark you can see around it."},
 	"skull": {"title": "Skull", "kind": "junk", "shape": "skull", "price": 1, "materials": ["bone"], "shop": false},
+	# A boss's cup, on the trophy rack at home (one per boss felled: SaveData.trophies). Thrown
+	# in the hearth it melts down into coins for the next run. See make_trophy.
+	"trophy": {"title": "Trophy", "kind": "trophy", "shape": "cup", "price": 0, "materials": ["gold"], "shop": false},
 	"stormbrand": {"title": "Stormbrand", "kind": "weapon", "shape": "longsword", "price": 9, "materials": ["steel"],
 		"swing_damage": 24.0, "swing_speed": 12.0, "cooldown": 1.2, "guard": 1.0, "fixed_mods": ["electrified", "regenerating"],
-		"legend": "chain", "effect": "Lightning leaps from every hit to every other foe (half damage) and locks up any swing being wound up.",
-		"ascended_effect": "Ascended: the lightning strikes every foe at full strength and stops every one of them mid-swing, every hit."},
+		"legend": "chain", "effect": "Lightning leaps from every hit to every other foe (half damage), with a 30% chance to lock up a swing being wound up.",
+		"ascended_effect": "Ascended: the lightning strikes every foe at full strength, with a 60% chance to stop each one mid-swing, winding up or not."},
 	"aegis": {"title": "The Aegis", "kind": "shield", "shape": "tower", "price": 10, "materials": ["steel"],
 		"fixed_mods": ["reinforced", "spiked", "tempered"],
 		"legend": "unyielding", "effect": "Nothing gets past it: whatever it stands in front of is stopped dead, even a cleaving blow.",
@@ -185,8 +191,6 @@ const DEFS := {
 		"legend": "vigil", "effect": "Braces itself whenever it's ready: the next blow it meets is a parry.",
 		"ascended_effect": "Always braced: every blow it meets is a parry."},
 	# Home furniture: menus you hold. Never sold.
-	"gilded_tooth": {"title": "Gilded Tooth", "kind": "junk", "shape": "tooth", "price": 0, "materials": ["gold"], "shop": false,
-		"effect": "The chute coughed it up. It hums near the gong."},
 	# The collections, one object each; each opens the index at its own page.
 	"codex": {"title": "Armoury Ledger", "kind": "menu", "menu": "codex", "tab": 0, "shape": "book", "price": 0, "materials": ["leather"], "shop": false,
 		"effect": "Every piece of gear you've laid hands on."},
@@ -208,6 +212,8 @@ const PRESTIGE := {"aegis": 1, "hearthblade": 1, "packrat_idol": 1, "potion_home
 # are forged from it, and the Ascendant Draught turns up.
 const PRESTIGIUM_PRESTIGE := 4
 const PRESTIGIUM_CHANCE := 0.2
+const TROPHY_GROWTH := 0.1  # a cup is this much bigger for every prestige of the run it was won in
+const TROPHY_MELT := 0.4  # a cup melts down into this share of its boss's bounty (more for deeper runs)
 const ASCEND_DAMAGE := 2.0  # an ascended legendary's swing, against the original's
 static var run_prestige := 0  # set by the game as the run deepens
 
@@ -373,8 +379,8 @@ const RARITY := {
 	"club": 0, "shortsword": 0, "dagger": 0, "buckler": 0, "round_shield": 0, "crate": 0, "rock": 0, "bandage": 0,
 	"glue_pot": 0, "resin": 0, "potion_oil": 0, "potion_wood": 0, "coin_purse": 0, "whetstone": 0, "scales": 0, "sentinel_stone": 0,
 	"tower_shield": 2, "greatsword": 2, "warhammer": 2, "reliquary": 2, "anvil": 2, "lantern": 2, "potion_iron": 2, "potion_levitation": 2,
-	"packrat_idol": 2, "crucible": 2, "wisp_jar": 2, "key": 2,
-	"potion_steel": 3, "potion_gold": 3, "potion_homeward": 3, "paragon": 3, "bastion": 3, "potion_prestigium": 3, "stormbrand": 3, "aegis": 3, "hearthblade": 3, "venom_fang": 3, "mirror_shield": 3, "sunderer": 3,
+	"packrat_idol": 2, "crucible": 2, "wisp_jar": 2, "key": 2, "potion_homeward": 2,
+	"potion_steel": 3, "potion_gold": 3, "paragon": 3, "bastion": 3, "potion_prestigium": 3, "stormbrand": 3, "aegis": 3, "hearthblade": 3, "venom_fang": 3, "mirror_shield": 3, "sunderer": 3,
 }
 # Potions are a novelty, not the stock: they roll at a fraction of the weight of other gear,
 # and a shop never holds more than one at a time. Weapons and shields roll a little more
@@ -454,11 +460,30 @@ static func make(id: String, material: String, mods: Array = []) -> Dictionary:
 	for m in mods:
 		price *= MODIFIERS[m].price
 		d.size *= MODIFIERS[m].get("size", 1.0)
-	if d.has("swing_damage"):
-		d.swing_damage *= d.size  # bigger weapons hit harder (and swing slower, being heavier)
+	# (a bigger weapon hits harder through its pixels: see damage_per_pixel)
 	if material == "prestigium":
 		ascend(d)
 	d.cost = maxi(1, roundi(price * PRICE_SCALE))
+	return d
+
+
+## A boss's cup: `entry` is its SaveData.trophies record, [boss name, prestige of the run].
+## A deeper run's cup is bigger and melts down into more: a share of the boss's bounty.
+static func make_trophy(entry: Array) -> Dictionary:
+	var d := make("trophy", "gold")
+	var boss := str(entry[0])
+	var prestige := int(entry[1])
+	d.trophy = entry.duplicate()
+	d.size = 1.0 + TROPHY_GROWTH * prestige
+	d.name = ("%s's Cup" % boss) if boss != "" else "Old Cup"
+	if prestige > 0:
+		d.name += " (prestige %d)" % prestige
+	var bounty := 50
+	for k in EnemyDefs.ENEMIES:
+		if str(EnemyDefs.ENEMIES[k].get("name", "")) == boss:
+			bounty = int(EnemyDefs.ENEMIES[k].get("reward", bounty))
+	d.melt_value = maxi(5, roundi(bounty * TROPHY_MELT * (1.0 + 0.5 * prestige)))
+	d.effect = "Won from %s. Throw it in the hearth and it melts down into %d coins for your next run." % [boss if boss != "" else "a boss", d.melt_value]
 	return d
 
 
@@ -685,6 +710,69 @@ static func _compatible(m: String, mods: Array) -> bool:
 	return true
 
 
+## Weapon damage is the weapon itself: every pixel it has left, each worth its material's
+## "sharp" (wood least, prestigium most) times how whole it still is. So a bigger blade hits
+## harder, a chipped one softer, a blade that's lost half its pixels half as hard, and a
+## Giant's Brew makes a weapon hit far harder (while making it far heavier to lift).
+## Each kind of weapon has its own punch per pixel (a hammer's weight sits in a small head,
+## a spear's is spread down a long shaft): set so a fresh one in its plainest material, at
+## plain size, hits for its listed swing_damage times that material's sharp (as it always has). WEAPON_DAMAGE scales every weapon at once: a plain weapon
+## hits soft, and the big numbers come from what you do to it (infusions, rings, openings).
+const WEAPON_DAMAGE := 0.8
+static var _ref_pixels := {}  # weapon id -> its reference pixel count (ref_pixels)
+
+
+## How many pixels a weapon's listed swing_damage is spread over: its plain-size mask in its
+## plainest material, weighted pixel by pixel, over that material's own sharp (so a fresh
+## plain one hits exactly as hard as before damage came from pixels).
+static func ref_pixels(id: String) -> float:
+	if not _ref_pixels.has(id):
+		var mat: String = DEFS[id].materials[0]
+		var px := mask_pixels(shape_mask(DEFS[id].shape), mat) / float(Materials.get_mat(mat).sharp)
+		_ref_pixels[id] = maxf(1.0, px)
+	return _ref_pixels[id]
+
+
+## A pixel mask's pixels in a material, each weighted by the material it comes out in.
+static func mask_pixels(mask: PackedStringArray, material: String) -> float:
+	var total := 0.0
+	for row in mask:
+		for ch in row:
+			if ch == ".":
+				continue
+			var mat: String = material if ch == "M" else MASK_MATS.get(ch, material)
+			if ch == "h":
+				mat = grip_mat(material)
+			total += float(Materials.get_mat(mat).sharp)
+	return total
+
+
+## What one fresh pixel of iron is worth to this weapon's swing (`wd`: the weapon's def, or
+## the weapon part of a glued thing). Ascended legendaries hit twice as hard per pixel.
+static func damage_per_pixel(wd: Dictionary) -> float:
+	var id: String = wd.get("id", "")
+	if not DEFS.has(id) or not DEFS[id].has("swing_damage"):
+		return float(wd.get("swing_damage", 4.0)) / 40.0  # (no listed shape: a rough fallback)
+	var base: float = float(DEFS[id].swing_damage) * (ASCEND_DAMAGE if wd.get("ascended", false) else 1.0)
+	return base / ref_pixels(id)
+
+
+## What a fresh one of this weapon, in this material at its usual size, hits for at a full
+## swing (before rings, infusions and the rest): the ledger's number.
+static func fresh_damage(id: String, material: String) -> float:
+	var asc: bool = material == "prestigium" and DEFS[id].has("legend")
+	var px := mask_pixels(scale_mask(shape_mask(DEFS[id].shape), _fixed_size(id)), material)
+	return damage_per_pixel({"id": id, "ascended": asc}) * px * WEAPON_DAMAGE
+
+
+## The size a def's fixed modifiers give it (the Sunderer is always huge).
+static func _fixed_size(id: String) -> float:
+	var s := 1.0
+	for m in DEFS[id].get("fixed_mods", []):
+		s *= float(MODIFIERS[m].get("size", 1.0))
+	return s
+
+
 ## Nearest-neighbour rescale of a pixel mask.
 static func scale_mask(mask: PackedStringArray, f: float) -> PackedStringArray:
 	if is_equal_approx(f, 1.0) or mask.is_empty():
@@ -806,6 +894,8 @@ static func shape_mask(shape: String) -> PackedStringArray:
 			return PackedStringArray(["MMMMMM", "MccccM", "MMMMMM"])
 		"tooth":
 			return PackedStringArray(["MMM", "MMM", "MMM", "M.M"])
+		"cup":
+			return PackedStringArray(["MMMMM", "MMMMM", ".MMM.", "..M..", ".MMM."])  # bowl, stem, foot
 		"journal":
 			return PackedStringArray(["MMMMM", "McccM", "MMMMM", "..g.."])
 		"tablet":

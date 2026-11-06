@@ -1,7 +1,8 @@
 extends SceneTree
-## Cold and heat pass along a pile only so far: a row of iron bars with a frosty one at
-## one end and a superheated one at the other. What touches the source is a step away, the
-## next two, and so on; past ELEMENT_HOPS steps nothing comes through. Headless, or windowed
+## Cold, heat and charge pass along a pile only so far: a row of iron bars with a frosty one
+## at one end, then a superheated one at the other, then an electrified one. What touches the
+## source is a step away, the next two, and so on; past ELEMENT_HOPS steps (CHARGE_HOPS for
+## charge) nothing comes through. Headless, or windowed
 ## to save res://shots/elements.png.
 ## Run: Godot_v4.7.2-stable_win64_console.exe --headless --fixed-fps 60 --path . -s res://tests/element_test.gd
 
@@ -101,6 +102,25 @@ func _process(_d: float) -> bool:
 			if DisplayServer.get_name() != "headless":
 				DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://shots"))
 				root.get_texture().get_image().save_png("res://shots/elements_heat.png")
+			row[N - 1].def.modifiers.erase("superheated")
+			for it in row:
+				it.heat = 0.0
+				it.heat_hops = Item.NO_HOPS
+			_snug(0, 1)
+			row[0].add_mod("electrified")
+		1300:
+			var hops := []
+			var reached := 0
+			for i in N:
+				var it: Item = row[i]
+				hops.append(it.charge_hops if it.charge > 0.1 else -1)
+				if it.charge > 0.1:
+					reached = i
+				_check(it.charge <= 0.1 or it.charge_hops <= Item.CHARGE_HOPS, "nothing should carry charge past %d steps" % Item.CHARGE_HOPS)
+			print("charge hops along the row: ", hops)
+			_check(reached >= 2, "charge should still reach along the row (%s)" % [hops])
+			_check(reached <= Item.CHARGE_HOPS, "one electrified bar shouldn't charge the whole row (%s)" % [hops])
+			_check(row[N - 1].charge <= 0.1, "the far end shouldn't be charged (%s)" % [hops])
 			print("element test: %d failures" % fails.size())
 			for x in fails:
 				print("  FAIL ", x)

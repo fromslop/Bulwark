@@ -1,0 +1,28 @@
+[gd_resource type="AnimationLibrary" format=3]
+
+[ext_resource type="Animation" path="res://animations/bonebreaker/act_broken.res" id="1_emeej"]
+[ext_resource type="Animation" path="res://animations/bonebreaker/act_flinch.res" id="1_mq5fx"]
+[ext_resource type="Animation" path="res://animations/bonebreaker/act_stagger.res" id="1_n6y5n"]
+[ext_resource type="Animation" path="res://animations/bonebreaker/act_death.res" id="2_vmuly"]
+[ext_resource type="Animation" path="res://animations/bonebreaker/act_crush_l.res" id="2_xxpp1"]
+[ext_resource type="Animation" path="res://animations/bonebreaker/act_crush_r.res" id="3_pes8a"]
+[ext_resource type="Animation" path="res://animations/bonebreaker/act_recrush_l.res" id="5_74shm"]
+[ext_resource type="Animation" path="res://animations/bonebreaker/idle_heavy.res" id="5_v5q3j"]
+[ext_resource type="Animation" path="res://animations/bonebreaker/act_mace_arc.res" id="6_iwege"]
+[ext_resource type="Animation" path="res://animations/bonebreaker/act_pommel.res" id="7_p8jh4"]
+[ext_resource type="Animation" path="res://animations/bonebreaker/act_recrush_r.res" id="7_wj3l6"]
+
+[resource]
+_data = {
+&"act_broken": ExtResource("1_emeej"),
+&"act_crush_l": ExtResource("2_xxpp1"),
+&"act_crush_r": ExtResource("3_pes8a"),
+&"act_death": ExtResource("2_vmuly"),
+&"act_flinch": ExtResource("1_mq5fx"),
+&"act_mace_arc": ExtResource("6_iwege"),
+&"act_pommel": ExtResource("7_p8jh4"),
+&"act_recrush_l": ExtResource("5_74shm"),
+&"act_recrush_r": ExtResource("7_wj3l6"),
+&"act_stagger": ExtResource("1_n6y5n"),
+&"idle_heavy": ExtResource("5_v5q3j")
+}

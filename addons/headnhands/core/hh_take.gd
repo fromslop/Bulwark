@@ -29,6 +29,10 @@ const STRIDE := 7
 ## Takes that were playing along while this one was recorded (all started
 ## at the same moment as this take).
 @export var overdub_of := PackedStringArray()
+## Moments in the take, by name, in seconds since it started: when a wind-up began,
+## when a blow landed (a trigger pull marks it). The recipe's fit_marks can pin them
+## to exact times in the baked clip, and the clip carries them as metadata.
+@export var marks := {}
 
 # Seconds since the take started, one per frame. Frames are not perfectly
 # evenly spaced (the headset can drop frames), which is why we keep these.
